@@ -1,0 +1,1940 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#17230e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>PCW Inventory</title>
+<link rel="manifest" href="manifest.json">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap">
+<style>
+  /* Peace Country Wagyu brand board:
+     17230E forest · 2D490B olive · 7B9763 sage · 7F8E7F stone · E8EAE0 bone */
+  :root{
+    --bg:#eef0e8; --card:#ffffff; --ink:#17230e; --muted:#6c7a6c; --line:#d6dbc9;
+    --brand:#17230e; --brand-2:#2d490b; --accent:#2d490b; --ok:#2d490b; --warn:#a8721a;
+    --bad:#9a2a2a; --on-brand:#ffffff; --radius:14px; --nav-h:62px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#10170b; --card:#1a2512; --ink:#e8eae0; --muted:#9aa892; --line:#2b3a20;
+           --brand:#0c1207; --brand-2:#7b9763; --accent:#9dba81; --ok:#7b9763;
+           --warn:#c99a3c; --bad:#cf6b6b;
+           /* sage is light, so what sits on it has to be dark */
+           --on-brand:#0f1609; }
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:16px/1.45 "Open Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+       padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom));}
+  header{position:sticky;top:0;z-index:20;background:var(--brand);color:#fff;
+         padding:calc(env(safe-area-inset-top) + 10px) 14px 10px;display:flex;
+         align-items:center;gap:10px}
+  header h1{font-size:17px;margin:0;font-weight:700;letter-spacing:.2px;flex:1}
+  header .back{background:rgba(255,255,255,.16);color:#fff;width:auto;padding:5px 11px;
+               font-size:13px;border-radius:9px;display:none}
+  header .back.on{display:block}
+  .pill{font-size:11px;padding:4px 9px;border-radius:999px;background:rgba(255,255,255,.16);
+        white-space:nowrap;color:#fff;border:0;width:auto;font-weight:600}
+  .pill.warn{background:var(--warn);color:var(--on-brand)}
+  .pill.bad{background:var(--bad);color:#fff}
+  .pill.ok{background:var(--ok);color:var(--on-brand)}
+  main{padding:12px 12px 20px;max-width:640px;margin:0 auto}
+  .view{display:none}.view.on{display:block}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+        padding:13px;margin-bottom:11px}
+  .card.flush{padding:6px 13px}
+  h2{font-size:15px;margin:0 0 10px;font-weight:700}
+  h3{font-size:13px;margin:16px 0 7px;color:var(--muted);text-transform:uppercase;
+     letter-spacing:.6px;font-weight:700}
+  label{display:block;font-size:12px;color:var(--muted);margin:9px 0 4px;font-weight:600}
+  input,select,textarea,button{font:inherit;color:var(--ink)}
+  input,select,textarea{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;
+        background:var(--bg);-webkit-appearance:none;appearance:none}
+  select{background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),
+         linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+         background-position:calc(100% - 17px) 50%,calc(100% - 12px) 50%;
+         background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:34px}
+  .row{display:flex;gap:9px}.row>*{flex:1;min-width:0}
+  button{cursor:pointer;border:0;border-radius:11px;padding:13px;font-weight:700;
+         background:var(--brand-2);color:var(--on-brand);width:100%}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--ink)}
+  button.danger{background:var(--bad);color:#fff}
+  button.small{padding:8px 11px;font-size:13px;width:auto;border-radius:9px}
+  button:active{opacity:.85}
+  .mic{width:44px;flex:0 0 44px;background:var(--bg);border:1px solid var(--line);
+       color:var(--muted);font-size:17px;padding:11px 0}
+  .mic.on{background:var(--bad);color:#fff;border-color:var(--bad)}
+  .withmic{display:flex;gap:8px;align-items:stretch}
+  .withmic input{flex:1}
+  .muted{color:var(--muted);font-size:13px}
+  .search{margin-bottom:10px}
+  .item{display:flex;align-items:center;gap:10px;padding:11px 2px;border-bottom:1px solid var(--line)}
+  .item:last-child{border-bottom:0}
+  .list>div:last-child .item{border-bottom:0}
+  .item .name{flex:1;min-width:0}
+  .item .name b{display:block;font-weight:600;font-size:15px}
+  .item .name span{font-size:12px;color:var(--muted)}
+  .qty{text-align:right;white-space:nowrap}
+  .qty b{font-size:17px;font-variant-numeric:tabular-nums}
+  .qty span{display:block;font-size:11px;color:var(--muted)}
+  .stepper{display:flex;align-items:center;gap:7px}
+  .stepper button{width:38px;height:38px;padding:0;border-radius:10px;font-size:20px;
+                  line-height:1;background:var(--bg);color:var(--ink);border:1px solid var(--line)}
+  .stepper button.plus{background:var(--brand-2);color:var(--on-brand);border-color:var(--brand-2)}
+  .stepper .n{min-width:46px;text-align:center;font-size:17px;font-weight:700;
+              font-variant-numeric:tabular-nums}
+  .stepper .n i{display:block;font-size:10px;font-style:normal;font-weight:600;
+                color:var(--muted);letter-spacing:.2px}
+  .tag{display:inline-block;font-size:10px;padding:2px 6px;border-radius:5px;
+       background:var(--line);color:var(--muted);margin-left:5px;vertical-align:middle;
+       text-transform:uppercase;letter-spacing:.4px;font-weight:700}
+  .tag.low{background:#f6e7c8;color:#7e5a11}.tag.out{background:#f2d9d9;color:#8d2323}
+  .tag.due{background:#f2d9d9;color:#8d2323}.tag.soon{background:#f6e7c8;color:#7e5a11}
+  .tag.ok{background:#dde5d0;color:#2d490b}
+  .sub{padding:7px 0 7px 12px;border-left:2px solid var(--line);margin:0 0 8px 2px;
+       font-size:13px;color:var(--muted);display:flex;gap:8px;align-items:center}
+  .sub b{color:var(--ink);font-variant-numeric:tabular-nums}
+  .sub .grow{flex:1}
+  .lines{margin:8px 0}
+  .line{background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:10px;
+        margin-bottom:8px}
+  .line .top{display:flex;align-items:center;gap:8px}
+  .line .top b{flex:1;font-size:14px}
+  .x{background:transparent;color:var(--muted);width:auto;padding:4px 8px;font-size:18px}
+  .ord{display:flex;align-items:center;gap:11px;padding:12px 2px;border-bottom:1px solid var(--line);
+       cursor:pointer}
+  .ord:last-child{border-bottom:0}
+  .ord .who{flex:1;min-width:0}
+  .ord .who b{display:block;font-size:15px;font-weight:600}
+  .ord .who span{font-size:12px;color:var(--muted)}
+  .ord .when{text-align:right;white-space:nowrap;font-size:12px;color:var(--muted)}
+  .ord .when b{display:block;font-size:14px;color:var(--ink)}
+  .alert{display:flex;align-items:center;gap:10px;background:#f6e7c8;color:#6d4f10;
+         border:1px solid #e4cfa4;border-radius:var(--radius);padding:12px 13px;margin-bottom:11px;
+         cursor:pointer;font-size:14px}
+  .alert b{font-weight:700}
+  .alert .go{margin-left:auto;font-size:18px;opacity:.6}
+  @media (prefers-color-scheme: dark){ .alert{background:#3a300f;color:#f0dfb4;border-color:#55471a} }
+  .menu button{display:flex;align-items:center;gap:12px;text-align:left;background:var(--card);
+               border:1px solid var(--line);color:var(--ink);padding:15px 13px;margin-bottom:9px;
+               border-radius:var(--radius);font-weight:600}
+  .menu .ic{font-size:20px;width:26px;text-align:center}
+  .menu small{display:block;font-weight:400;color:var(--muted);font-size:12px;margin-top:2px}
+  .menu .grow{flex:1}
+  .menu .count{font-size:12px;color:var(--muted);font-weight:700}
+  .big{font-size:34px;font-weight:700;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+  .quote{text-align:center;padding:8px 0 4px}
+  .quote .basis{font-size:13px;color:var(--muted);margin-top:4px}
+  .seg{display:flex;gap:0;border:1px solid var(--line);border-radius:11px;overflow:hidden}
+  .seg button{background:var(--bg);color:var(--ink);border-radius:0;padding:11px;font-size:14px}
+  .seg button.on{background:var(--brand-2);color:var(--on-brand)}
+  nav{position:fixed;bottom:0;left:0;right:0;height:calc(var(--nav-h) + env(safe-area-inset-bottom));
+      padding-bottom:env(safe-area-inset-bottom);background:var(--card);
+      border-top:1px solid var(--line);display:flex;z-index:30}
+  nav button{background:none;color:var(--muted);border-radius:0;padding:7px 2px;font-size:10.5px;
+             font-weight:600;display:flex;flex-direction:column;align-items:center;gap:3px;
+             position:relative}
+  nav button .ic{font-size:19px;line-height:1}
+  nav button.on{color:var(--accent)}
+  nav .badge{position:absolute;top:3px;right:calc(50% - 22px);background:var(--bad);color:#fff;
+             font-size:9.5px;min-width:16px;height:16px;border-radius:9px;line-height:16px;
+             padding:0 4px;font-weight:700}
+  .toast{position:fixed;left:12px;right:12px;bottom:calc(var(--nav-h) + 14px);z-index:60;
+         background:var(--brand);color:#fff;padding:12px 14px;border-radius:12px;font-size:14px;
+         box-shadow:0 6px 24px rgba(0,0,0,.25);display:none}
+  .toast.on{display:block}
+  .toast.bad{background:var(--bad);color:#fff}.toast.ok{background:var(--ok);color:var(--on-brand)}
+  .empty{text-align:center;color:var(--muted);padding:30px 10px;font-size:14px}
+  details summary{cursor:pointer;font-size:13px;color:var(--muted);padding:6px 0}
+  .kv{display:flex;justify-content:space-between;gap:12px;padding:6px 0;
+      border-bottom:1px solid var(--line);font-size:13px}
+  .kv:last-child{border-bottom:0}
+  .kv b{text-align:right}
+  .scrim{position:fixed;inset:0;background:rgba(10,16,6,.55);z-index:40;display:none}
+  .scrim.on{display:block}
+  .sheet{position:fixed;left:0;right:0;bottom:0;z-index:50;background:var(--card);
+         border-radius:18px 18px 0 0;padding:16px 14px calc(18px + env(safe-area-inset-bottom));
+         transform:translateY(100%);transition:transform .18s ease;max-height:88vh;overflow:auto}
+  .sheet.on{transform:translateY(0)}
+  .sheet h2{margin-bottom:2px}
+  .grab{width:38px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 12px}
+  .chips{display:flex;gap:7px;flex-wrap:wrap;margin:10px 0}
+  .chips button{width:auto;flex:0 0 auto;padding:9px 13px;font-size:14px;background:var(--bg);
+                color:var(--ink);border:1px solid var(--line)}
+  .chips button.on{background:var(--brand-2);color:var(--on-brand);border-color:var(--brand-2)}
+  .shots{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}
+  .shot{position:relative;width:64px;height:64px;border-radius:9px;overflow:hidden;
+        border:1px solid var(--line)}
+  .shot img{width:100%;height:100%;object-fit:cover}
+  .shot span{position:absolute;inset:auto 0 0 0;background:rgba(0,0,0,.6);color:#fff;
+             font-size:9px;text-align:center;padding:1px 0}
+  .shot button{position:absolute;top:0;right:0;width:20px;height:20px;padding:0;font-size:13px;
+               background:rgba(0,0,0,.55);color:#fff;border-radius:0 0 0 7px;line-height:20px}
+  .tally{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+  .tally button{background:var(--card);border:1px solid var(--line);color:var(--ink);
+                padding:13px 10px;text-align:left;font-size:14px;font-weight:600;line-height:1.25}
+  .tally button small{display:block;font-weight:400;color:var(--muted);font-size:11px;margin-top:3px}
+  .tally button b{float:right;color:var(--accent)}
+</style>
+</head>
+<body>
+
+<header>
+  <button class="back" id="btnBack">‹ Back</button>
+  <h1 id="title">PCW Inventory</h1>
+  <button class="pill" id="syncPill">…</button>
+</header>
+
+<main>
+
+  <!-- ══════════════ 1. ORDERS ══════════════ -->
+  <section class="view on" id="view-orders">
+    <div class="alert" id="ageAlert" style="display:none" onclick="openAgeing()">
+      <span>🕒</span><span id="ageAlertText"></span><span class="go">›</span>
+    </div>
+    <div class="card" id="boardSummary"></div>
+
+    <h3>Needs assembling</h3>
+    <div class="card flush list" id="boardToPack"></div>
+
+    <h3>Packed — waiting to go out</h3>
+    <div class="card flush list" id="boardPacked"></div>
+
+    <button style="margin-top:12px" id="btnNewOrder">+ New order</button>
+    <details style="margin-top:10px"><summary>Delivered &amp; cancelled</summary>
+      <div class="card flush list" id="boardDone" style="margin-top:8px"></div>
+    </details>
+
+    <h3 id="fuHead">Follow-ups</h3>
+    <p class="muted" id="fuNote" style="margin:-4px 0 8px"></p>
+    <div class="card flush list" id="fuList"></div>
+    <details style="margin-top:10px" id="fuLaterWrap"><summary id="fuLaterLabel">Coming up later</summary>
+      <div class="card flush list" id="fuLater" style="margin-top:8px"></div>
+    </details>
+  </section>
+
+  <section class="view" id="view-followup">
+    <div class="card" id="fuWho"></div>
+    <div class="card">
+      <label>To</label>
+      <input id="fuTo" placeholder="their email" autocomplete="off">
+      <label>Subject</label>
+      <div class="withmic"><input id="fuSubject" autocomplete="off">
+        <button class="mic" onclick="dictate('fuSubject',this)">🎤</button></div>
+      <label>Message</label>
+      <textarea id="fuBody" rows="14" style="font:inherit"></textarea>
+      <p class="muted" id="fuBy" style="margin:6px 0 0"></p>
+    </div>
+    <div class="alert" id="fuFromWarn" style="display:none"><span>✉️</span><span id="fuFromWarnText"></span></div>
+    <p class="muted" id="fuFrom" style="margin:0 0 8px"></p>
+    <div class="row">
+      <button id="btnFuSend">Send it</button>
+      <button class="ghost" id="btnFuRewrite">Write me another</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="ghost" id="btnFuSnooze">Not now, ask me in a month</button>
+      <button class="ghost" id="btnFuCalled">I called them</button>
+    </div>
+  </section>
+
+  <section class="view" id="view-order">
+    <div class="card" id="orderHead"></div>
+    <h3>Items</h3>
+    <div class="card list" id="orderItems"></div>
+    <div id="orderActions"></div>
+  </section>
+
+  <section class="view" id="view-neworder">
+    <div class="card">
+      <label>Customer</label>
+      <div class="withmic"><input id="ordCustomer" placeholder="J. Wiebe" autocomplete="off">
+        <button class="mic" onclick="dictate('ordCustomer',this)">🎤</button></div>
+      <label>Phone or email</label>
+      <input id="ordContact" placeholder="optional" autocomplete="off">
+      <div class="row">
+        <div><label>Deliver / pick up on</label><input type="date" id="ordDate"></div>
+        <div><label>How</label>
+          <select id="ordMethod"><option>Pickup</option><option>Delivery</option><option>Shipping</option></select>
+        </div>
+      </div>
+      <label>Notes</label>
+      <div class="withmic"><input id="ordNotes" placeholder="e.g. leave in the porch cooler" autocomplete="off">
+        <button class="mic" onclick="dictate('ordNotes',this)">🎤</button></div>
+    </div>
+
+    <h3>What they ordered</h3>
+    <div class="lines" id="ordLines"></div>
+    <div class="card">
+      <label>Product</label>
+      <select id="ordProduct"></select>
+      <div class="muted" id="ordAvail" style="margin-top:5px"></div>
+      <div class="row">
+        <div><label>Packages</label><input type="number" inputmode="numeric" id="ordQty" min="0" step="1"></div>
+        <div><label>Line note</label><input id="ordLineNote" placeholder="optional" autocomplete="off"></div>
+      </div>
+      <button style="margin-top:11px" id="btnAddOrdLine">Add to order</button>
+    </div>
+    <button id="btnSaveOrder">Save order</button>
+  </section>
+
+  <!-- ══════════════ 2. INVENTORY ══════════════ -->
+  <section class="view" id="view-inventory">
+    <div class="withmic search">
+      <input id="stockSearch" type="search" placeholder="Search product…" autocomplete="off">
+      <button class="mic" onclick="dictate('stockSearch',this,renderStock)">🎤</button>
+    </div>
+    <div class="row" style="margin-bottom:10px">
+      <select id="stockFreezer"><option value="">All freezers</option></select>
+      <select id="stockSort">
+        <option value="name">By name</option>
+        <option value="qty">Fewest first</option>
+        <option value="weight">By weight</option>
+        <option value="old">Oldest first</option>
+      </select>
+    </div>
+    <div class="card" id="stockTotals"></div>
+    <div class="card list" id="stockList"></div>
+    <p class="muted" style="text-align:center">Tap − or + to change a count. Tap the product for sizes, batches and freezers.</p>
+  </section>
+
+  <!-- ══════════════ 3. PRICE ══════════════ -->
+  <section class="view" id="view-calc">
+    <div class="card">
+      <h2>What's this worth?</h2>
+      <label>Product</label>
+      <select id="calcProduct"></select>
+      <label>Selling it where?</label>
+      <div class="seg" id="calcChannel">
+        <button data-c="website" class="on">Website</button>
+        <button data-c="market">Farmers market</button>
+      </div>
+      <label>Weight of this piece</label>
+      <div class="row">
+        <input type="number" inputmode="decimal" id="calcWeight" step="0.01" placeholder="blank for a set price">
+        <div class="seg" style="flex:0 0 130px" id="calcUnit">
+          <button data-u="lb" class="on">lb</button><button data-u="kg">kg</button>
+        </div>
+      </div>
+      <input type="file" accept="image/*" capture="environment" id="calcPhoto" style="display:none">
+      <button class="ghost" style="margin-top:10px" id="btnCalcPhoto">📷 Photograph the label instead</button>
+    </div>
+
+    <div class="card">
+      <div class="quote">
+        <div class="big" id="calcPrice">—</div>
+        <div class="basis" id="calcBasis">Pick a product.</div>
+      </div>
+      <div id="calcExtra"></div>
+    </div>
+  </section>
+
+  <!-- ══════════════ 4. MENU ══════════════ -->
+  <section class="view" id="view-menu">
+    <div class="menu">
+      <button onclick="showView('wholesale')"><span class="ic">🤝</span>
+        <span class="grow">Wholesale<small>Whole, half and quarter — active and waiting</small></span>
+        <span class="count" id="cWholesale"></span></button>
+      <button onclick="showView('waitlist')"><span class="ic">📄</span>
+        <span class="grow">Cut waiting list<small>Who is waiting on what</small></span>
+        <span class="count" id="cWaitlist"></span></button>
+      <button onclick="showView('steer')"><span class="ic">🐂</span>
+        <span class="grow">Meat coming in<small>A steer back from the butcher — cuts, sizes, weights</small></span></button>
+      <button onclick="showView('clients')"><span class="ic">👥</span>
+        <span class="grow">Customers<small>Everyone who has ordered</small></span>
+        <span class="count" id="cClients"></span></button>
+      <button onclick="showView('market')"><span class="ic">⛺</span>
+        <span class="grow">Market day<small>Fast tally at the table — no names, no typing</small></span></button>
+      <button onclick="showView('boxes')"><span class="ic">📦</span>
+        <span class="grow">Boxes<small>What you can build, and ideas worth making</small></span></button>
+      <button onclick="openSettings()"><span class="ic">⚙️</span>
+        <span class="grow">Sync &amp; settings<small>Connection, who's using this phone</small></span></button>
+    </div>
+  </section>
+
+  <section class="view" id="view-wholesale">
+    <div class="card list" id="wholesaleList"></div>
+    <div class="card">
+      <h2>Add someone</h2>
+      <div class="withmic"><input id="whName" placeholder="Name" autocomplete="off">
+        <button class="mic" onclick="dictate('whName',this)">🎤</button></div>
+      <div class="row" style="margin-top:9px">
+        <input id="whPhone" placeholder="Phone" autocomplete="off">
+        <input id="whEmail" placeholder="Email" autocomplete="off">
+      </div>
+      <div class="row" style="margin-top:9px">
+        <select id="whWants"><option>Whole</option><option>Half</option><option>Quarter</option></select>
+        <select id="whStatus"><option>Waiting</option><option>Active</option><option>Done</option></select>
+      </div>
+      <div class="row" style="margin-top:9px">
+        <div><label>Wanted by</label><input type="date" id="whBy"></div>
+        <div><label>Deposit</label><input type="number" inputmode="decimal" id="whDeposit" placeholder="0"></div>
+      </div>
+      <label>Notes</label>
+      <div class="withmic"><input id="whNotes" autocomplete="off">
+        <button class="mic" onclick="dictate('whNotes',this)">🎤</button></div>
+      <button style="margin-top:11px" onclick="addList('wholesale')">Add to wholesale</button>
+    </div>
+  </section>
+
+  <section class="view" id="view-waitlist">
+    <div class="card list" id="waitlistList"></div>
+    <div class="card">
+      <h2>Add someone</h2>
+      <div class="withmic"><input id="wlName" placeholder="Name" autocomplete="off">
+        <button class="mic" onclick="dictate('wlName',this)">🎤</button></div>
+      <div class="row" style="margin-top:9px">
+        <input id="wlPhone" placeholder="Phone" autocomplete="off">
+        <input id="wlEmail" placeholder="Email" autocomplete="off">
+      </div>
+      <label>Waiting for</label>
+      <div class="withmic"><input id="wlProduct" list="wlProducts" autocomplete="off"
+             placeholder="e.g. 2 × 20 lb ground beef, or a cut">
+        <button class="mic" onclick="dictate('wlProduct',this)">🎤</button></div>
+      <datalist id="wlProducts"></datalist>
+      <div class="row">
+        <div><label>Size</label><select id="wlSize"><option value="">any</option><option>S</option><option>M</option><option>L</option></select></div>
+        <div><label>Grade</label><select id="wlGrade"><option value="">any</option><option>Gold</option><option>Silver</option><option>Bronze</option></select></div>
+        <div><label>Packages</label><input type="number" inputmode="numeric" id="wlQty" value="1" min="1"></div>
+      </div>
+      <button style="margin-top:11px" onclick="addList('waitlist')">Add to the list</button>
+    </div>
+  </section>
+
+  <section class="view" id="view-steer">
+    <div class="card">
+      <h2>Which steer</h2>
+      <label>Batch / steer</label>
+      <select id="inBatch"></select>
+      <button class="ghost small" style="margin-top:7px" id="btnNewBatch">+ New steer</button>
+      <div class="row" style="margin-top:9px">
+        <div><label>Into freezer</label><select id="inFreezer"></select></div>
+        <div><label>Date received</label><input type="date" id="inDate"></div>
+      </div>
+      <div id="steerNumbers"></div>
+    </div>
+
+    <h3>Packages in</h3>
+    <div class="lines" id="inLines"></div>
+    <div class="card">
+      <label>Product</label>
+      <select id="inProduct"></select>
+      <button class="ghost small" style="margin-top:7px" id="btnNewProduct">+ New product</button>
+      <div class="row">
+        <div><label>Packages</label><input type="number" inputmode="numeric" id="inQty" min="0" step="1"></div>
+        <div><label>Total weight (lb)</label><input type="number" inputmode="decimal" id="inWeight" step="0.01" placeholder="blank, add later"></div>
+      </div>
+      <div class="row">
+        <div><label>Size</label><select id="inSize"><option value="">—</option></select></div>
+        <div><label>Grade</label>
+          <select id="inGrade"><option value="">— product default —</option>
+            <option>Gold</option><option>Silver</option><option>Bronze</option></select></div>
+      </div>
+      <button style="margin-top:11px" id="btnAddInLine">Add to list</button>
+    </div>
+    <button id="btnSubmitIntake">Record what came in</button>
+
+    <h3>Or photograph the labels</h3>
+    <div class="card">
+      <input type="file" accept="image/*" capture="environment" id="camInput" multiple style="display:none">
+      <button class="ghost" id="btnCamera">📷 Take a photo of the labels</button>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;
+                    color:var(--ink);font-weight:500">
+        <input type="checkbox" id="camStack" checked
+               style="width:20px;height:20px;flex:0 0 auto;accent-color:var(--brand-2)">
+        Several labels in one shot
+      </label>
+      <div id="camList" class="muted" style="margin-top:9px"></div>
+      <p class="muted" style="margin:9px 0 0">Lay the labels flat, up to about six per shot, print sharp.
+        A label too small to read gets flagged, not guessed.</p>
+    </div>
+  </section>
+
+  <section class="view" id="view-clients">
+    <div class="withmic search">
+      <input id="clientSearch" type="search" placeholder="Search customers…" autocomplete="off">
+      <button class="mic" onclick="dictate('clientSearch',this,renderClients)">🎤</button>
+    </div>
+    <div class="card list" id="clientList"></div>
+  </section>
+
+  <section class="view" id="view-market">
+    <div class="card">
+      <div class="item" style="border:0;padding:2px">
+        <div class="name"><b id="mktCount">0 packages</b><span id="mktLine">Tap a product each time one sells.</span></div>
+        <div class="qty"><b id="mktTotal">$0</b><span>at market prices</span></div>
+      </div>
+    </div>
+    <div class="tally" id="mktGrid"></div>
+    <div class="row" style="margin-top:12px">
+      <button id="btnMktSubmit">Record the day</button>
+      <button class="ghost" id="btnMktClear">Clear</button>
+    </div>
+    <p class="muted" style="text-align:center">Nothing leaves stock until you record the day.</p>
+  </section>
+
+  <section class="view" id="view-boxes">
+    <h3>What you can build now</h3>
+    <div class="card list" id="boxBuild"></div>
+    <h3>Ideas worth making</h3>
+    <div id="boxIdeas"></div>
+    <div class="row">
+      <button id="btnBoxIdeas">Suggest boxes</button>
+      <button class="ghost" id="btnBoxIdeasMkt">For the market</button>
+    </div>
+  </section>
+
+</main>
+
+<nav>
+  <button data-view="orders" class="on"><span class="ic">📋</span>Orders<span class="badge" id="navBadge" style="display:none"></span></button>
+  <button data-view="inventory"><span class="ic">📦</span>Inventory</button>
+  <button data-view="calc"><span class="ic">🏷️</span>Price</button>
+  <button data-view="menu"><span class="ic">☰</span>Menu</button>
+</nav>
+
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet">
+  <div class="grab"></div>
+  <h2 id="sheetTitle"></h2>
+  <p class="muted" id="sheetSub"></p>
+  <div id="sheetBody"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ───────────────────────── state ───────────────────────── */
+const LS = { cfg:'pcw.cfg', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos' };
+const MAX_PHOTOS = 8;
+const LB_PER_KG = 2.2046226218;
+
+const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } };
+const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+
+let cfg   = load(LS.cfg, { url:'', token:'', user:'' });
+let data  = load(LS.data, { products:[], batches:[], freezers:[], stock:[], orders:[],
+                            settings:{}, ageing:[], boxes:[], lists:{}, steerCosts:{} });
+let queue = load(LS.queue, []);
+let photos = load(LS.photos, []);
+let intakeCart = [], orderCart = [], marketCart = {};
+let openOrderId = null, backTo = null, boxIdeas = [];
+let calcChannel = 'website', calcUnit = 'lb';
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const round2 = n => Math.round(Number(n || 0) * 100) / 100;
+const money = n => '$' + (Math.round(Number(n || 0) * 100) / 100)
+  .toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const plain = n => money(n).replace(/\.00$/, '');
+const todayISO = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0,10); };
+const stampFor = iso => {
+  if (!iso || iso === todayISO()) return new Date().toISOString();
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d, 12, 0, 0).toISOString();
+};
+const uid = () => 'k' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+
+function toast(msg, kind) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast on' + (kind ? ' ' + kind : '');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.className = 'toast', 3400);
+}
+
+function dayInfo(iso) {
+  if (!iso) return { label: 'no date', cls: '' };
+  const days = Math.round((new Date(iso + 'T12:00') - new Date(todayISO() + 'T12:00')) / 86400000);
+  if (days < 0) return { label: Math.abs(days) + (Math.abs(days) === 1 ? ' day late' : ' days late'), cls: 'due' };
+  if (days === 0) return { label: 'Today', cls: 'due' };
+  if (days === 1) return { label: 'Tomorrow', cls: 'soon' };
+  if (days <= 6) return { label: new Date(iso + 'T12:00').toLocaleDateString([], { weekday: 'long' }), cls: 'soon' };
+  return { label: new Date(iso + 'T12:00').toLocaleDateString([], { month: 'short', day: 'numeric' }), cls: '' };
+}
+
+/* ───────── voice, where the phone has it ───────── */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+function dictate(id, btn, after) {
+  if (!SR) return toast('No voice input in this browser — use the microphone on your keyboard.', 'bad');
+  if (dictate._on) { dictate._on.stop(); return; }
+  const r = new SR();
+  r.lang = 'en-CA'; r.interimResults = false; r.maxAlternatives = 1;
+  btn.classList.add('on');
+  dictate._on = r;
+  r.onresult = e => {
+    const said = e.results[0][0].transcript;
+    const el = $(id);
+    el.value = el.value && el.type !== 'search' ? (el.value + ' ' + said) : said;
+    if (after) after();
+  };
+  r.onerror = () => toast('Did not catch that.', 'bad');
+  r.onend = () => { btn.classList.remove('on'); dictate._on = null; };
+  r.start();
+}
+
+/* ───────────────────────── API ───────────────────────── */
+async function api(action, payload = {}) {
+  if (!cfg.url || !cfg.token) throw new Error('Not connected — Menu ▸ Sync & settings.');
+  const res = await fetch(cfg.url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },   // avoids a CORS preflight
+    body: JSON.stringify(Object.assign({ action, token: cfg.token }, payload)),
+    redirect: 'follow'
+  });
+  const text = await res.text();
+  let json;
+  try { json = JSON.parse(text); }
+  catch (e) { throw new Error('The backend did not return data. Check the web app URL and that it is deployed to "Anyone with the link".'); }
+  if (!json.ok) throw new Error(json.error || 'Backend refused the request.');
+  return json;
+}
+
+function enqueue(ops) {
+  ops.forEach(o => {
+    o.clientKey = o.clientKey || uid();
+    o.user = o.user || cfg.user || '';
+    o.timestamp = o.timestamp || new Date().toISOString();
+    queue.push(o);
+  });
+  save(LS.queue, queue);
+  renderAll();
+  sync(true);
+}
+
+async function sync(quiet) {
+  if (!cfg.url || !cfg.token) { setPill(); return; }
+  if (sync._busy) return;
+  sync._busy = true;
+  setPill('syncing');
+  try {
+    if (queue.length) {
+      const res = await api('submit', { ops: queue });
+      const done = new Set(res.accepted || []);
+      queue = queue.filter(o => !done.has(o.clientKey));
+      save(LS.queue, queue);
+      if (res.warnings && res.warnings.length) toast(res.warnings[0], 'bad');
+      else if (!quiet) toast('Sent.', 'ok');
+    }
+    const boot = await api('bootstrap');
+    data = {
+      products: boot.products || [], batches: boot.batches || [],
+      freezers: boot.freezers || [], stock: boot.stock || [],
+      orders: boot.orders || [], settings: boot.settings || {},
+      ageing: boot.ageing || [], boxes: boot.boxes || [],
+      lists: boot.lists || {}, followups: boot.followups || [],
+      sendAs: boot.sendAs || {},
+      steerCosts: boot.steerCosts || {},
+      scansPending: boot.scansPending || 0
+    };
+    save(LS.data, data);
+    save(LS.sync, new Date().toISOString());
+    renderAll();
+    sendPhotos();
+  } catch (err) {
+    if (!quiet) toast(err.message, 'bad');
+  } finally {
+    sync._busy = false;
+    setPill();
+  }
+}
+
+function setPill(state) {
+  const p = $('syncPill');
+  if (!cfg.url || !cfg.token) { p.textContent = 'Not set up'; p.className = 'pill warn'; return; }
+  if (state === 'syncing') { p.textContent = 'Syncing…'; p.className = 'pill'; return; }
+  if (!navigator.onLine) { p.textContent = 'Offline' + (queue.length ? ' · ' + queue.length : ''); p.className = 'pill warn'; return; }
+  if (queue.length) { p.textContent = queue.length + ' waiting'; p.className = 'pill warn'; return; }
+  p.textContent = 'Synced'; p.className = 'pill ok';
+}
+
+/* ───────── orders, stock, commitments ───────── */
+function effectiveOrders() {
+  const prodIndex = Object.fromEntries(data.products.map(p => [p.sku, p]));
+  const out = data.orders.map(o => Object.assign({}, o, { items: o.items.map(i => Object.assign({}, i)) }));
+  const byId = Object.fromEntries(out.map(o => [o.id, o]));
+
+  queue.forEach(op => {
+    if (op.type === 'ORDER_NEW' && !byId[op.orderId]) {
+      const o = {
+        id: op.orderId, customer: op.customer, contact: op.contact || '',
+        deliveryDate: op.deliveryDate || '', method: op.method || 'Pickup',
+        status: 'Open', notes: op.notes || '', pending: true,
+        items: (op.lines || []).map(l => ({
+          sku: l.sku, product: l.product || (prodIndex[l.sku] || {}).product || l.sku,
+          content: l.content || '', packages: Number(l.packages || 0), packed: 0, note: l.note || ''
+        }))
+      };
+      out.push(o); byId[o.id] = o;
+    } else if (op.type === 'ORDER_PACK' && byId[op.orderId]) {
+      byId[op.orderId].status = 'Packed'; byId[op.orderId].pending = true;
+    } else if (op.type === 'ORDER_STATUS' && byId[op.orderId]) {
+      if (op.status) byId[op.orderId].status = op.status;
+      if (op.deliveryDate) byId[op.orderId].deliveryDate = op.deliveryDate;
+      byId[op.orderId].pending = true;
+    }
+  });
+  return out.sort((a, b) => String(a.deliveryDate || '9999').localeCompare(String(b.deliveryDate || '9999')));
+}
+
+const orderById = id => effectiveOrders().find(o => o.id === id) || null;
+const orderPackages = o => o.items.reduce((s, i) => s + Number(i.packages || 0), 0);
+
+function committedBySku() {
+  const out = {};
+  effectiveOrders().forEach(o => {
+    if (o.status !== 'Open') return;
+    o.items.forEach(i => {
+      const owed = Number(i.packages || 0) - Number(i.packed || 0);
+      if (owed > 0) out[i.sku] = (out[i.sku] || 0) + owed;
+    });
+  });
+  return out;
+}
+
+/** First promised, first served — the later order wears the shortfall. */
+function allocation() {
+  const remaining = {}, shortBy = {};
+  const open = effectiveOrders().filter(o => o.status === 'Open');
+  open.forEach(o => o.items.forEach(i => {
+    if (remaining[i.sku] === undefined) remaining[i.sku] = physicalOnHand(i.sku);
+  }));
+  open.forEach(o => o.items.forEach(i => {
+    const owed = Number(i.packages || 0) - Number(i.packed || 0);
+    if (owed <= 0) return;
+    const have = remaining[i.sku] || 0;
+    if (have < owed) (shortBy[o.id] || (shortBy[o.id] = [])).push({
+      sku: i.sku, product: i.product || i.sku,
+      short: Math.round((owed - Math.max(have, 0)) * 100) / 100
+    });
+    remaining[i.sku] = have - owed;
+  }));
+  return shortBy;
+}
+const shortLines = id => allocation()[id] || [];
+
+function pendingDelta() {
+  const d = {};
+  queue.forEach(o => {
+    const n = Number(o.packages || 0);
+    if (o.type === 'ORDER_PACK') {
+      const ord = data.orders.find(x => x.id === o.orderId);
+      if (ord) ord.items.forEach(i => { d[i.sku] = (d[i.sku] || 0) - Number(i.packages || 0); });
+      return;
+    }
+    if (!o.sku) return;
+    if (o.type === 'INTAKE') d[o.sku] = (d[o.sku] || 0) + Math.abs(n);
+    else if (o.type === 'SALE') d[o.sku] = (d[o.sku] || 0) - Math.abs(n);
+    else if (o.type === 'ADJUST') d[o.sku] = (d[o.sku] || 0) + n;
+  });
+  return d;
+}
+
+function physicalOnHand(sku) {
+  const fromSheet = data.stock.filter(l => l.sku === sku).reduce((s, l) => s + Number(l.packages || 0), 0);
+  return Math.round((fromSheet + (pendingDelta()[sku] || 0)) * 1000) / 1000;
+}
+
+function productTotals() {
+  const byProduct = {};
+  const prodIndex = Object.fromEntries(data.products.map(p => [p.sku, p]));
+  const freezerFilter = $('stockFreezer').value;
+
+  data.stock.forEach(l => {
+    if (freezerFilter && l.freezer !== freezerFilter) return;
+    const p = byProduct[l.sku] || (byProduct[l.sku] = {
+      sku: l.sku, product: l.product || (prodIndex[l.sku] || {}).product || l.sku,
+      content: l.content || (prodIndex[l.sku] || {}).content || '',
+      packages: 0, weight: 0, days: 0, lines: []
+    });
+    p.packages += Number(l.packages || 0);
+    p.weight += Number(l.weight || 0);
+    if (Number(l.days || 0) > p.days) p.days = Number(l.days || 0);
+    p.lines.push(l);
+  });
+
+  if (!freezerFilter) {
+    const delta = pendingDelta();
+    Object.keys(delta).forEach(sku => {
+      const p = byProduct[sku] || (byProduct[sku] = {
+        sku, product: (prodIndex[sku] || {}).product || sku,
+        content: (prodIndex[sku] || {}).content || '', packages: 0, weight: 0, days: 0, lines: []
+      });
+      p.packages += delta[sku];
+      p.pending = delta[sku];
+    });
+    data.products.forEach(p => {
+      if (p.active && !byProduct[p.sku]) byProduct[p.sku] = {
+        sku: p.sku, product: p.product, content: p.content,
+        packages: 0, weight: 0, days: 0, lines: []
+      };
+    });
+  }
+
+  const committed = committedBySku();
+  return Object.values(byProduct).map(p => {
+    const cat = prodIndex[p.sku] || {};
+    p.perLb = Number(cat.pricePerLb || 0);
+    p.perPack = Number(cat.price || 0);
+    p.value = p.perLb ? p.perLb * p.weight : p.perPack * p.packages;
+    p.reorder = cat.reorder === '' || cat.reorder == null ? null : Number(cat.reorder);
+    p.committed = freezerFilter ? 0 : Math.round((committed[p.sku] || 0) * 100) / 100;
+    p.available = Math.round((p.packages - p.committed) * 100) / 100;
+    p.status = freezerFilter ? 'ok'
+      : (p.available < 0 ? 'oversold'
+      : p.available === 0 ? 'out'
+      : (p.reorder != null && p.available <= p.reorder ? 'low' : 'ok'));
+    return p;
+  });
+}
+
+const lineByKey = key => data.stock.find(x =>
+  (x.key || [x.sku, x.size, x.grade, x.batch, x.freezer].join('|')) === key) || null;
+
+/* ───────────────────────── rendering ───────────────────────── */
+function renderAll() {
+  fillSelects();
+  renderBoard();
+  renderStock();
+  renderCalc();
+  renderMenuCounts();
+  renderFollowups();
+  renderWholesale(); renderWaitlist(); renderClients();
+  renderMarketGrid(); renderBoxes();
+  renderSteerNumbers();
+  if (openOrderId) renderOrderDetail();
+  renderCart('intake'); renderCart('order');
+  renderPhotos();
+  const cur = ((document.querySelector('.view.on') || {}).id || '').replace('view-', '');
+  if (cur === 'orders') $('title').textContent = 'Orders and Follow-Up';
+  else if (!TITLES[cur]) $('title').textContent = (data.settings.BUSINESS || 'PCW') + ' Inventory';
+  setPill();
+}
+
+const opt = (v, l) => '<option value="' + esc(v) + '">' + esc(l) + '</option>';
+
+function fillSelects() {
+  const keep = (el, v) => { if (v && [...el.options].some(o => o.value === v)) el.value = v; };
+  const freezers = data.freezers.filter(f => f.active);
+  const fOpts = freezers.map(f => opt(f.id, f.name || f.id)).join('');
+
+  const sf = $('stockFreezer'), sfv = sf.value;
+  sf.innerHTML = '<option value="">All freezers</option>' + fOpts; keep(sf, sfv);
+  const inF = $('inFreezer'), inFv = inF.value || data.settings.DEFAULT_FREEZER || '';
+  inF.innerHTML = fOpts; keep(inF, inFv);
+
+  const batches = data.batches.filter(b => b.active);
+  const inB = $('inBatch'), inBv = inB.value;
+  inB.innerHTML = batches.map(b => opt(b.id, b.id + (b.animal ? ' · ' + b.animal : ''))).join('')
+                  || opt('', 'No steers yet — add one');
+  keep(inB, inBv);
+
+  const products = data.products.filter(p => p.active)
+    .sort((a, b) => String(a.product).localeCompare(String(b.product)));
+  const pOpts = products.map(p => opt(p.sku, p.product + (p.content ? ' — ' + p.content : ''))).join('');
+  ['inProduct', 'ordProduct', 'calcProduct'].forEach(id => {
+    const el = $(id), v = el.value;
+    el.innerHTML = pOpts || opt('', 'No products yet');
+    keep(el, v);
+  });
+  $('wlProducts').innerHTML = products.map(p => '<option value="' + esc(p.product) + '">').join('');
+  renderOrdAvail();
+  renderInSizes();
+}
+
+function renderInSizes() {
+  const p = data.products.find(x => x.sku === $('inProduct').value) || {};
+  const sizes = String(p.sizes || '').split(',').map(x => x.trim()).filter(Boolean);
+  const el = $('inSize'), v = el.value;
+  el.innerHTML = '<option value="">' + (sizes.length ? '— pick a size —' : '— one size —') + '</option>' +
+    sizes.map(x => opt(x, x)).join('');
+  if (v && [...el.options].some(o => o.value === v)) el.value = v;
+}
+
+/* ───────── 1. Orders ───────── */
+function renderBoard() {
+  const orders = effectiveOrders();
+  const open = orders.filter(o => o.status === 'Open');
+  const packed = orders.filter(o => o.status === 'Packed');
+  const done = orders.filter(o => o.status === 'Delivered' || o.status === 'Cancelled').reverse();
+  const rows = productTotals();
+  const low = rows.filter(r => r.status !== 'ok');
+
+  const totalPkg = rows.reduce((s, r) => s + r.packages, 0);
+  const totalCommitted = rows.reduce((s, r) => s + (r.committed || 0), 0);
+  $('boardSummary').innerHTML =
+    '<div class="item" style="border:0;padding:2px"><div class="name">' +
+    '<b>' + open.length + (open.length === 1 ? ' order to assemble' : ' orders to assemble') + '</b>' +
+    '<span>' + Math.round(totalPkg * 100) / 100 + ' packages on hand' +
+      (totalCommitted ? ' · ' + Math.round(totalCommitted * 100) / 100 + ' promised' : '') + '</span></div>' +
+    '<div class="qty"><b>' + low.length + '</b><span>low / out</span></div></div>';
+
+  $('boardToPack').innerHTML = open.length ? open.map(orderRowHtml).join('')
+    : '<div class="empty">Nothing waiting to be packed.</div>';
+  $('boardPacked').innerHTML = packed.length ? packed.map(orderRowHtml).join('')
+    : '<div class="empty">Nothing packed and waiting.</div>';
+  $('boardDone').innerHTML = done.length ? done.slice(0, 15).map(orderRowHtml).join('')
+    : '<div class="empty">Nothing yet.</div>';
+
+  const aged = data.ageing || [];
+  if (aged.length) {
+    const urgent = aged.filter(a => a.level === 'urgent').length;
+    const worth = aged.reduce((s, a) => s + Number(a.value || 0), 0);
+    $('ageAlertText').innerHTML = '<b>' + aged.length +
+      (aged.length === 1 ? ' lot has' : ' lots have') + ' been in the freezer a long time</b>' +
+      (worth ? ' — about ' + plain(worth) + ' of stock' : '') +
+      (urgent ? '. ' + urgent + ' past the second flag.' : '.');
+    $('ageAlert').style.display = 'flex';
+  } else $('ageAlert').style.display = 'none';
+
+  const badge = $('navBadge');
+  if (open.length) { badge.textContent = open.length; badge.style.display = 'block'; }
+  else badge.style.display = 'none';
+}
+
+function orderRowHtml(o) {
+  const d = dayInfo(o.deliveryDate);
+  const short = o.status === 'Open' ? shortLines(o.id).length : 0;
+  return '<div class="ord" onclick="openOrder(\'' + esc(o.id) + '\')">' +
+    '<div class="who"><b>' + esc(o.customer) +
+      (o.pending ? '<span class="tag">not sent</span>' : '') +
+      (short ? '<span class="tag out">short ' + short + '</span>' : '') + '</b>' +
+    '<span>' + orderPackages(o) + ' pkg · ' + o.items.length + ' item' + (o.items.length === 1 ? '' : 's') +
+      ' · ' + esc(o.method || '') + '</span></div>' +
+    '<div class="when"><b>' + esc(d.label) + '</b>' + esc(o.deliveryDate || '') + '</div>' +
+    (d.cls ? '<span class="tag ' + d.cls + '">' + (d.cls === 'due' ? 'due' : 'soon') + '</span>' : '') +
+    '</div>';
+}
+
+function openAgeing() {
+  const aged = data.ageing || [];
+  if (!aged.length) return;
+  openSheet('Sitting too long', aged.length + ' lots, oldest first',
+    aged.map(a =>
+      '<div class="item"><div class="name"><b>' + esc(a.product) +
+      (a.size ? ' · ' + esc(a.size) : '') +
+      '<span class="tag ' + (a.level === 'urgent' ? 'out' : 'low') + '">' +
+        Math.round(a.days / 30) + ' months</span></b>' +
+      '<span>' + a.packages + ' pkg · ' + esc(a.batch || 'no batch') + ' · ' + esc(a.freezer || '—') +
+      (a.value ? ' · ' + plain(a.value) : '') + '<br>' + esc(a.suggestion) + '</span></div></div>').join('') +
+    '<button style="margin-top:12px" onclick="closeSheet();showView(\'boxes\');askBoxIdeas(false)">' +
+      'Work out a box that clears these</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Close</button>');
+}
+
+function openOrder(id) {
+  openOrderId = id;
+  backTo = document.querySelector('.view.on').id.replace('view-', '');
+  renderOrderDetail();
+  showView('order');
+}
+
+function renderOrderDetail() {
+  const o = orderById(openOrderId);
+  if (!o) { showView('orders'); return; }
+  const d = dayInfo(o.deliveryDate);
+
+  $('orderHead').innerHTML =
+    '<h2>' + esc(o.customer) + '</h2>' +
+    '<div class="kv"><span>When</span><b>' + esc(d.label) + ' · ' + esc(o.deliveryDate || '—') + '</b></div>' +
+    '<div class="kv"><span>How</span><b>' + esc(o.method || '—') + '</b></div>' +
+    '<div class="kv"><span>Status</span><b>' + esc(o.status) + (o.pending ? ' (not sent)' : '') + '</b></div>' +
+    (o.contact ? '<div class="kv"><span>Contact</span><b>' + esc(o.contact) + '</b></div>' : '') +
+    (o.notes ? '<div class="kv"><span>Notes</span><b>' + esc(o.notes) + '</b></div>' : '') +
+    '<div class="kv"><span>Order</span><b>' + esc(o.id) + '</b></div>';
+
+  const shorts = Object.fromEntries(shortLines(o.id).map(x => [x.sku, x.short]));
+  $('orderItems').innerHTML = o.items.map(i =>
+    '<div class="item"><div class="name"><b>' + esc(i.product || i.sku) +
+    (shorts[i.sku] ? '<span class="tag out">' + shorts[i.sku] + ' short</span>' : '') + '</b>' +
+    '<span>' + esc(i.content || '') + (i.note ? ' · ' + esc(i.note) : '') +
+    (o.status === 'Open' ? ' · ' + physicalOnHand(i.sku) + ' in the freezer' : '') + '</span></div>' +
+    '<div class="qty"><b>' + i.packages + '</b><span>' +
+    (o.status === 'Open' ? 'to pack' : 'packed ' + (i.packed || i.packages)) + '</span></div></div>'
+  ).join('') || '<div class="empty">No items.</div>';
+
+  let actions = '';
+  if (o.status === 'Open') {
+    actions = '<button id="btnPack">Mark packed — take it out of stock</button>' +
+      '<div class="row" style="margin-top:9px">' +
+      '<button class="ghost" id="btnReschedule">Change date</button>' +
+      '<button class="ghost danger" id="btnCancelOrder">Cancel order</button></div>';
+  } else if (o.status === 'Packed') {
+    actions = '<button id="btnDelivered">Mark delivered</button>' +
+      '<p class="muted" style="text-align:center">Stock came off when it was packed.</p>';
+  } else {
+    actions = '<p class="muted" style="text-align:center">' + esc(o.status) + '.</p>';
+  }
+  $('orderActions').innerHTML = actions;
+
+  const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
+  on('btnPack', () => packOrder(o));
+  on('btnReschedule', () => {
+    const date = prompt('New date (YYYY-MM-DD)', o.deliveryDate || todayISO());
+    if (!date) return;
+    enqueue([{ type: 'ORDER_STATUS', orderId: o.id, deliveryDate: date }]);
+    toast('Date changed.', 'ok');
+  });
+  on('btnCancelOrder', () => {
+    if (!confirm('Cancel this order? Nothing comes out of stock.')) return;
+    enqueue([{ type: 'ORDER_STATUS', orderId: o.id, status: 'Cancelled' }]);
+    toast('Order cancelled.');
+    showView('orders');
+  });
+  on('btnDelivered', () => {
+    enqueue([{ type: 'ORDER_STATUS', orderId: o.id, status: 'Delivered' }]);
+    toast('Marked delivered.', 'ok');
+    showView(backTo || 'orders');
+  });
+}
+
+function packOrder(o) {
+  const short = o.items.filter(i => physicalOnHand(i.sku) < Number(i.packages || 0));
+  if (short.length && !confirm('The freezer is short on ' + short.map(i => i.product || i.sku).join(', ') +
+      '. Pack it anyway and sort the count out after?')) return;
+  enqueue([{ type: 'ORDER_PACK', orderId: o.id }]);
+  toast('Packed — stock deducted.', 'ok');
+  showView(backTo || 'orders');
+}
+
+/* ───────── 2. Inventory ───────── */
+function renderStock() {
+  const q = $('stockSearch').value.trim().toLowerCase();
+  let rows = productTotals();
+  if (q) rows = rows.filter(r => (r.product + ' ' + r.content + ' ' + r.sku).toLowerCase().includes(q));
+
+  const sort = $('stockSort').value;
+  rows.sort((a, b) =>
+    sort === 'qty' ? a.packages - b.packages :
+    sort === 'weight' ? b.weight - a.weight :
+    sort === 'old' ? b.days - a.days :
+    String(a.product).localeCompare(String(b.product)));
+
+  const totalPkg = rows.reduce((s, r) => s + r.packages, 0);
+  const totalWt = rows.reduce((s, r) => s + r.weight, 0);
+  const totalVal = rows.reduce((s, r) => s + (r.value > 0 ? r.value : 0), 0);
+  const totalCommitted = rows.reduce((s, r) => s + (r.committed || 0), 0);
+  const lowCount = rows.filter(r => r.status !== 'ok').length;
+  $('stockTotals').innerHTML =
+    '<div class="item" style="border:0;padding:2px"><div class="name">' +
+    '<b>' + Math.round(totalPkg * 100) / 100 + ' packages</b>' +
+    '<span>' + (totalWt ? round2(totalWt) + ' lb · ' + round2(totalWt / LB_PER_KG) + ' kg'
+                        : 'weights not recorded yet') +
+      (totalCommitted ? ' · ' + Math.round(totalCommitted * 100) / 100 + ' promised' : '') + '</span></div>' +
+    '<div class="qty"><b>' + (totalVal ? plain(totalVal) : lowCount) + '</b>' +
+    '<span>' + (totalVal ? 'at retail · ' + lowCount + ' low' : 'low / out') + '</span></div></div>';
+
+  if (!rows.length) {
+    $('stockList').innerHTML = '<div class="empty">Nothing here yet.<br>Menu ▸ Meat coming in.</div>';
+    return;
+  }
+
+  $('stockList').innerHTML = rows.map(r => {
+    const tag = r.status === 'oversold' ? '<span class="tag out">oversold</span>'
+              : r.status === 'out' ? '<span class="tag out">all promised</span>'
+              : r.status === 'low' ? '<span class="tag low">low</span>' : '';
+    const pend = r.pending ? '<span class="tag">' + (r.pending > 0 ? '+' : '') + r.pending + ' pending</span>' : '';
+    const subs = r.lines.length ? '<div id="sub-' + esc(r.sku) + '" style="display:none">' +
+      r.lines.map(l =>
+        '<div class="sub"><span class="grow">' +
+        (l.size ? '<b>' + esc(l.size) + '</b> · ' : '') + esc(l.batch || 'no batch') +
+        ' · ' + esc(l.freezer || '—') + (l.grade ? ' · ' + esc(l.grade) : '') +
+        (l.days ? ' · ' + Math.round(l.days / 30) + ' mo' : '') + '</span>' +
+        '<b>' + l.packages + ' pkg</b>' +
+        '<span>' + (l.weight ? round2(l.weight) + ' lb' : 'no weight') + '</span>' +
+        '<button class="ghost small" onclick="event.stopPropagation();openLineSheet(\'' +
+          esc(l.key || '') + '\')">⋯</button></div>').join('') + '</div>' : '';
+    return '<div><div class="item">' +
+      '<div class="name" onclick="toggleSub(\'' + esc(r.sku) + '\')"><b>' + esc(r.product) + tag + pend + '</b>' +
+        '<span>' + esc(r.content || r.sku) +
+        (r.perLb ? ' · ' + plain(r.perLb) + '/lb' : '') + '</span></div>' +
+      '<div class="stepper">' +
+        '<button onclick="quickAdjust(\'' + esc(r.sku) + '\',-1)">−</button>' +
+        '<span class="n">' + (Math.round(r.packages * 100) / 100) +
+          (r.committed ? '<i>' + r.available + ' free</i>' : '') + '</span>' +
+        '<button class="plus" onclick="quickAdjust(\'' + esc(r.sku) + '\',1)">+</button>' +
+      '</div></div>' + subs + '</div>';
+  }).join('');
+}
+
+function toggleSub(sku) {
+  const el = document.getElementById('sub-' + sku);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function quickAdjust(sku, dir) {
+  const lines = data.stock.filter(l => l.sku === sku && l.packages > 0);
+  const p = data.products.find(x => x.sku === sku) || {};
+  if (dir < 0 && !lines.length) return toast('Nothing on hand to take out.', 'bad');
+
+  const lineOpts = lines.map(l =>
+    opt(l.key || [l.sku, l.size, l.grade, l.batch, l.freezer].join('|'),
+        (l.size ? l.size + ' · ' : '') + (l.grade ? l.grade + ' · ' : '') +
+        (l.batch || 'no batch') + ' · ' + (l.freezer || '—') + ' · ' + l.packages + ' pkg')).join('');
+  const reasons = dir < 0
+    ? ['Sold at the door', 'Spoiled / freezer burn', 'Sample / giveaway', 'Family use', 'Damaged pack', 'Correction']
+    : ['Found extra', 'Correction', 'Returned'];
+
+  openSheet((dir < 0 ? 'Take out ' : 'Add ') + (p.product || sku), p.content || '',
+    (lines.length > 1 ? '<label>From</label><select id="qaLine">' + lineOpts + '</select>' :
+     '<input type="hidden" id="qaLine" value="' + esc(lines.length ? (lines[0].key || '') : '') + '">') +
+    '<label>Packages</label>' +
+    '<div class="chips" id="qaChips">' + [1,2,4,6,12].map(n =>
+      '<button data-n="' + n + '" onclick="setQa(' + n + ')">' + n + '</button>').join('') + '</div>' +
+    '<input type="number" inputmode="numeric" id="qaQty" min="1" step="1" value="1">' +
+    '<label>Why</label><select id="qaReason">' + reasons.map(r => opt(r, r)).join('') + '</select>' +
+    '<button id="qaGo" style="margin-top:12px" onclick="commitQuickAdjust(\'' + esc(sku) + '\',' + dir + ')">' +
+      (dir < 0 ? 'Take out' : 'Add') + '</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Cancel</button>');
+}
+
+function setQa(n) {
+  $('qaQty').value = n;
+  document.querySelectorAll('#qaChips button').forEach(b => b.classList.toggle('on', Number(b.dataset.n) === n));
+}
+
+function commitQuickAdjust(sku, dir) {
+  const qty = Number($('qaQty').value);
+  if (!qty || qty <= 0) return toast('Enter how many packages.', 'bad');
+  const l = lineByKey(($('qaLine') || {}).value || '');
+  const p = data.products.find(x => x.sku === sku) || {};
+  const reason = $('qaReason').value;
+  if (dir < 0 && l && qty > l.packages) return toast('Only ' + l.packages + ' in that spot.', 'bad');
+  if (dir < 0) {
+    const free = physicalOnHand(sku) - (committedBySku()[sku] || 0);
+    if (qty > free && !confirm('That takes ' + (p.product || sku) +
+        ' below what is promised to open orders. Carry on?')) return;
+  }
+  enqueue([{
+    type: reason === 'Sold at the door' ? 'SALE' : 'ADJUST',
+    sku, product: p.product, content: p.content,
+    size: l ? l.size : '', grade: l ? l.grade : (p.grade || ''),
+    batch: l ? l.batch : '', freezer: l ? l.freezer : '',
+    packages: reason === 'Sold at the door' ? qty : dir * qty, party: reason
+  }]);
+  closeSheet();
+  toast((dir < 0 ? 'Took out ' : 'Added ') + qty + ' × ' + (p.product || sku) + '.', 'ok');
+}
+
+function openLineSheet(key) {
+  const l = lineByKey(key);
+  if (!l) return;
+  const fOpts = data.freezers.filter(f => f.active && f.id !== l.freezer)
+    .map(f => opt(f.id, f.name || f.id)).join('');
+  openSheet((l.product || l.sku) + (l.size ? ' · ' + l.size : ''),
+    (l.grade ? l.grade + ' · ' : '') + (l.batch || 'no batch') + ' · ' +
+      (l.freezer || '—') + ' · ' + l.packages + ' pkg',
+    '<label>Weight of these ' + l.packages + ' packages (lb)</label>' +
+    '<div class="row"><input type="number" inputmode="decimal" id="lsWeight" step="0.01" ' +
+      'placeholder="' + (l.weight ? l.weight : 'not weighed yet') + '" value="' + (l.weight || '') + '">' +
+    '<button id="lsWeighGo" onclick="commitWeigh(\'' + esc(key) + '\', false)">Set total</button></div>' +
+    '<button class="ghost small" style="margin-top:7px" onclick="commitWeigh(\'' + esc(key) + '\', true)">' +
+      'That number is per package instead</button>' +
+    '<label style="margin-top:16px">Freezer recount</label>' +
+    '<div class="row"><input type="number" inputmode="numeric" id="lsCount" value="' + l.packages + '" min="0" step="1">' +
+    '<button id="lsSet" onclick="commitRecount(\'' + esc(key) + '\')">Set count</button></div>' +
+    (fOpts ? '<label style="margin-top:16px">Move to another freezer</label>' +
+      '<div class="row"><input type="number" inputmode="numeric" id="lsMoveQty" placeholder="how many" min="1" step="1">' +
+      '<select id="lsMoveTo">' + fOpts + '</select></div>' +
+      '<button class="ghost" id="lsGo" style="margin-top:8px" onclick="commitMove(\'' + esc(key) + '\')">Move</button>' : '') +
+    '<button class="ghost" style="margin-top:14px" onclick="closeSheet()">Close</button>');
+}
+
+function commitWeigh(key, perPackage) {
+  const l = lineByKey(key);
+  const w = Number($('lsWeight').value);
+  if (!l || !w || w <= 0) return toast('Enter a weight.', 'bad');
+  enqueue([{ type: 'WEIGH', sku: l.sku, product: l.product, content: l.content, size: l.size,
+             grade: l.grade, batch: l.batch, freezer: l.freezer,
+             weight: w, perPackage: !!perPackage, party: 'Weighed' }]);
+  closeSheet();
+  toast(perPackage ? 'Set to ' + w + ' lb per pack.' : 'Weight set to ' + w + ' lb.', 'ok');
+}
+
+function commitRecount(key) {
+  const l = lineByKey(key);
+  const n = Number($('lsCount').value);
+  if (!l || isNaN(n) || n < 0) return toast('Enter a number.', 'bad');
+  if (n === l.packages) { closeSheet(); return; }
+  enqueue([{ type: 'COUNT', sku: l.sku, product: l.product, content: l.content, size: l.size,
+             grade: l.grade, batch: l.batch, freezer: l.freezer, packages: n, party: 'Freezer count' }]);
+  closeSheet();
+  toast('Count set to ' + n + '.', 'ok');
+}
+
+function commitMove(key) {
+  const l = lineByKey(key);
+  const qty = Number($('lsMoveQty').value);
+  const to = $('lsMoveTo').value;
+  if (!l || !qty || qty <= 0) return toast('Enter how many packages.', 'bad');
+  if (qty > l.packages) return toast('Only ' + l.packages + ' there.', 'bad');
+  enqueue([{ type: 'TRANSFER', sku: l.sku, product: l.product, content: l.content, size: l.size,
+             grade: l.grade, batch: l.batch, freezer: l.freezer, toFreezer: to, packages: qty }]);
+  closeSheet();
+  toast('Moved ' + qty + ' to ' + to + '.', 'ok');
+}
+
+/* ───────── 3. Price ───────── */
+function renderCalc() {
+  const sku = $('calcProduct').value;
+  const p = data.products.find(x => x.sku === sku);
+  if (!p) { $('calcPrice').textContent = '—'; $('calcBasis').textContent = 'Pick a product.'; return; }
+
+  const market = calcChannel === 'market';
+  let w = Number($('calcWeight').value || 0);
+  if (w && calcUnit === 'kg') w = w * LB_PER_KG;
+  const perLb = market ? (Number(p.marketPerLb) || Number(p.pricePerLb)) : Number(p.pricePerLb);
+  const perPack = market ? (Number(p.marketPrice) || Number(p.price)) : Number(p.price);
+
+  let price = 0, basis = '';
+  if (w && perLb) { price = w * perLb; basis = w.toFixed(2) + ' lb × ' + money(perLb) + '/lb'; }
+  else if (perPack) { price = perPack; basis = 'set price for one ' + p.product; }
+  else if (perLb && Number(p.avgWeight)) {
+    price = perLb * Number(p.avgWeight);
+    basis = 'average ' + p.avgWeight + ' lb × ' + money(perLb) + '/lb';
+  } else {
+    $('calcPrice').textContent = '—';
+    $('calcBasis').textContent = 'No price on file for ' + p.product + '.';
+    $('calcExtra').innerHTML = '';
+    return;
+  }
+
+  $('calcPrice').textContent = plain(price);
+  $('calcBasis').textContent = basis + ' · ' + (market ? 'farmers market' : 'website');
+
+  const lots = data.stock.filter(l => l.sku === sku && l.packages > 0);
+  const batch = lots.length ? lots[0].batch : '';
+  const costPerLb = Number((data.steerCosts || {})[batch] || 0);
+  let extra = '';
+  if (perLb) extra += '<div class="kv"><span>Per pound / kilo</span><b>' + money(perLb) + ' · ' +
+    money(perLb * LB_PER_KG) + '</b></div>';
+  if (costPerLb && w) {
+    const floor = costPerLb * w;
+    extra += '<div class="kv"><span>What it cost (' + esc(batch) + ')</span><b>' + money(floor) + '</b></div>' +
+      '<div class="kv"><span>Margin</span><b style="color:' +
+      (price - floor > 0 ? 'var(--ok)' : 'var(--bad)') + '">' + money(price - floor) + '</b></div>';
+  }
+  extra += '<div class="kv"><span>In the freezer</span><b>' + physicalOnHand(sku) + ' pkg</b></div>';
+  $('calcExtra').innerHTML = extra;
+}
+
+
+/* ───────── Follow-ups: who is likely running low ───────── */
+// The list comes from the sheet, where the weekly radar and the script both
+// write. The app never decides on its own who to chase.
+function followupRows() { return data.followups || []; }
+
+function fuRowHtml(f) {
+  const cls = f.status === 'Overdue' ? 'out' : f.status === 'Due now' ? 'low' : '';
+  const late = f.status === 'Overdue' && f.days > 0
+    ? f.days + (f.days === 1 ? ' day past' : ' days past')
+    : f.status === 'Upcoming' && f.days < 0
+      ? 'in ' + Math.abs(f.days) + ' days'
+      : f.status === 'Held' && f.holdUntil ? 'held to ' + f.holdUntil : '';
+  return '<div class="ord" onclick="openFollowup(' + JSON.stringify(f.customer).replace(/"/g, '&quot;') +
+      ',' + JSON.stringify(f.boughtOn).replace(/"/g, '&quot;') + ')">' +
+    '<div class="who"><b>' + esc(f.customer) +
+      (cls ? '<span class="tag ' + cls + '">' + esc(f.status) + '</span>' : '') +
+      (f.draft ? '<span class="tag ok">draft ready</span>' : '') + '</b>' +
+    '<span>' + esc(f.share || 'Bulk') + ' on ' + esc(f.boughtOn || '?') +
+      (f.email ? '' : ' · no email on file') +
+      (f.flags ? '<br>' + esc(f.flags) : '') + '</span></div>' +
+    '<div class="when"><b>' + esc(f.due || '') + '</b>' + esc(late) + '</div></div>';
+}
+
+function renderFollowups() {
+  const all = followupRows();
+  const now = all.filter(f => f.status === 'Overdue' || f.status === 'Due now');
+  const later = all.filter(f => f.status === 'Upcoming' || f.status === 'Held');
+
+  $('fuList').innerHTML = now.length ? now.map(fuRowHtml).join('')
+    : '<div class="empty">Nobody is due for a follow-up.</div>';
+  $('fuNote').textContent = now.length
+    ? 'Freezers that should be running low. Tap somebody to see the note.'
+    : (later.length ? 'Nothing due today.' : '');
+
+  $('fuLaterWrap').style.display = later.length ? 'block' : 'none';
+  $('fuLaterLabel').textContent = later.length === 1 ? '1 coming up later'
+    : later.length + ' coming up later';
+  $('fuLater').innerHTML = later.map(fuRowHtml).join('');
+}
+
+let openFu = null;
+
+async function openFollowup(customer, boughtOn, rewrite) {
+  // One key per opened note, so a retry after a dropped connection cannot
+  // send the same email a second time.
+  openFu = { customer, boughtOn, key: uid() };
+  const f = followupRows().filter(x => x.customer === customer &&
+    (!boughtOn || x.boughtOn === boughtOn))[0] || { customer };
+  showView('followup');
+  $('fuWho').innerHTML = '<div class="empty">Reading their history…</div>';
+  $('fuTo').value = f.email || '';
+  $('fuSubject').value = '';
+  $('fuBody').value = '';
+  $('fuBy').textContent = '';
+
+  let d;
+  try {
+    d = await api('draft', { customer, boughtOn: boughtOn || '', rewrite: rewrite ? 'true' : '' });
+  } catch (e) {
+    $('fuWho').innerHTML = '<div class="empty">Could not reach the sheet, so there is no draft yet.<br>' +
+      esc(e.message) + '</div>';
+    return;
+  }
+  openFu.draft = d;
+  $('fuTo').value = d.to || '';
+  $('fuSubject').value = d.subject || '';
+  $('fuBody').value = d.body || '';
+  $('fuBy').textContent = d.writtenBy + '. Change anything you like before sending.';
+  renderSendAs();
+
+  const st = d.story || {};
+  const kv = (k, v) => v ? '<div class="kv"><span>' + esc(k) + '</span><b>' + esc(v) + '</b></div>' : '';
+  $('fuWho').innerHTML =
+    '<div class="item" style="border:0;padding:2px"><div class="name"><b>' + esc(customer) + '</b>' +
+    '<span>' + esc([f.share, f.boughtOn && 'bought ' + f.boughtOn, f.due && 'due ' + f.due]
+      .filter(Boolean).join(' · ')) + '</span></div></div>' +
+    kv('Phone', st.phone) +
+    kv('Bought before', (st.bought || []).slice(0, 4).join(', ')) +
+    kv('Waiting on', (st.waiting || []).join(', ')) +
+    kv('Spent with us', st.spend ? money(st.spend) : '') +
+    kv('Last order', st.lastOrder) +
+    (f.flags ? '<div class="kv"><span>Worth knowing</span><b>' + esc(f.flags) + '</b></div>' : '');
+}
+
+// Which address this goes out as, and whether Gmail will actually allow it.
+function renderSendAs() {
+  const as = data.sendAs || {};
+  const from = as.address || as.account || '';
+  $('fuFrom').textContent = from ? 'Sends from ' + from : '';
+  if (as.warning) {
+    $('fuFromWarnText').textContent = as.warning;
+    $('fuFromWarn').style.display = 'flex';
+    $('fuFrom').textContent = 'Sends from ' + (as.account || 'the script account') +
+      ', replies to ' + (as.address || '');
+  } else $('fuFromWarn').style.display = 'none';
+}
+
+async function sendFollowup() {
+  if (!openFu) return;
+  const to = $('fuTo').value.trim();
+  if (!to || to.indexOf('@') < 0) { toast('That needs an email address first.'); return; }
+  const btn = $('btnFuSend');
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  try {
+    const res = await api('sendFollowup', {
+      clientKey: openFu.key, customer: openFu.customer, boughtOn: openFu.boughtOn || '',
+      to, subject: $('fuSubject').value.trim(), body: $('fuBody').value,
+      user: cfg.user || ''
+    });
+    if (res.followups) data.followups = res.followups;
+    toast(res.already ? 'Already sent to ' + to
+      : 'Sent to ' + to + (res.from ? ' from ' + res.from : ''));
+    renderAll();
+    showView('orders');
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Send it';
+  }
+}
+
+async function markFollowup(what, days) {
+  if (!openFu) return;
+  try {
+    const res = await api('markFollowup', { customer: openFu.customer,
+      boughtOn: openFu.boughtOn || '', what, days: days || 0, user: cfg.user || '' });
+    if (res.followups) data.followups = res.followups;
+    toast(what === 'snooze' ? 'Put off for ' + (days || 30) + ' days' : 'Marked as contacted');
+    renderAll();
+    showView('orders');
+  } catch (e) { toast(e.message); }
+}
+
+/* ───────── 4. Menu ───────── */
+function renderMenuCounts() {
+  const L = data.lists || {};
+  const waiting = arr => (arr || []).filter(x => x.status === 'Waiting').length;
+  // A whole animal sold but not yet paid still needs chasing, so it counts too.
+  $('cWholesale').textContent = (L.wholesale || []).filter(x => x.status !== 'Done').length || '';
+  $('cWaitlist').textContent = waiting(L.waitlist) || '';
+  $('cClients').textContent = (L.customers || []).length || '';
+}
+
+function renderWholesale() {
+  // Still-open business first; animals already sold and paid for drop to the bottom.
+  const rows = ((data.lists || {}).wholesale || []).slice().sort((a, b) =>
+    (a.status === 'Done' ? 1 : 0) - (b.status === 'Done' ? 1 : 0) ||
+    String(a.customer).localeCompare(String(b.customer)));
+  $('wholesaleList').innerHTML = rows.length ? rows.map(r => {
+    // A sold animal carries its own numbers; a waiting-list entry carries none.
+    const facts = [
+      r.weight ? r.weight + ' lb' : '',
+      r.invoice ? 'inv ' + r.invoice : '',
+      r.price && r.deposit ? 'deposit ' + money(r.deposit) : ''
+    ].filter(Boolean).join(' · ');
+    const figure = r.price ? { n: money(r.price), label: r.paid === 'Yes' ? 'paid' : 'owing' }
+                 : r.deposit ? { n: money(r.deposit), label: 'deposit' } : null;
+    return '<div class="item"><div class="name"><b>' + esc(r.customer) +
+      '<span class="tag ' + (r.status === 'Active' ? 'ok' : r.status === 'Done' ? '' : 'low') + '">' +
+        esc(r.status) + '</span>' +
+      (r.price && r.paid !== 'Yes' ? '<span class="tag out">unpaid</span>' : '') + '</b>' +
+      (r.priority && r.priority !== 'Normal'
+        ? '<span class="tag ' + (r.priority === 'High' ? 'out' : '') + '">' + esc(r.priority) + '</span>' : '') +
+      '<span>' + esc(r.wants || '') + (r.wantedBy ? ' · by ' + esc(r.wantedBy) : '') +
+      (r.phone || r.email ? ' · ' + esc(r.phone || r.email) : '') +
+      (facts ? '<br>' + esc(facts) : '') +
+      (r.notes ? '<br>' + esc(r.notes) : '') + '</span></div>' +
+      (figure ? '<div class="qty"><b>' + figure.n + '</b><span>' + figure.label + '</span></div>' : '') +
+      '</div>';
+  }).join('') : '<div class="empty">Nobody on the wholesale list.</div>';
+}
+
+function renderWaitlist() {
+  const rows = (data.lists || {}).waitlist || [];
+  $('waitlistList').innerHTML = rows.length ? rows.map(r => {
+    // Free text is kept as written, so only a real product can report stock.
+    const known = data.products.find(p => p.sku === r.wants);
+    const have = known ? physicalOnHand(r.wants) : null;
+    const wanted = r.words || (known || {}).product || r.wants;
+    const ready = have !== null && have >= (r.packages || 1);
+    return '<div class="item"><div class="name"><b>' + esc(r.customer) +
+      (ready ? '<span class="tag ok">in stock now</span>' : '') + '</b>' +
+      '<span>' + esc(wanted) +
+      (r.size ? ' · ' + esc(r.size) : '') + (r.grade ? ' · ' + esc(r.grade) : '') +
+      (r.phone || r.email ? ' · ' + esc(r.phone || r.email) : '') + '</span></div>' +
+      '<div class="qty"><b>' + (have === null ? '—' : have) + '</b><span>' +
+      (have === null ? 'not a product' : 'on hand') + '</span></div></div>';
+  }).join('') : '<div class="empty">Nobody waiting on a cut.</div>';
+}
+
+function renderClients() {
+  const q = $('clientSearch').value.trim().toLowerCase();
+  let rows = (data.lists || {}).customers || [];
+  if (q) rows = rows.filter(c =>
+    (c.customer + ' ' + c.email + ' ' + c.phone + ' ' + (c.bought || '')).toLowerCase().includes(q));
+  rows = rows.slice().sort((a, b) =>
+    String(b.last).localeCompare(String(a.last)) ||
+    String(a.customer).localeCompare(String(b.customer)));
+  $('clientList').innerHTML = rows.length ? rows.map(c =>
+    '<div class="item"><div class="name"><b>' + esc(c.customer) + '</b>' +
+    '<span>' + esc(c.email || c.phone || '') + (c.last ? ' · last ordered ' + esc(c.last) : '') +
+    (c.bought ? '<br>' + esc(c.bought) : '') + '</span></div>' +
+    '<div class="qty"><b>' + ((c.orders || 0) + (c.prior || 0)) + '</b><span>' +
+      // Everything they have ever spent with us, app or not.
+      (((c.spend || 0) + (c.priorSpend || 0)) > 0
+        ? money((c.spend || 0) + (c.priorSpend || 0)) + ' all time'
+        : 'orders') + '</span></div></div>').join('')
+    : '<div class="empty">No customers yet.</div>';
+}
+
+async function addList(which) {
+  const e = which === 'wholesale'
+    ? { customer: $('whName').value.trim(), phone: $('whPhone').value.trim(),
+        email: $('whEmail').value.trim(), wants: $('whWants').value, status: $('whStatus').value,
+        wantedBy: $('whBy').value, deposit: $('whDeposit').value, notes: $('whNotes').value.trim() }
+    : (() => {
+        const said = $('wlProduct').value.trim();
+        const hit = data.products.find(p => p.product.toLowerCase() === said.toLowerCase());
+        return { customer: $('wlName').value.trim(), phone: $('wlPhone').value.trim(),
+                 email: $('wlEmail').value.trim(), wants: hit ? hit.sku : said, words: said,
+                 size: $('wlSize').value, grade: $('wlGrade').value, packages: $('wlQty').value };
+      })();
+  if (!e.customer) return toast('Needs a name.', 'bad');
+  try {
+    const res = await api('addToList', { list: which, entry: e });
+    data.lists = res;
+    save(LS.data, data);
+    (which === 'wholesale' ? ['whName','whPhone','whEmail','whNotes'] : ['wlName','wlPhone','wlEmail'])
+      .forEach(id => $(id).value = '');
+    renderAll();
+    toast('Added.', 'ok');
+  } catch (err) { toast(err.message, 'bad'); }
+}
+
+/* ───────── market day ───────── */
+function marketPrice(sku) {
+  const p = data.products.find(x => x.sku === sku) || {};
+  if (Number(p.marketPrice)) return Number(p.marketPrice);
+  if (Number(p.price)) return Number(p.price);
+  const perLb = Number(p.marketPerLb) || Number(p.pricePerLb);
+  return perLb && Number(p.avgWeight) ? perLb * Number(p.avgWeight) : 0;
+}
+
+function renderMarketGrid() {
+  const rows = productTotals().filter(r => r.packages > 0)
+    .sort((a, b) => String(a.product).localeCompare(String(b.product)));
+  $('mktGrid').innerHTML = rows.map(r => {
+    const each = marketPrice(r.sku);
+    const n = marketCart[r.sku] || 0;
+    return '<button onclick="tally(\'' + esc(r.sku) + '\')">' + esc(r.product) +
+      (n ? '<b>' + n + '</b>' : '') +
+      '<small>' + (each ? plain(each) : 'no price') + ' · ' + r.packages + ' left</small></button>';
+  }).join('') || '<div class="empty">Nothing in stock.</div>';
+  renderMarketTotal();
+}
+
+function tally(sku) {
+  const next = (marketCart[sku] || 0) + 1;
+  if (next > physicalOnHand(sku)) return toast('That is more than the freezer shows.', 'bad');
+  marketCart[sku] = next;
+  renderMarketGrid();
+}
+
+function renderMarketTotal() {
+  let n = 0, total = 0;
+  Object.keys(marketCart).forEach(sku => {
+    n += marketCart[sku];
+    total += marketPrice(sku) * marketCart[sku];
+  });
+  $('mktCount').textContent = n + (n === 1 ? ' package' : ' packages');
+  $('mktTotal').textContent = plain(total);
+  $('mktLine').textContent = n ? 'Tap again for another of the same.' : 'Tap a product each time one sells.';
+}
+
+function submitMarket() {
+  const skus = Object.keys(marketCart).filter(s => marketCart[s] > 0);
+  if (!skus.length) return toast('Nothing tallied yet.', 'bad');
+  enqueue(skus.map(sku => ({
+    type: 'SALE', sku,
+    product: (data.products.find(p => p.sku === sku) || {}).product,
+    packages: marketCart[sku], party: 'Farmers market'
+  })));
+  marketCart = {};
+  renderMarketGrid();
+  toast('Day recorded.', 'ok');
+  showView('inventory');
+}
+
+/* ───────── boxes ───────── */
+function renderBoxes() {
+  const boxes = data.boxes || [];
+  $('boxBuild').innerHTML = boxes.length ? boxes.map(b =>
+    '<div class="item"><div class="name"><b>' + esc(b.product) + '</b>' +
+    '<span>' + (b.canBuild ? 'then short of ' + esc((b.shortOf || []).join(', '))
+                           : 'not enough ' + esc((b.shortOf || []).join(', '))) + '</span></div>' +
+    '<div class="qty"><b>' + b.canBuild + '</b><span>' + (b.onHand ? b.onHand + ' built' : 'buildable') + '</span></div>' +
+    (b.canBuild ? '<button class="ghost small" onclick="buildBox(\'' + esc(b.sku) + '\',' + b.canBuild + ')">Build</button>' : '') +
+    '</div>').join('') : '<div class="empty">No box recipes yet.</div>';
+
+  $('boxIdeas').innerHTML = boxIdeas.length ? boxIdeas.map((b, i) =>
+    '<div class="card"><div class="item" style="border:0;padding:0 0 6px"><div class="name">' +
+    '<b>' + plain(b.price) + ' box</b>' +
+    '<span>' + b.packages + ' packages' + (b.clears.length ? ' · clears ' + esc(b.clears.join(', ')) : '') + '</span>' +
+    '</div></div>' +
+    '<div class="muted" style="margin-bottom:8px">' + esc(b.reason) + '</div>' +
+    b.items.map(i => '<div class="kv"><span>' + i.qty + ' × ' + esc(i.product) +
+      (i.days > 180 ? ' <span class="tag low">' + Math.round(i.days / 30) + ' mo</span>' : '') +
+      '</span><b>' + plain(i.each) + '</b></div>').join('') +
+    '<button style="margin-top:11px" onclick="acceptIdea(' + i + ')">Make this a box</button></div>'
+  ).join('') : '<div class="card"><div class="empty">Tap below to work some out.</div></div>';
+}
+
+function buildBox(sku, max) {
+  const n = Number(prompt('How many to build? (up to ' + max + ')', 1));
+  if (!n || n <= 0) return;
+  if (n > max) return toast('Only enough for ' + max + '.', 'bad');
+  const freezer = $('inFreezer').value || (data.freezers[0] || {}).id || '';
+  enqueue([{ type: 'BUILD_BOX', boxSku: sku, count: n, freezer }]);
+  toast('Built ' + n + '.', 'ok');
+}
+
+async function askBoxIdeas(market) {
+  try {
+    toast('Working them out…');
+    const res = await api('boxIdeas', { channel: market ? 'market' : 'website' });
+    boxIdeas = res.ideas || [];
+    renderBoxes();
+    if (!boxIdeas.length) toast('Not enough priced stock to build one.', 'bad');
+  } catch (e) { toast(e.message, 'bad'); }
+}
+
+async function acceptIdea(i) {
+  const b = boxIdeas[i];
+  const name = prompt('Name this box', 'Freezer Pick Box');
+  if (!name) return;
+  try {
+    const res = await api('saveBoxIdea', { name, price: b.price, why: b.reason, items: b.items });
+    data.boxes = res.boxes || data.boxes;
+    boxIdeas.splice(i, 1);
+    save(LS.data, data);
+    renderAll();
+    toast(name + ' added — you can build it now.', 'ok');
+  } catch (e) { toast(e.message, 'bad'); }
+}
+
+/* ───────── meat coming in ───────── */
+function renderSteerNumbers() {
+  const id = $('inBatch').value;
+  const cost = Number((data.steerCosts || {})[id] || 0);
+  $('steerNumbers').innerHTML = cost
+    ? '<div class="kv" style="margin-top:10px"><span>This steer costs</span><b>' +
+      money(cost) + ' per saleable lb</b></div>'
+    : '<p class="muted" style="margin:10px 0 0">Yield works itself out from what you enter here — ' +
+      'the only extra typing is the animal\'s weights and costs on the STEER PERFORMANCE tab.</p>';
+}
+
+function addIntakeLine() {
+  const sku = $('inProduct').value;
+  const qty = Number($('inQty').value);
+  if (!sku) return toast('Pick a product.', 'bad');
+  if (!qty || qty <= 0) return toast('Enter how many packages.', 'bad');
+  const p = data.products.find(x => x.sku === sku) || {};
+  const w = $('inWeight').value === '' ? null : Number($('inWeight').value);
+  const size = $('inSize').value;
+  intakeCart.push({
+    sku, product: p.product, content: p.content, size,
+    grade: $('inGrade').value || p.grade || '', packages: qty, weight: w,
+    label: (p.product || sku) + (size ? ' · ' + size : '') + ($('inGrade').value ? ' · ' + $('inGrade').value : '')
+  });
+  $('inQty').value = ''; $('inWeight').value = '';
+  renderCart('intake');
+}
+
+function submitIntake() {
+  if (!intakeCart.length) return toast('Add at least one line.', 'bad');
+  const batch = $('inBatch').value, freezer = $('inFreezer').value;
+  if (!batch) return toast('Pick or add the steer first.', 'bad');
+  if (!freezer) return toast('Pick a freezer.', 'bad');
+  const ts = stampFor($('inDate').value);
+  enqueue(intakeCart.map(l => ({
+    type: 'INTAKE', sku: l.sku, product: l.product, content: l.content, size: l.size, grade: l.grade,
+    batch, freezer, packages: l.packages, weight: l.weight === null ? '' : l.weight,
+    party: 'From the butcher', timestamp: ts
+  })));
+  intakeCart = [];
+  renderCart('intake');
+  toast('Recorded — the steer sheet updates itself.', 'ok');
+  showView('inventory');
+}
+
+function renderCart(which) {
+  const cart = which === 'intake' ? intakeCart : orderCart;
+  const el = which === 'intake' ? $('inLines') : $('ordLines');
+  if (!cart.length) { el.innerHTML = '<div class="muted" style="padding:2px 4px 8px">No lines yet.</div>'; return; }
+  el.innerHTML = cart.map((l, i) =>
+    '<div class="line"><div class="top"><b>' + esc(l.label) + '</b>' +
+    '<span class="muted">' + l.packages + ' pkg' + (l.weight ? ' · ' + round2(l.weight) + ' lb' : '') + '</span>' +
+    '<button class="x" onclick="dropLine(\'' + which + '\',' + i + ')">✕</button></div></div>').join('');
+}
+
+function dropLine(which, i) {
+  (which === 'intake' ? intakeCart : orderCart).splice(i, 1);
+  renderCart(which);
+}
+
+/* ───────── new order ───────── */
+function renderOrdAvail() {
+  const sku = $('ordProduct').value;
+  if (!sku) { $('ordAvail').textContent = ''; return; }
+  const onHandNow = physicalOnHand(sku);
+  const promised = committedBySku()[sku] || 0;
+  const inCart = orderCart.filter(l => l.sku === sku).reduce((s, l) => s + l.packages, 0);
+  const free = Math.round((onHandNow - promised - inCart) * 100) / 100;
+  $('ordAvail').textContent = promised || inCart
+    ? free + ' free to promise — ' + onHandNow + ' on hand, ' +
+      Math.round((promised + inCart) * 100) / 100 + ' already spoken for'
+    : onHandNow + ' package(s) free to promise';
+}
+
+function addOrderLine() {
+  const sku = $('ordProduct').value;
+  const qty = Number($('ordQty').value);
+  if (!sku) return toast('Pick a product.', 'bad');
+  if (!qty || qty <= 0) return toast('Enter how many packages.', 'bad');
+  const p = data.products.find(x => x.sku === sku) || {};
+  const inCart = orderCart.filter(l => l.sku === sku).reduce((s, l) => s + l.packages, 0);
+  const free = physicalOnHand(sku) - (committedBySku()[sku] || 0) - inCart;
+  if (qty > free && !confirm('Only ' + Math.round(Math.max(free, 0) * 100) / 100 + ' of ' +
+      (p.product || sku) + ' are free — the rest are promised to other orders. Promise ' + qty + ' anyway?')) return;
+  orderCart.push({ sku, product: p.product, content: p.content, packages: qty,
+                   note: $('ordLineNote').value.trim(), label: p.product || sku });
+  $('ordQty').value = ''; $('ordLineNote').value = '';
+  renderCart('order');
+  renderOrdAvail();
+}
+
+function saveOrder() {
+  const customer = $('ordCustomer').value.trim();
+  if (!customer) return toast('Who is the order for?', 'bad');
+  if (!orderCart.length) return toast('Add at least one item.', 'bad');
+  const date = $('ordDate').value;
+  if (!date) return toast('When does it need to go out?', 'bad');
+  enqueue([{
+    type: 'ORDER_NEW',
+    orderId: 'ORD-' + todayISO().replace(/-/g, '') + '-' + uid().slice(1, 6).toUpperCase(),
+    customer, contact: $('ordContact').value.trim(), deliveryDate: date,
+    method: $('ordMethod').value, notes: $('ordNotes').value.trim(),
+    lines: orderCart.map(l => ({ sku: l.sku, product: l.product, content: l.content,
+                                 packages: l.packages, note: l.note }))
+  }]);
+  orderCart = [];
+  ['ordCustomer', 'ordContact', 'ordNotes'].forEach(id => $(id).value = '');
+  renderCart('order');
+  toast('Order saved.', 'ok');
+  showView('orders');
+}
+
+/* ───────── catalogue ───────── */
+async function newProduct() {
+  const name = prompt('Product name (e.g. Ribeye Steak)');
+  if (!name) return;
+  const content = prompt('What is in a pack? (e.g. 2 × 12 oz)') || '';
+  const sizes = prompt('Sizes it comes in, comma separated (e.g. S, M, L) — blank for one size') || '';
+  const avg = prompt('Average weight per pack in lb (optional)') || '';
+  const grade = prompt('Default grade — Gold, Silver, Bronze, or blank') || '';
+  const price = prompt('Price per pack (optional)') || '';
+  const perLb = prompt('Price per lb (optional — per kg fills itself in)') || '';
+  const reorder = prompt('Tell me it is low when it drops to… (optional)') || '';
+  try {
+    const res = await api('addProduct', { product: { product: name, content, sizes, avgWeight: avg,
+      grade, price, pricePerLb: perLb, reorder, category: '', notes: 'Added from the phone app' } });
+    toast('Added ' + name + '.', 'ok');
+    await sync(true);
+    $('inProduct').value = res.sku;
+    renderInSizes();
+  } catch (e) { toast(e.message, 'bad'); }
+}
+
+async function newBatch() {
+  const id = prompt('Steer ID (e.g. 2026-09-STEER-02)');
+  if (!id) return;
+  const tag = prompt('Tag number (optional)') || '';
+  const butcher = prompt('Butcher (optional)') || '';
+  const killDate = prompt('Kill date (YYYY-MM-DD)') || '';
+  const packDate = prompt('Pack date (YYYY-MM-DD)', todayISO()) || '';
+  const grade = prompt('Grade / BMS') || '';
+  const hanging = prompt('Hanging weight in lb (optional)') || '';
+  try {
+    await api('addSteer', { steer: { id, tag, butcher, killDate, packDate, grade, hangingWeight: hanging } });
+    toast('Steer added.', 'ok');
+    await sync(true);
+    $('inBatch').value = id;
+    renderSteerNumbers();
+  } catch (e) { toast(e.message, 'bad'); }
+}
+
+/* ───────── photos ───────── */
+function shrink(file, stacked) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      // Several labels in one frame means each is a fraction of the width, so keep the pixels.
+      const max = stacked ? 2600 : 1600;
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * scale);
+      c.height = Math.round(img.height * scale);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/jpeg', stacked ? 0.85 : 0.72));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('That photo could not be read.')); };
+    img.src = url;
+  });
+}
+
+async function addPhotos(files, forPrice) {
+  const room = MAX_PHOTOS - photos.length;
+  if (room <= 0) return toast('Holding ' + MAX_PHOTOS + ' photos already — sync first.', 'bad');
+  const stacked = !forPrice && $('camStack').checked;
+  let added = 0;
+  for (const f of [...files].slice(0, room)) {
+    try {
+      const dataUrl = await shrink(f, stacked);
+      photos.push({ clientKey: 'SCAN-' + uid(), dataUrl,
+                    batch: forPrice ? '' : $('inBatch').value,
+                    freezer: forPrice ? '' : $('inFreezer').value,
+                    note: forPrice ? 'Wants a price for this piece'
+                                   : (stacked ? 'Several labels in this shot' : ''),
+                    user: cfg.user || '', ts: new Date().toISOString() });
+      added++;
+    } catch (e) { toast(e.message, 'bad'); }
+  }
+  if (!added) return;
+  save(LS.photos, photos);
+  renderPhotos();
+  toast(forPrice ? 'Sent — the price comes back once the label is read.'
+                 : added + (added === 1 ? ' photo held' : ' photos held') + ' — sending…', 'ok');
+  sendPhotos();
+}
+
+async function sendPhotos() {
+  if (!photos.length || !cfg.url || !cfg.token || !navigator.onLine) { renderPhotos(); return; }
+  if (sendPhotos._busy) return;
+  sendPhotos._busy = true;
+  try {
+    for (const p of [...photos]) {
+      try {
+        await api('scan', { clientKey: p.clientKey, image: p.dataUrl, mime: 'image/jpeg',
+                            batch: p.batch, freezer: p.freezer, note: p.note, user: p.user });
+        photos = photos.filter(x => x.clientKey !== p.clientKey);
+        save(LS.photos, photos);
+        renderPhotos();
+      } catch (e) { break; }
+    }
+  } finally { sendPhotos._busy = false; renderPhotos(); }
+}
+
+function dropPhoto(key) {
+  photos = photos.filter(p => p.clientKey !== key);
+  save(LS.photos, photos);
+  renderPhotos();
+}
+
+function renderPhotos() {
+  const pending = Number(data.scansPending || 0);
+  const held = photos.length;
+  $('camList').innerHTML =
+    (held ? '<div class="shots">' + photos.map(p =>
+      '<div class="shot"><img src="' + p.dataUrl + '" alt=""><span>waiting</span>' +
+      '<button onclick="dropPhoto(\'' + esc(p.clientKey) + '\')">✕</button></div>').join('') +
+      '</div><div style="margin-top:7px">' + held + (held === 1 ? ' photo' : ' photos') +
+      ' on this phone, not sent yet.</div>' : '') +
+    (pending ? '<div style="margin-top:' + (held ? '4px' : '0') + '">' + pending +
+      (pending === 1 ? ' photo is' : ' photos are') + ' waiting to be read.</div>' : '') +
+    (!held && !pending ? 'No photos waiting.' : '');
+}
+
+/* ───────── sheet, settings, navigation ───────── */
+function closeSheet() { $('sheet').classList.remove('on'); $('scrim').classList.remove('on'); }
+function openSheet(title, sub, body) {
+  $('sheetTitle').textContent = title;
+  $('sheetSub').textContent = sub || '';
+  $('sheetBody').innerHTML = body;
+  $('sheet').classList.add('on');
+  $('scrim').classList.add('on');
+}
+
+function openSettings() {
+  const last = load(LS.sync, null);
+  openSheet('Sync & settings',
+    (queue.length ? queue.length + ' waiting to send' : 'Everything sent') +
+    ' · last synced ' + (last ? new Date(last).toLocaleString([], { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }) : 'never'),
+    '<div class="row"><button onclick="sync(false)">Sync now</button>' +
+    (queue.length ? '<button class="ghost danger" onclick="discardQueue()">Discard ' + queue.length + '</button>' : '') +
+    '</div>' +
+    '<label>Who\'s using this phone</label><input id="cfgUser" autocomplete="off" value="' + esc(cfg.user) + '">' +
+    '<label>Web app URL</label><input id="cfgUrl" autocomplete="off" spellcheck="false" value="' + esc(cfg.url) + '">' +
+    '<label>API token</label><input id="cfgToken" autocomplete="off" spellcheck="false" value="' + esc(cfg.token) + '">' +
+    '<button style="margin-top:12px" onclick="saveCfg()">Save &amp; connect</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Close</button>' +
+    '<p class="muted">Both come from the Sheet: PCW Inventory ▸ Show API token.</p>');
+}
+
+function discardQueue() {
+  if (!queue.length) return;
+  if (!confirm('Discard ' + queue.length + ' unsent entr' + (queue.length === 1 ? 'y' : 'ies') + '?')) return;
+  queue = []; save(LS.queue, queue); closeSheet(); renderAll();
+}
+
+async function saveCfg() {
+  cfg = { url: $('cfgUrl').value.trim(), token: $('cfgToken').value.trim(), user: $('cfgUser').value.trim() };
+  save(LS.cfg, cfg);
+  try { await api('ping'); } catch (e) { return toast(e.message, 'bad'); }
+  closeSheet();
+  toast('Connected.', 'ok');
+  sync(false);
+}
+
+const SUBVIEWS = { order:'orders', neworder:'orders', followup:'orders',
+                   wholesale:'menu', waitlist:'menu',
+                   steer:'menu', clients:'menu', market:'menu', boxes:'menu' };
+const TITLES = { order:'Order', neworder:'New order', followup:'Follow up',
+                 wholesale:'Wholesale',
+                 waitlist:'Cut waiting list', steer:'Meat coming in', clients:'Customers',
+                 market:'Market day', boxes:'Boxes' };
+
+function showView(name) {
+  if (name !== 'order') openOrderId = null;
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('on', v.id === 'view-' + name));
+  document.querySelectorAll('nav button').forEach(b =>
+    b.classList.toggle('on', b.dataset.view === (SUBVIEWS[name] || name)));
+  $('btnBack').classList.toggle('on', !!SUBVIEWS[name]);
+  $('title').textContent = name === 'orders' ? 'Orders and Follow-Up'
+    : (TITLES[name] || ((data.settings.BUSINESS || 'PCW') + ' Inventory'));
+  closeSheet();
+  window.scrollTo(0, 0);
+}
+
+/* ───────────────────────── wiring ───────────────────────── */
+document.querySelectorAll('nav button').forEach(b =>
+  b.addEventListener('click', () => showView(b.dataset.view)));
+$('btnBack').addEventListener('click', () => {
+  const cur = ((document.querySelector('.view.on') || {}).id || '').replace('view-', '');
+  showView(SUBVIEWS[cur] === 'orders' ? (backTo || 'orders') : (SUBVIEWS[cur] || 'orders'));
+});
+$('btnFuSend').addEventListener('click', sendFollowup);
+$('btnFuRewrite').addEventListener('click', () => openFu &&
+  openFollowup(openFu.customer, openFu.boughtOn, true));
+$('btnFuSnooze').addEventListener('click', () => markFollowup('snooze', 30));
+$('btnFuCalled').addEventListener('click', () => markFollowup('contacted'));
+$('scrim').addEventListener('click', closeSheet);
+$('syncPill').addEventListener('click', openSettings);
+
+$('stockSearch').addEventListener('input', renderStock);
+$('stockFreezer').addEventListener('change', renderStock);
+$('stockSort').addEventListener('change', renderStock);
+$('clientSearch').addEventListener('input', renderClients);
+
+$('btnNewOrder').addEventListener('click', () => { backTo = 'orders'; showView('neworder'); });
+$('btnAddOrdLine').addEventListener('click', addOrderLine);
+$('btnSaveOrder').addEventListener('click', saveOrder);
+$('ordProduct').addEventListener('change', renderOrdAvail);
+
+$('calcProduct').addEventListener('change', renderCalc);
+$('calcWeight').addEventListener('input', renderCalc);
+document.querySelectorAll('#calcChannel button').forEach(b => b.addEventListener('click', () => {
+  calcChannel = b.dataset.c;
+  document.querySelectorAll('#calcChannel button').forEach(x => x.classList.toggle('on', x === b));
+  renderCalc();
+}));
+document.querySelectorAll('#calcUnit button').forEach(b => b.addEventListener('click', () => {
+  calcUnit = b.dataset.u;
+  document.querySelectorAll('#calcUnit button').forEach(x => x.classList.toggle('on', x === b));
+  renderCalc();
+}));
+$('btnCalcPhoto').addEventListener('click', () => $('calcPhoto').click());
+$('calcPhoto').addEventListener('change', e => { addPhotos(e.target.files, true); e.target.value = ''; });
+
+$('inProduct').addEventListener('change', renderInSizes);
+$('inBatch').addEventListener('change', renderSteerNumbers);
+$('btnAddInLine').addEventListener('click', addIntakeLine);
+$('btnSubmitIntake').addEventListener('click', submitIntake);
+$('btnNewProduct').addEventListener('click', newProduct);
+$('btnNewBatch').addEventListener('click', newBatch);
+$('btnCamera').addEventListener('click', () => {
+  if (!$('inBatch').value) return toast('Pick the steer these labels belong to first.', 'bad');
+  $('camInput').click();
+});
+$('camInput').addEventListener('change', e => { addPhotos(e.target.files, false); e.target.value = ''; });
+
+$('btnMktSubmit').addEventListener('click', submitMarket);
+$('btnMktClear').addEventListener('click', () => { marketCart = {}; renderMarketGrid(); });
+$('btnBoxIdeas').addEventListener('click', () => askBoxIdeas(false));
+$('btnBoxIdeasMkt').addEventListener('click', () => askBoxIdeas(true));
+
+window.addEventListener('online', () => { setPill(); sync(true); });
+window.addEventListener('offline', setPill);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) sync(true); });
+setInterval(() => {
+  if (!navigator.onLine) return;
+  if (queue.length) sync(true);
+  if (photos.length) sendPhotos();
+}, 60000);
+
+/* ───────────────────────── boot ───────────────────────── */
+$('inDate').value = todayISO(); $('ordDate').value = todayISO();
+renderAll();
+if (cfg.url && cfg.token) sync(true); else { setPill(); openSettings(); }
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>
