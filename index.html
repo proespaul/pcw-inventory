@@ -194,6 +194,8 @@
   .signin-note { font-size:13px; line-height:1.5; color:#5d6652; margin:0; }
   .signin-note.bad { color:#8c2f1f; font-weight:600; }
 
+  .toast.warn{background:#7a5c14}
+
   /* the cut photo beside an inventory row */
   .cutpic{width:46px;height:46px;border-radius:9px;object-fit:cover;flex:0 0 auto;
           margin-right:10px;background:#e4e7dc;border:1px solid #d5dac9}
@@ -736,6 +738,17 @@ function dictate(id, btn, after) {
 /* ───────────────────────── sign-in ───────────────────────── */
 function signedIn() { return !!(session && session.token && session.exp > Date.now()); }
 
+/**
+ * A lapsed session with no signal is not a reason to lock somebody out of the
+ * app. Signing in needs Google, Google needs a connection, and standing in the
+ * freezer there isn't one. So if we have last-synced data to show, let them in
+ * to keep recording — everything queues on the phone and goes up, along with a
+ * fresh sign-in, the moment there is signal again.
+ */
+let workingOffline = false;
+function haveCachedData() { return !!(data && data.products && data.products.length); }
+function canCarryOnOffline() { return !navigator.onLine && haveCachedData(); }
+
 function showSignIn(message, bad) {
   const gate = $('signin');
   if (!gate) return;
@@ -805,7 +818,13 @@ function signOut() {
 
 /* ───────────────────────── API ───────────────────────── */
 async function api(action, payload = {}) {
-  if (!signedIn()) { showSignIn('Your sign-in has run out. Please sign in again.'); throw new Error('Please sign in.'); }
+  if (!signedIn()) {
+    // No signal is a different problem from being signed out, and showing a
+    // sign-in screen they cannot complete only hides their work from them.
+    if (!navigator.onLine) throw new Error('No connection — this will go up when you have signal.');
+    showSignIn('Your sign-in has run out. Please sign in again.');
+    throw new Error('Please sign in.');
+  }
   const res = await fetch(CONFIG.APPS_SCRIPT_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },   // avoids a CORS preflight
@@ -856,6 +875,7 @@ function applyBoot(boot) {
 }
 
 async function sync(quiet) {
+  // Nothing to do without a session; the queue stays on the phone untouched.
   if (!signedIn()) { setPill(); return; }
   if (sync._busy) return;
   sync._busy = true;
@@ -882,6 +902,10 @@ async function sync(quiet) {
 
 function setPill(state) {
   const p = $('syncPill');
+  if (!signedIn() && workingOffline) {
+    p.textContent = 'Offline' + (queue.length ? ' · ' + queue.length + ' waiting' : '');
+    p.className = 'pill warn'; return;
+  }
   if (!signedIn()) { p.textContent = 'Signed out'; p.className = 'pill warn'; return; }
   if (state === 'syncing') { p.textContent = 'Syncing…'; p.className = 'pill'; return; }
   if (!navigator.onLine) { p.textContent = 'Offline' + (queue.length ? ' · ' + queue.length : ''); p.className = 'pill warn'; return; }
@@ -2397,7 +2421,19 @@ $('btnMktClear').addEventListener('click', () => { marketCart = {}; renderMarket
 $('btnBoxIdeas').addEventListener('click', () => askBoxIdeas(false));
 $('btnBoxIdeasMkt').addEventListener('click', () => askBoxIdeas(true));
 
-window.addEventListener('online', () => { setPill(); sync(true); });
+window.addEventListener('online', () => {
+  setPill();
+  if (signedIn()) { sync(true); return; }
+  // Back in range on a lapsed session: now we can renew it, and whatever was
+  // recorded offline goes up straight after.
+  if (workingOffline) {
+    workingOffline = false;
+    showSignIn(queue.length
+      ? 'Back online. Sign in and the ' + queue.length + ' waiting ' +
+        (queue.length === 1 ? 'entry' : 'entries') + ' will go up.'
+      : 'Back online. Please sign in again.');
+  }
+});
 window.addEventListener('offline', setPill);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) sync(true); });
 setInterval(() => {
@@ -2409,8 +2445,16 @@ setInterval(() => {
 /* ───────────────────────── boot ───────────────────────── */
 $('inDate').value = todayISO(); $('ordDate').value = todayISO();
 renderAll();
-if (signedIn()) { hideSignIn(); sync(true); }
-else { setPill(); showSignIn(); }
+if (signedIn()) {
+  hideSignIn(); sync(true);
+} else if (canCarryOnOffline()) {
+  // Lapsed session, no signal, but we have yesterday's data: let them work.
+  workingOffline = true;
+  hideSignIn(); setPill();
+  toast('Offline — keep recording. It will sync when you have signal.', 'warn');
+} else {
+  setPill(); showSignIn();
+}
 initAuth();   // so Google's one-tap can renew a lapsed session on its own
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
