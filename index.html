@@ -193,6 +193,15 @@
   .signin-btn { display:flex; justify-content:center; margin:26px 0 14px; min-height:44px; }
   .signin-note { font-size:13px; line-height:1.5; color:#5d6652; margin:0; }
   .signin-note.bad { color:#8c2f1f; font-weight:600; }
+  .join-box { margin:18px 0 0; text-align:left; }
+  .join-label { display:block; font-size:12px; font-weight:700; letter-spacing:.04em;
+                text-transform:uppercase; color:#5d6652; margin:0 0 6px; }
+  .join-input { width:100%; box-sizing:border-box; font-size:17px; padding:12px 14px;
+                border:1.5px solid #cdd3c2; border-radius:10px; background:#fff; color:#20251c; }
+  .join-input:focus { outline:none; border-color:#6b7a4f; }
+  .join-go { width:100%; margin-top:10px; font-size:16px; font-weight:700; padding:13px;
+             border:0; border-radius:10px; background:#3f4a2c; color:#fff; }
+  .join-go:active { background:#2e3620; }
 
   .toast.warn{background:#7a5c14}
 
@@ -605,7 +614,15 @@
     <h1>Peace Country Wagyu</h1>
     <p class="muted">Freezer inventory</p>
     <div id="gbtn" class="signin-btn"></div>
-    <p class="signin-note" id="signinNote">Sign in with your Peace Country Wagyu Google account.</p>
+    <p class="signin-note" id="signinNote">Sign in with your Google account.</p>
+    <!-- Only appears when the account is not on a company domain and not yet
+         listed: they type the shared word once and are added for good. -->
+    <div id="joinBox" class="join-box" hidden>
+      <label class="join-label" for="joinWord">Join word</label>
+      <input id="joinWord" class="join-input" type="text" autocomplete="off"
+             autocapitalize="none" spellcheck="false" placeholder="ask Paul or Hannah">
+      <button id="joinGo" class="join-go" type="button">Let me in</button>
+    </div>
   </div>
 </div>
 
@@ -776,16 +793,29 @@ function initAuth() {
   google.accounts.id.prompt();
 }
 
-async function onCredential(resp) {
+// Kept only in memory, only while the sign-in screen is up: the join button has
+// to send the same Google credential back, this time with the word.
+let lastCredential = null;
+
+async function onCredential(resp, joinWord) {
+  if (resp && resp.credential) lastCredential = resp.credential;
   try {
+    const body = { action:'login', idToken: (resp && resp.credential) || lastCredential };
+    if (joinWord) body.joinWord = joinWord;
     const res = await fetch(CONFIG.APPS_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action:'login', idToken: resp.credential }),
+      body: JSON.stringify(body),
       redirect: 'follow'
     });
     const json = await res.json();
-    if (!json.ok) throw new Error(json.error || 'Sign-in was refused.');
+    if (!json.ok) {
+      const err = new Error(json.error || 'Sign-in was refused.');
+      err.needJoin = !!json.needJoin;
+      throw err;
+    }
+    hideJoin();
+    lastCredential = null;
     session = { token: json.sessionToken, exp: json.exp };
     me = json.me || null;
     save(LS.session, session); save(LS.me, me);
@@ -798,7 +828,45 @@ async function onCredential(resp) {
     session = null; me = null;
     save(LS.session, null); save(LS.me, null);
     showSignIn(e.message, true);
+    // Not a refusal so much as one more step: they are signed in with Google,
+    // they just are not known here yet.
+    if (e.needJoin && lastCredential) showJoin();
   }
+}
+
+function showJoin() {
+  const box = $('joinBox');
+  if (!box) return;
+  box.hidden = false;
+  const input = $('joinWord');
+  const go = $('joinGo');
+  if (go && !go._wired) {
+    go._wired = true;
+    go.addEventListener('click', submitJoin);
+  }
+  if (input && !input._wired) {
+    input._wired = true;
+    input.addEventListener('keydown', ev => { if (ev.key === 'Enter') submitJoin(); });
+  }
+  if (input) { try { input.focus(); } catch (err) {} }
+}
+
+function hideJoin() {
+  const box = $('joinBox');
+  if (box) box.hidden = true;
+  const input = $('joinWord');
+  if (input) input.value = '';
+}
+
+function submitJoin() {
+  const input = $('joinWord');
+  const word = input ? input.value.trim() : '';
+  if (!word) { showSignIn('Type the join word first.', true); showJoin(); return; }
+  const go = $('joinGo');
+  if (go) { go.disabled = true; go.textContent = 'Checking…'; }
+  onCredential(null, word).finally(() => {
+    if (go) { go.disabled = false; go.textContent = 'Let me in'; }
+  });
 }
 
 function signOut() {
@@ -812,6 +880,8 @@ function signOut() {
   save(LS.session, null); save(LS.me, null);
   try { google.accounts.id.disableAutoSelect(); } catch (e) {}
   closeSheet();
+  lastCredential = null;
+  hideJoin();
   initAuth._done = false;
   showSignIn('Signed out. Sign in again to carry on.');
 }
