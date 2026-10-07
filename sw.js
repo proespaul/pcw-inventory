@@ -3,8 +3,12 @@
    shed with no signal. API calls always go to the network; anything entered
    offline is queued in the page itself and replayed on reconnect. */
 
-const CACHE = 'pcw-inv-v1';
-const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
+/* Bumping this name is what makes a phone drop the old shell and take the new
+   one. It has to change whenever the files below change, or an update sits in
+   the cache unused. */
+const CACHE = 'pcw-inv-v2';
+const SHELL = ['./', './index.html', './photos.js', './manifest.json',
+               './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
