@@ -668,6 +668,10 @@ const CONFIG = {
   APPS_SCRIPT_URL:  'https://script.google.com/macros/s/AKfycbystmus_0EJ4f-RfabR9wKjZOGS_P-RSQoY5N_jPIntoBnOZXP8CjjkpO_PzEl85wnBLQ/exec',
 };
 
+/* Shown in Sync & settings. The whole point is that a phone running a
+   cached old copy can be spotted in two taps instead of by deduction. */
+const APP_BUILD = '2026-10-13 17:19 UTC';
+
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos' };
 const MAX_PHOTOS = 8;
 const LB_PER_KG = 2.2046226218;
@@ -1572,7 +1576,10 @@ function renderBoxList() {
       if (base) {
         const gap = Math.round((value - base) * 100) / 100;
         const pct = Math.round((value / base - 1) * 100);
-        tail = ' <span class="' + (gap < 0 ? 'gap-bad' : 'gap-ok') + '">' +
+        // Only below the base is bad. At the base is right for a processed
+        // box and merely thin for anything else, so it is not painted red.
+        const cls = gap < 0 ? 'gap-bad' : 'gap-ok';
+        tail = ' <span class="' + cls + '">' +
                (gap < 0 ? '−' : '+') + plain(Math.abs(gap)) +
                (isFinite(pct) ? ' · ' + (pct < 0 ? '' : '+') + pct + '%' : '') + '</span>';
       }
@@ -1580,17 +1587,26 @@ function renderBoxList() {
              plain(value) + tail + '</span></div>';
     };
 
+    const base = b.listPrice || b.partsValue;
     let money = '<div class="parts" style="margin-top:6px">' +
-      priceLine('Price list (contents)', b.listPrice || b.partsValue, 0) +
-      priceLine('Website', b.price, b.listPrice || b.partsValue) +
-      priceLine('Market', b.marketPrice, b.listPrice || b.partsValue);
-    // If a price is missing, say what the markup rule would make it.
-    if ((b.listPrice || b.partsValue) && (!b.price || !b.marketPrice)) {
+      priceLine('Price list (contents)', base, 0) +
+      priceLine('Website', b.price, base) +
+      priceLine('Market', b.marketPrice, base);
+    // A box of nothing but processed meat is meant to sit at list price, so
+    // say so rather than leaving a row of zeros looking like a mistake.
+    if (b.allFlat) {
+      money += '<div class="pline"><span>All processed — sold at list, no markup</span>' +
+        '<span></span></div>';
+    } else if (base && (!b.price || !b.marketPrice)) {
       money += '<div class="pline"><span>Markup rule says</span><span>' +
         (b.suggestedWeb ? plain(b.suggestedWeb) + ' web' : '') +
         (b.suggestedWeb && b.suggestedMarket ? ' · ' : '') +
         (b.suggestedMarket ? plain(b.suggestedMarket) + ' market' : '') +
         '</span></div>';
+      if (b.flatValue) {
+        money += '<div class="pline"><span>of which processed, at list</span><span>' +
+          plain(b.flatValue) + '</span></div>';
+      }
     }
     money += '</div>';
 
@@ -3203,7 +3219,36 @@ function openSettings() {
     '<button class="ghost" onclick="signOut()">Sign out</button>' +
     '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Close</button>' +
     '<p class="muted">Access is managed on the STAFF tab of the Sheet. Anyone with a ' +
-    'pcwagyu.com Google account can sign in; anyone else has to be listed there.</p>');
+    'pcwagyu.com Google account can sign in; anyone else has to be listed there.</p>' +
+    '<p class="muted" style="margin-top:12px">App build <b>' + APP_BUILD + '</b>' +
+      '<span id="svBuild"></span><br>' +
+      'If this is older than the one you were given, this phone is showing a ' +
+      'cached copy: close the app fully and open it twice.</p>' +
+    '<button class="ghost small" style="margin-top:8px" onclick="forceRefresh()">' +
+      'Force the newest version</button>');
+  // Ask the backend which version it is running, so both halves are visible.
+  api('ping').then(r => {
+    const el = $('svBuild');
+    if (el && r && r.build) el.innerHTML = '<br>Backend build <b>' + esc(r.build) + '</b>';
+  }).catch(() => {});
+}
+
+/* Throws away the cached app shell and reloads. The service worker serves a
+ * cached copy first by design — good in a freezer with no signal, awkward on
+ * the day of an update — so this is the escape hatch. Nothing entered is lost:
+ * the queue, the sign-in and the data live outside that cache. */
+async function forceRefresh() {
+  try {
+    if ('caches' in window) {
+      const names = await caches.keys();
+      await Promise.all(names.map(n => caches.delete(n)));
+    }
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+  } catch (e) { /* nothing cached, or blocked — reloading is still worth a try */ }
+  location.reload(true);
 }
 
 function discardQueue() {
