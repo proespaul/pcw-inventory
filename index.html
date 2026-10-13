@@ -1545,7 +1545,7 @@ function renderBoxList() {
     '<div class="item" style="border:0;padding:2px"><div class="name">' +
     '<b>' + rows.length + ' box' + (rows.length === 1 ? '' : 'es') + '</b>' +
     '<span>' + (onHand ? onHand + ' made up and in the freezer' : 'none made up yet') + '</span></div>' +
-    '<div class="qty"><b>' + canAny + '</b><span>could build now</span></div></div>';
+    '<div class="qty"><b>' + onHand + '</b><span>on hand · ' + canAny + ' buildable</span></div></div>';
 
   if (!rows.length) {
     $('boxList').innerHTML = '<div class="empty">No boxes yet.<br>Tap “+ Add new” to make one.</div>';
@@ -1562,27 +1562,57 @@ function renderBoxList() {
         '<span>' + (short ? 'only ' + c.free + ' left' : c.free + ' on hand') + '</span></div>';
     }).join('') || '<div class="pline"><span>No contents set yet.</span></div>';
 
-    // What the cuts inside are worth, against what we charge for the box.
-    let money = '';
-    if (b.price && b.partsValue) {
-      const gap = Math.round((b.price - b.partsValue) * 100) / 100;
-      money = '<div class="money">Contents ' + plain(b.partsValue) +
-        ' · sells ' + plain(b.price) + ' · ' +
-        '<span class="' + (gap < 0 ? 'gap-bad' : 'gap-ok') + '">' +
-        (gap < 0 ? '−' : '+') + plain(Math.abs(gap)) + '</span></div>';
-    } else if (b.price) {
-      money = '<div class="money">Sells ' + plain(b.price) + '</div>';
+    // Three prices side by side: the price-list base (what the cuts inside
+    // come to), and the two we actually charge. The gap against the base is
+    // the number worth seeing — a box selling under its own contents is easy
+    // to create and hard to notice.
+    const priceLine = (label, value, base) => {
+      if (!value) return '<div class="pline"><span>' + label + '</span><span>not set</span></div>';
+      let tail = '';
+      if (base) {
+        const gap = Math.round((value - base) * 100) / 100;
+        const pct = Math.round((value / base - 1) * 100);
+        tail = ' <span class="' + (gap < 0 ? 'gap-bad' : 'gap-ok') + '">' +
+               (gap < 0 ? '−' : '+') + plain(Math.abs(gap)) +
+               (isFinite(pct) ? ' · ' + (pct < 0 ? '' : '+') + pct + '%' : '') + '</span>';
+      }
+      return '<div class="pline"><span>' + label + '</span><span>' +
+             plain(value) + tail + '</span></div>';
+    };
+
+    let money = '<div class="parts" style="margin-top:6px">' +
+      priceLine('Price list (contents)', b.listPrice || b.partsValue, 0) +
+      priceLine('Website', b.price, b.listPrice || b.partsValue) +
+      priceLine('Market', b.marketPrice, b.listPrice || b.partsValue);
+    // If a price is missing, say what the markup rule would make it.
+    if ((b.listPrice || b.partsValue) && (!b.price || !b.marketPrice)) {
+      money += '<div class="pline"><span>Markup rule says</span><span>' +
+        (b.suggestedWeb ? plain(b.suggestedWeb) + ' web' : '') +
+        (b.suggestedWeb && b.suggestedMarket ? ' · ' : '') +
+        (b.suggestedMarket ? plain(b.suggestedMarket) + ' market' : '') +
+        '</span></div>';
     }
+    money += '</div>';
+
+    // "can build" counts how many MORE could be assembled from loose cuts. It
+    // says nothing about the boxes already made up and sitting in the freezer
+    // — those had their cuts taken out when they were built. Flagging a box
+    // that HAS stock as "can't build" was plain wrong, and read as though the
+    // boxes on the shelf did not exist.
+    const spare = can > 0 ? ' · ' + can + ' more could be built'
+                          : (b.onHand > 0 ? '' : ' · none to build with');
+    const tag = (b.onHand === 0 && can === 0)
+      ? ' <span class="tag out">none in stock</span>' : '';
 
     const pic = photoFor(b.sku);
     return '<div class="boxrow"><div class="item">' +
       (pic ? '<img class="cutpic" src="' + pic + '" alt="" loading="lazy" ' +
              'onclick="event.stopPropagation();showCut(\'' + esc(b.sku) + '\')">' : '') +
       '<div class="name" onclick="toggleSub(\'box-' + esc(b.sku) + '\')"><b>' + esc(b.product) +
-        (can ? '' : ' <span class="tag low">can\u2019t build</span>') + '</b>' +
+        tag + '</b>' +
         '<span>' + (b.packs ? b.packs + ' pack' + (b.packs === 1 ? '' : 's') : 'no contents') +
         (b.weight ? ' · ' + round2(b.weight) + ' lb' : '') +
-        ' · ' + can + ' buildable</span></div>' +
+        spare + '</span></div>' +
       '<div class="stepper">' +
         '<button onclick="quickAdjust(\'' + esc(b.sku) + '\',-1)">−</button>' +
         '<span class="n">' + b.onHand + '</span>' +
