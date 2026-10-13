@@ -193,6 +193,19 @@
   .signin-btn { display:flex; justify-content:center; margin:26px 0 14px; min-height:44px; }
   .signin-note { font-size:13px; line-height:1.5; color:#5d6652; margin:0; }
   .signin-note.bad { color:#8c2f1f; font-weight:600; }
+  .seg { display:flex; gap:0; margin:0 0 12px; border:1.5px solid #cdd3c2;
+         border-radius:10px; overflow:hidden; background:#fff; }
+  .seg button { flex:1; border:0; background:transparent; font-size:15px; font-weight:700;
+                padding:11px 8px; color:#5d6652; }
+  .seg button.on { background:#3f4a2c; color:#fff; }
+  .boxrow .parts { margin:6px 0 0; padding:8px 10px; background:#f4f6ef;
+                   border-radius:8px; font-size:13px; line-height:1.6; color:#43503a; }
+  .boxrow .parts .pline { display:flex; justify-content:space-between; gap:8px; }
+  .boxrow .parts .pline.short { color:#8c2f1f; font-weight:600; }
+  .boxrow .money { font-size:12px; color:#5d6652; }
+  .boxrow .money b { color:#20251c; }
+  .gap-bad { color:#8c2f1f; font-weight:700; }
+  .gap-ok { color:#2f6b35; font-weight:700; }
   .join-box { margin:18px 0 0; text-align:left; }
   .join-label { display:block; font-size:12px; font-weight:700; letter-spacing:.04em;
                 text-transform:uppercase; color:#5d6652; margin:0 0 6px; }
@@ -318,11 +331,19 @@
 
   <!-- ══════════════ 2. INVENTORY ══════════════ -->
   <section class="view" id="view-inventory">
+    <!-- Cuts and boxes are different things: a cut is meat, a box is a set of
+         cuts with its own price. Keeping them in one list made both harder to
+         read, so they are two drawers of the same cupboard. -->
+    <div class="seg" id="invSeg">
+      <button data-kind="cuts" class="on" onclick="setInvKind('cuts')">Cuts</button>
+      <button data-kind="boxes" onclick="setInvKind('boxes')">Boxes</button>
+    </div>
+
     <div class="withmic search">
-      <input id="stockSearch" type="search" placeholder="Search product…" autocomplete="off">
+      <input id="stockSearch" type="search" placeholder="Search…" autocomplete="off">
       <button class="mic" onclick="dictate('stockSearch',this,renderStock)">🎤</button>
     </div>
-    <div class="row" style="margin-bottom:10px">
+    <div class="row" style="margin-bottom:10px" id="invFilters">
       <select id="stockFreezer"><option value="">All freezers</option></select>
       <select id="stockSort">
         <option value="name">By name</option>
@@ -331,9 +352,16 @@
         <option value="old">Oldest first</option>
       </select>
     </div>
+
+    <div class="row" style="margin-bottom:10px">
+      <button id="btnInvPhoto" onclick="openPhotoCount()">📷 Count by photo</button>
+      <button class="ghost" id="btnInvAdd" onclick="openAddThing()">+ Add new</button>
+    </div>
+
     <div class="card" id="stockTotals"></div>
     <div class="card list" id="stockList"></div>
-    <p class="muted" style="text-align:center">Tap − or + to change a count. Tap the product for sizes, batches and freezers.</p>
+    <div class="card list" id="boxList" style="display:none"></div>
+    <p class="muted" style="text-align:center" id="invHint">Tap − or + to change a count. Tap the product for sizes, batches and freezers.</p>
   </section>
 
   <!-- ══════════════ 3. PRICE ══════════════ -->
@@ -829,7 +857,11 @@ async function onCredential(resp, joinWord) {
       setSignInNote(i === 0 ? 'Signing in…' : 'Still trying…');
       json = await postLogin(body);
       if (json.ok) break;
-      if (json.needJoin || isRealRefusal(json.error)) break;
+      if (json.needJoin) break;
+      // json.retry means the backend could not tell yet — never a refusal, so
+      // fall through to the wait below rather than giving up. (It must not
+      // `continue`: that would skip the wait and hammer the backend.)
+      if (!json.retry && isRealRefusal(json.error)) break;
       if (i >= waits.length) break;
       await new Promise(r => setTimeout(r, waits[i]));
     }
@@ -955,12 +987,19 @@ async function api(action, payload = {}) {
     }
     throw new Error(json.error || 'Backend refused the request.');
   }
-  // The server pushes the expiry back out every time the app is used. Store
-  // the new one, or the phone would keep counting down to the old date and ask
-  // for a sign-in that was never actually needed.
-  if (json.sessionExp && session && json.sessionExp > session.exp) {
-    session.exp = json.sessionExp;
-    save(LS.session, session);
+  // The session is a signed note with a date on it. The server hands back a
+  // fresh note as it is used, so the phone has to keep the newest one — or it
+  // would keep presenting the old one and eventually be asked to sign in for
+  // no reason.
+  if (session && (json.sessionToken || json.sessionExp)) {
+    let moved = false;
+    if (json.sessionToken && json.sessionToken !== session.token) {
+      session.token = json.sessionToken; moved = true;
+    }
+    if (json.sessionExp && json.sessionExp > session.exp) {
+      session.exp = json.sessionExp; moved = true;
+    }
+    if (moved) save(LS.session, session);
   }
   return json;
 }
@@ -988,6 +1027,7 @@ function applyBoot(boot) {
     lists: boot.lists || {}, followups: boot.followups || [],
     sendAs: boot.sendAs || {},
     steerCosts: boot.steerCosts || {},
+    boxList: boot.boxList || [],
     scansPending: boot.scansPending || 0,
     // What this data was. Sent back on the next sync so the backend can
     // answer "nothing new" instead of rebuilding and resending all of it.
@@ -1396,9 +1436,36 @@ function packOrder(o) {
 }
 
 /* ───────── 2. Inventory ───────── */
+/* Which drawer of the inventory is open. */
+let invKind = 'cuts';
+
+function setInvKind(kind) {
+  invKind = kind === 'boxes' ? 'boxes' : 'cuts';
+  document.querySelectorAll('#invSeg button').forEach(b =>
+    b.classList.toggle('on', b.dataset.kind === invKind));
+  const boxes = invKind === 'boxes';
+  $('stockList').style.display = boxes ? 'none' : '';
+  $('boxList').style.display = boxes ? '' : 'none';
+  $('invFilters').style.display = boxes ? 'none' : '';
+  $('stockSearch').placeholder = boxes ? 'Search boxes…' : 'Search a cut…';
+  $('btnInvPhoto').style.display = boxes ? 'none' : '';
+  $('invHint').textContent = boxes
+    ? 'Tap a box to see what goes in it. ⋯ to change the contents.'
+    : 'Tap − or + to change a count. Tap the product for sizes, batches and freezers.';
+  renderStock();
+}
+
+function boxSkus() {
+  const set = new Set((data.boxList || []).map(b => b.sku));
+  (data.products || []).forEach(p => { if (p.isBox) set.add(p.sku); });
+  return set;
+}
+
 function renderStock() {
+  if (invKind === 'boxes') return renderBoxList();
   const q = $('stockSearch').value.trim().toLowerCase();
-  let rows = productTotals();
+  const boxes = boxSkus();
+  let rows = productTotals().filter(r => !boxes.has(r.sku));
   if (q) rows = rows.filter(r => (r.product + ' ' + r.content + ' ' + r.sku).toLowerCase().includes(q));
 
   const sort = $('stockSort').value;
@@ -1456,6 +1523,429 @@ function renderStock() {
         '<button class="plus" onclick="quickAdjust(\'' + esc(r.sku) + '\',1)">+</button>' +
       '</div></div>' + subs + '</div>';
   }).join('');
+}
+
+/* ─────────────────────── the Boxes drawer ───────────────────────
+ * A box is shown with what is actually in it: the cuts, how many of each,
+ * what it all weighs, what those cuts are worth on their own, and what the
+ * box sells for. The last two side by side are the useful part — a box
+ * selling under the value of its contents is worth knowing about.
+ */
+function renderBoxList() {
+  const q = $('stockSearch').value.trim().toLowerCase();
+  const build = Object.fromEntries((data.boxes || []).map(b => [b.sku, b]));
+  let rows = (data.boxList || []).slice();
+  if (q) rows = rows.filter(b =>
+    (b.product + ' ' + b.sku + ' ' + (b.parts || []).map(p => p.product).join(' '))
+      .toLowerCase().includes(q));
+
+  const onHand = rows.reduce((t, b) => t + (b.onHand || 0), 0);
+  const canAny = rows.reduce((t, b) => t + ((build[b.sku] || {}).canBuild || 0), 0);
+  $('stockTotals').innerHTML =
+    '<div class="item" style="border:0;padding:2px"><div class="name">' +
+    '<b>' + rows.length + ' box' + (rows.length === 1 ? '' : 'es') + '</b>' +
+    '<span>' + (onHand ? onHand + ' made up and in the freezer' : 'none made up yet') + '</span></div>' +
+    '<div class="qty"><b>' + canAny + '</b><span>could build now</span></div></div>';
+
+  if (!rows.length) {
+    $('boxList').innerHTML = '<div class="empty">No boxes yet.<br>Tap “+ Add new” to make one.</div>';
+    return;
+  }
+
+  $('boxList').innerHTML = rows.map(b => {
+    const can = (build[b.sku] || {}).canBuild || 0;
+    const parts = (b.parts || []).map(c => {
+      const short = c.qty > 0 && c.free < c.qty;
+      return '<div class="pline' + (short ? ' short' : '') + '">' +
+        '<span>' + c.qty + ' × ' + esc(c.product) +
+          (c.content ? ' <i>(' + esc(c.content) + ')</i>' : '') + '</span>' +
+        '<span>' + (short ? 'only ' + c.free + ' left' : c.free + ' on hand') + '</span></div>';
+    }).join('') || '<div class="pline"><span>No contents set yet.</span></div>';
+
+    // What the cuts inside are worth, against what we charge for the box.
+    let money = '';
+    if (b.price && b.partsValue) {
+      const gap = Math.round((b.price - b.partsValue) * 100) / 100;
+      money = '<div class="money">Contents ' + plain(b.partsValue) +
+        ' · sells ' + plain(b.price) + ' · ' +
+        '<span class="' + (gap < 0 ? 'gap-bad' : 'gap-ok') + '">' +
+        (gap < 0 ? '−' : '+') + plain(Math.abs(gap)) + '</span></div>';
+    } else if (b.price) {
+      money = '<div class="money">Sells ' + plain(b.price) + '</div>';
+    }
+
+    const pic = photoFor(b.sku);
+    return '<div class="boxrow"><div class="item">' +
+      (pic ? '<img class="cutpic" src="' + pic + '" alt="" loading="lazy" ' +
+             'onclick="event.stopPropagation();showCut(\'' + esc(b.sku) + '\')">' : '') +
+      '<div class="name" onclick="toggleSub(\'box-' + esc(b.sku) + '\')"><b>' + esc(b.product) +
+        (can ? '' : ' <span class="tag low">can\u2019t build</span>') + '</b>' +
+        '<span>' + (b.packs ? b.packs + ' pack' + (b.packs === 1 ? '' : 's') : 'no contents') +
+        (b.weight ? ' · ' + round2(b.weight) + ' lb' : '') +
+        ' · ' + can + ' buildable</span></div>' +
+      '<div class="stepper">' +
+        '<button onclick="quickAdjust(\'' + esc(b.sku) + '\',-1)">−</button>' +
+        '<span class="n">' + b.onHand + '</span>' +
+        '<button class="plus" onclick="quickAdjust(\'' + esc(b.sku) + '\',1)">+</button>' +
+      '</div></div>' +
+      '<div id="sub-box-' + esc(b.sku) + '" style="display:none">' +
+        '<div class="parts">' + parts + money + '</div>' +
+        '<div class="row" style="margin:8px 0 2px">' +
+          '<button class="ghost small" onclick="openBoxEdit(\'' + esc(b.sku) + '\')">Change contents</button>' +
+        '</div>' +
+      '</div></div>';
+  }).join('');
+}
+
+/* ─────────── adding a cut or a box from the phone ───────────
+ * Adding a product used to mean opening the spreadsheet. Everything that goes
+ * in the freezer can now be created where it is being counted.
+ */
+function openAddThing() {
+  openSheet('Add something new', 'A cut of meat, or a box made of cuts',
+    '<div class="row">' +
+      '<button onclick="openAddProduct()">A cut</button>' +
+      '<button onclick="openAddBox()">A box</button>' +
+    '</div>' +
+    '<button class="ghost" style="margin-top:10px" onclick="closeSheet()">Cancel</button>');
+}
+
+function openAddProduct() {
+  const cats = ['Steak','Roast','Ribs','Ground','Processed','Other cuts','Tallow'];
+  openSheet('New cut', 'Only the name is required',
+    '<label>Name</label>' +
+    '<input id="npName" type="text" autocomplete="off" placeholder="e.g. Picanha">' +
+    '<label>Category</label><select id="npCat">' +
+      cats.map(c => opt(c, c)).join('') + '</select>' +
+    '<label>What is in a pack</label>' +
+    '<input id="npContent" type="text" autocomplete="off" placeholder="e.g. 2 × 12 oz, or 2 lb">' +
+    '<label>Average weight of one pack (lb)</label>' +
+    '<input id="npWeight" type="number" inputmode="decimal" step="0.01" min="0" placeholder="leave blank if unknown">' +
+    '<label>Price per pack ($)</label>' +
+    '<input id="npPrice" type="number" inputmode="decimal" step="0.01" min="0" placeholder="website price">' +
+    '<label>Market price per pack ($)</label>' +
+    '<input id="npMarket" type="number" inputmode="decimal" step="0.01" min="0" placeholder="leave blank if the same">' +
+    '<label>Tell me when it drops below</label>' +
+    '<input id="npReorder" type="number" inputmode="numeric" step="1" min="0" placeholder="packs">' +
+    '<button id="npGo" style="margin-top:12px" onclick="saveNewProduct()">Add it</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Cancel</button>');
+  setTimeout(() => { const el = $('npName'); if (el) el.focus(); }, 60);
+}
+
+async function saveNewProduct() {
+  const name = ($('npName').value || '').trim();
+  if (!name) return toast('It needs a name.', 'bad');
+  const btn = $('npGo');
+  if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+  const num = id => { const v = ($(id).value || '').trim(); return v === '' ? '' : Number(v); };
+  try {
+    const res = await api('addProduct', { product: {
+      product: name,
+      category: $('npCat').value,
+      content: ($('npContent').value || '').trim(),
+      avgWeight: num('npWeight') || 0,
+      price: num('npPrice'),
+      marketPrice: num('npMarket'),
+      reorder: num('npReorder')
+    }});
+    if (res.products) { data.products = res.products; save(LS.data, data); }
+    closeSheet();
+    toast(name + ' added.', 'ok');
+    invKind = 'cuts'; setInvKind('cuts');
+    $('stockSearch').value = name; renderStock();
+    sync(true, true);
+  } catch (e) {
+    toast(e.message, 'bad');
+    if (btn) { btn.disabled = false; btn.textContent = 'Add it'; }
+  }
+}
+
+/* ─── boxes: a name, a price, and a list of cuts with counts ─── */
+let boxDraft = [];
+
+function openAddBox(sku) {
+  const existing = sku ? (data.boxList || []).find(b => b.sku === sku) : null;
+  boxDraft = existing ? (existing.parts || []).map(p => ({ sku: p.sku, qty: p.qty }))
+                      : [{ sku: '', qty: 1 }];
+  openSheet(existing ? 'Change ' + existing.product : 'New box',
+    existing ? 'What goes in it, and how many of each' : 'Give it a name, then put cuts in it',
+    (existing
+      ? '<input type="hidden" id="nbSku" value="' + esc(existing.sku) + '">'
+      : '<label>Name</label><input id="nbName" type="text" autocomplete="off" placeholder="e.g. Dinner for Two">' +
+        '<label>Short description</label>' +
+        '<input id="nbContent" type="text" autocomplete="off" placeholder="e.g. 2 steaks + ground beef">' +
+        '<label>Price per box ($)</label>' +
+        '<input id="nbPrice" type="number" inputmode="decimal" step="0.01" min="0">' +
+        '<label>Market price per box ($)</label>' +
+        '<input id="nbMarket" type="number" inputmode="decimal" step="0.01" min="0" placeholder="leave blank if the same">') +
+    '<label style="margin-top:10px">What goes in it</label>' +
+    '<div id="nbParts"></div>' +
+    '<button class="ghost small" style="margin-top:6px" onclick="boxDraftAdd()">+ Another cut</button>' +
+    '<div id="nbSum" class="money" style="margin-top:10px"></div>' +
+    '<button id="nbGo" style="margin-top:12px" onclick="saveBox()">' +
+      (existing ? 'Save contents' : 'Add the box') + '</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Cancel</button>');
+  renderBoxDraft();
+}
+
+function openBoxEdit(sku) { openAddBox(sku); }
+
+function boxDraftAdd() { boxDraft.push({ sku: '', qty: 1 }); renderBoxDraft(); }
+function boxDraftDrop(i) { boxDraft.splice(i, 1); if (!boxDraft.length) boxDraft.push({ sku:'', qty:1 }); renderBoxDraft(); }
+
+function readBoxDraft() {
+  boxDraft = boxDraft.map((_, i) => ({
+    sku: ($('nbSku' + i) || {}).value || '',
+    qty: Number(($('nbQty' + i) || {}).value || 0)
+  }));
+  return boxDraft;
+}
+
+function renderBoxDraft() {
+  const boxes = boxSkus();
+  const choices = (data.products || [])
+    .filter(p => p.active !== false && !boxes.has(p.sku))
+    .sort((a, b) => String(a.product).localeCompare(String(b.product)));
+  $('nbParts').innerHTML = boxDraft.map((c, i) =>
+    '<div class="row" style="margin-bottom:6px">' +
+      '<select id="nbSku' + i + '" onchange="readBoxDraft();renderBoxDraft()" style="flex:3">' +
+        '<option value="">Pick a cut…</option>' +
+        choices.map(p => '<option value="' + esc(p.sku) + '"' +
+          (p.sku === c.sku ? ' selected' : '') + '>' + esc(p.product) +
+          (p.content ? ' (' + esc(p.content) + ')' : '') + '</option>').join('') +
+      '</select>' +
+      '<input id="nbQty' + i + '" type="number" inputmode="numeric" min="1" step="1" ' +
+        'value="' + (c.qty || 1) + '" oninput="readBoxDraft();boxDraftSum()" style="flex:1">' +
+      '<button class="ghost small" onclick="boxDraftDrop(' + i + ')">✕</button>' +
+    '</div>').join('');
+
+  boxDraftSum();
+}
+
+/* What the contents come to, so a price can be set with eyes open. Separate
+   from the row rendering so it can update on every keystroke without tearing
+   out the field being typed into. */
+function boxDraftSum() {
+  const el = $('nbSum');
+  if (!el) return;
+  const byS = Object.fromEntries((data.products || []).map(p => [p.sku, p]));
+  let wt = 0, val = 0, n = 0;
+  boxDraft.forEach(c => {
+    const p = byS[c.sku]; if (!p || !c.qty) return;
+    n += c.qty; wt += (p.avgWeight || 0) * c.qty; val += (p.price || 0) * c.qty;
+  });
+  el.innerHTML = n
+    ? n + ' pack' + (n === 1 ? '' : 's') +
+      (wt ? ' · ' + round2(wt) + ' lb' : '') +
+      (val ? ' · contents worth <b>' + plain(Math.round(val * 100) / 100) + '</b>' : '')
+    : 'Nothing in it yet.';
+}
+
+async function saveBox() {
+  const parts = readBoxDraft().filter(c => c.sku && c.qty > 0);
+  if (!parts.length) return toast('Put at least one cut in it.', 'bad');
+  const editing = $('nbSku') ? $('nbSku').value : '';
+  const btn = $('nbGo');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  const num = id => { const el = $(id); if (!el) return ''; const v = (el.value || '').trim(); return v === '' ? '' : Number(v); };
+  try {
+    let res;
+    if (editing) {
+      res = await api('setBoxParts', { boxSku: editing, parts: parts });
+    } else {
+      const name = ($('nbName').value || '').trim();
+      if (!name) { if (btn) { btn.disabled = false; btn.textContent = 'Add the box'; } return toast('It needs a name.', 'bad'); }
+      res = await api('addBox', { box: {
+        product: name,
+        content: ($('nbContent').value || '').trim(),
+        price: num('nbPrice'),
+        marketPrice: num('nbMarket'),
+        parts: parts
+      }});
+    }
+    if (res.products) data.products = res.products;
+    if (res.boxes) data.boxList = res.boxes;
+    save(LS.data, data);
+    closeSheet();
+    toast(editing ? 'Contents saved.' : 'Box added.', 'ok');
+    invKind = 'boxes'; setInvKind('boxes');
+    sync(true, true);
+  } catch (e) {
+    toast(e.message, 'bad');
+    if (btn) { btn.disabled = false; btn.textContent = editing ? 'Save contents' : 'Add the box'; }
+  }
+}
+
+/* ─────────────────── counting by photo ───────────────────
+ * The camera proposes; the person decides. Nothing reaches the ledger until
+ * the list has been looked at and the button pressed, and what is then
+ * written is an ordinary signed entry, identical to one typed by hand.
+ */
+let photoLines = [];
+let photoMode = 'add';
+
+function openPhotoCount() {
+  photoLines = [];
+  photoMode = 'add';
+  const freezers = (data.freezers || []).map(f => opt(f.id, f.name || f.id)).join('');
+  const batches = ['<option value="">no batch</option>']
+    .concat((data.batches || []).map(b => opt(b.id, b.id + (b.grade ? ' · ' + b.grade : ''))))
+    .join('');
+  openSheet('Count by photo', 'Point at a label if there is one, otherwise at the meat',
+    '<div class="seg" id="pcSeg">' +
+      '<button data-m="add" class="on" onclick="setPhotoMode(\'add\')">Putting in</button>' +
+      '<button data-m="remove" onclick="setPhotoMode(\'remove\')">Taking out</button>' +
+    '</div>' +
+    '<div id="pcPlace">' +
+      '<label>Freezer</label><select id="pcFreezer">' + freezers + '</select>' +
+      '<label>Batch</label><select id="pcBatch">' + batches + '</select>' +
+    '</div>' +
+    '<label style="margin-top:10px">Photo</label>' +
+    '<input id="pcFile" type="file" accept="image/*" capture="environment" onchange="readPhoto()">' +
+    '<div id="pcShot" style="margin-top:10px"></div>' +
+    '<div id="pcResult"></div>' +
+    '<button class="ghost" style="margin-top:10px" onclick="closeSheet()">Cancel</button>');
+  setPhotoMode('add');
+}
+
+function setPhotoMode(m) {
+  photoMode = m === 'remove' ? 'remove' : 'add';
+  document.querySelectorAll('#pcSeg button').forEach(b =>
+    b.classList.toggle('on', b.dataset.m === photoMode));
+  // Taking out comes off whatever lot the ledger already has, so there is no
+  // freezer or batch to choose.
+  const place = $('pcPlace');
+  if (place) place.style.display = photoMode === 'add' ? '' : 'none';
+  if (photoLines.length) renderPhotoLines();
+}
+
+/* Shrink before sending. A phone photo is several megabytes; nothing here
+   needs more than about a thousand pixels, and the smaller it is the less it
+   costs and the sooner it comes back. */
+function shrinkImage(file, maxSide = 1100, quality = 0.72) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onerror = () => reject(new Error('Could not read that photo.'));
+    fr.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('That file is not a photo I can read.'));
+      img.onload = () => {
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+        const cv = document.createElement('canvas');
+        cv.width = Math.round(img.width * scale);
+        cv.height = Math.round(img.height * scale);
+        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        const url = cv.toDataURL('image/jpeg', quality);
+        resolve({ dataUrl: url, b64: url.split(',')[1], mime: 'image/jpeg' });
+      };
+      img.src = fr.result;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+
+async function readPhoto() {
+  const file = ($('pcFile').files || [])[0];
+  if (!file) return;
+  if (!navigator.onLine) {
+    $('pcResult').innerHTML = '<p class="signin-note bad">Reading a photo needs a connection. ' +
+      'You can still count by hand and it will go up later.</p>';
+    return;
+  }
+  $('pcResult').innerHTML = '<p class="muted">Looking at the photo…</p>';
+  try {
+    const shot = await shrinkImage(file);
+    $('pcShot').innerHTML = '<img src="' + shot.dataUrl + '" ' +
+      'style="width:100%;border-radius:10px;max-height:220px;object-fit:cover">';
+    const res = await api('photoCount', { image: shot.b64, mime: shot.mime });
+    photoLines = (res.lines || []).map(l => ({
+      sku: l.sku || '', product: l.product, asRead: l.asRead,
+      count: l.count || 1, matched: l.matched, confidence: l.confidence, note: l.note
+    }));
+    renderPhotoLines(res);
+  } catch (e) {
+    $('pcResult').innerHTML = '<p class="signin-note bad">' + esc(e.message) + '</p>';
+  }
+}
+
+function photoLineRead() {
+  photoLines = photoLines.map((l, i) => ({
+    ...l,
+    sku: ($('plSku' + i) || {}).value || '',
+    count: Number(($('plQty' + i) || {}).value || 0)
+  }));
+  return photoLines;
+}
+
+function photoLineDrop(i) { photoLines.splice(i, 1); renderPhotoLines(); }
+
+function renderPhotoLines(res) {
+  const boxes = boxSkus();
+  const choices = (data.products || [])
+    .filter(p => p.active !== false)
+    .sort((a, b) => String(a.product).localeCompare(String(b.product)));
+
+  if (!photoLines.length) {
+    $('pcResult').innerHTML =
+      '<p class="signin-note bad">Nothing could be made out in that photo' +
+      (res && res.note ? ' — ' + esc(res.note) : '') + '.</p>' +
+      '<p class="muted">Try again with the label showing, or closer in. ' +
+      'Counting by hand always works.</p>';
+    return;
+  }
+
+  const where = res && res.from === 'label' ? 'read off the label' : 'guessed from the meat';
+  const rows = photoLines.map((l, i) => {
+    const flag = !l.sku ? '<span class="tag out">not recognised</span>'
+      : l.confidence === 'low' ? '<span class="tag low">unsure</span>'
+      : l.confidence === 'medium' ? '<span class="tag">fairly sure</span>' : '';
+    return '<div style="margin-bottom:8px">' +
+      '<div class="row">' +
+        '<select id="plSku' + i + '" onchange="photoLineRead()" style="flex:3">' +
+          '<option value="">Pick the cut…</option>' +
+          choices.map(p => '<option value="' + esc(p.sku) + '"' +
+            (p.sku === l.sku ? ' selected' : '') + '>' + esc(p.product) +
+            (p.content ? ' (' + esc(p.content) + ')' : '') + '</option>').join('') +
+        '</select>' +
+        '<input id="plQty' + i + '" type="number" inputmode="numeric" min="0" step="1" ' +
+          'value="' + l.count + '" oninput="photoLineRead()" style="flex:1">' +
+        '<button class="ghost small" onclick="photoLineDrop(' + i + ')">✕</button>' +
+      '</div>' +
+      '<div class="money">' + esc(l.asRead || '') + ' ' + flag +
+        (l.note ? ' · ' + esc(l.note) : '') + '</div>' +
+    '</div>';
+  }).join('');
+
+  $('pcResult').innerHTML =
+    '<p class="muted" style="margin:10px 0 6px"><b>Check this before saving.</b> ' +
+      photoLines.length + ' line' + (photoLines.length === 1 ? '' : 's') + ' ' + where + '. ' +
+      'Fix anything wrong — nothing is recorded until you press the button.</p>' +
+    (res && res.note ? '<p class="muted">Note: ' + esc(res.note) + '</p>' : '') +
+    rows +
+    '<button id="pcGo" style="margin-top:10px" onclick="applyPhotoCount()">' +
+      (photoMode === 'add' ? 'Put these in' : 'Take these out') + '</button>';
+}
+
+function applyPhotoCount() {
+  const lines = photoLineRead().filter(l => l.sku && l.count > 0);
+  if (!lines.length) return toast('Nothing to record — pick a cut and a count.', 'bad');
+
+  const adding = photoMode === 'add';
+  const freezer = adding ? ($('pcFreezer') || {}).value || '' : '';
+  const batch = adding ? ($('pcBatch') || {}).value || '' : '';
+
+  // Ordinary ledger entries, signed and queued like anything typed by hand —
+  // so they work offline and replay on reconnect in the usual way.
+  const ops = lines.map(l => adding
+    ? { type: 'INTAKE', sku: l.sku, packages: l.count, freezer, batch,
+        note: 'Counted by photo' }
+    : { type: 'ADJUST', sku: l.sku, packages: -l.count,
+        reason: 'Counted by photo', note: 'Counted by photo' });
+
+  enqueue(ops);
+  closeSheet();
+  const total = lines.reduce((t, l) => t + l.count, 0);
+  toast(total + ' pack' + (total === 1 ? '' : 's') + (adding ? ' in' : ' out') + '.', 'ok');
 }
 
 function toggleSub(sku) {
