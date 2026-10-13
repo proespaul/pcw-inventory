@@ -1507,13 +1507,13 @@ function renderStock() {
         (l.days ? ' · ' + Math.round(l.days / 30) + ' mo' : '') + '</span>' +
         '<b>' + l.packages + ' pkg</b>' +
         '<span>' + (l.weight ? round2(l.weight) + ' lb' : 'no weight') + '</span>' +
-        '<button class="ghost small" onclick="event.stopPropagation();openLineSheet(\'' +
+        '<button class="ghost small" onclick="event.stopPropagation();openLot(\'' +
           esc(l.key || '') + '\')">⋯</button></div>').join('') + '</div>' : '';
     const pic = photoFor(r.sku);
     return '<div><div class="item">' +
       (pic ? '<img class="cutpic" src="' + pic + '" alt="" loading="lazy" ' +
              'onclick="event.stopPropagation();showCut(\'' + esc(r.sku) + '\')">' : '') +
-      '<div class="name" onclick="toggleSub(\'' + esc(r.sku) + '\')"><b>' + esc(r.product) + tag + pend + '</b>' +
+      '<div class="name" onclick="openProduct(\'' + esc(r.sku) + '\')"><b>' + esc(r.product) + tag + pend + '</b>' +
         '<span>' + esc(r.content || r.sku) +
         (r.perLb ? ' · ' + plain(r.perLb) + '/lb' : '') + '</span></div>' +
       '<div class="stepper">' +
@@ -1948,6 +1948,184 @@ function applyPhotoCount() {
   toast(total + ' pack' + (total === 1 ? '' : 's') + (adding ? ' in' : ' out') + '.', 'ok');
 }
 
+/* ───────────── the whole of a product, in one place ─────────────
+ * Tapping a product used to open the list of its lots and nothing else, so
+ * the only number you could change was the count. Everything about a product
+ * and every lot of it is now here and editable: pack contents, weight, grade,
+ * prices, the reorder point — and per lot, the freezer, batch, grade and size
+ * it was filed under, which until now could only be fixed in the spreadsheet.
+ */
+function freezerName(id) {
+  const f = (data.freezers || []).find(x => x.id === id);
+  return (f && (f.name || f.id)) || id || '';
+}
+
+function openProduct(sku) {
+  const p = (data.products || []).find(x => x.sku === sku) || { sku: sku, product: sku };
+  const lines = (data.stock || []).filter(l => l.sku === sku);
+  const onHand = lines.reduce((t, l) => t + l.packages, 0);
+  const weight = lines.reduce((t, l) => t + (l.weight || 0), 0);
+
+  const lotRows = lines.length ? lines.map(l => {
+    const key = l.key || [l.sku, l.size, l.grade, l.batch, l.freezer].join('|');
+    return '<div class="sub" onclick="openLot(\'' + esc(key) + '\')" style="cursor:pointer">' +
+      '<span class="grow">' +
+        '<b>' + esc(l.freezer ? freezerName(l.freezer) : 'no freezer') + '</b>' +
+        ' · ' + esc(l.batch || 'no batch') +
+        (l.grade ? ' · ' + esc(l.grade) : '') +
+        (l.size ? ' · ' + esc(l.size) : '') +
+      '</span>' +
+      '<b>' + l.packages + ' pkg</b>' +
+      '<span>' + (l.weight ? round2(l.weight) + ' lb' : 'no weight') + '</span>' +
+      '<button class="ghost small" onclick="event.stopPropagation();openLot(\'' + esc(key) + '\')">Edit</button>' +
+    '</div>';
+  }).join('') : '<p class="muted">None in the freezer right now.</p>';
+
+  openSheet(p.product || sku,
+    (p.content || sku) + ' · ' + onHand + ' pkg' + (weight ? ' · ' + round2(weight) + ' lb' : ''),
+
+    // ── where it is ──
+    '<label>In the freezer</label>' +
+    '<div class="card list" style="margin:0 0 4px">' + lotRows + '</div>' +
+    '<p class="muted" style="margin:2px 0 14px">Tap a line to change its freezer, batch, grade, count or weight.</p>' +
+
+    // ── what it is ──
+    '<label>Name</label>' +
+    '<input id="epName" type="text" value="' + esc(p.product || '') + '">' +
+    '<label>What is in a pack</label>' +
+    '<input id="epContent" type="text" value="' + esc(p.content || '') + '" placeholder="e.g. 2 × 12 oz">' +
+    '<label>Category</label>' +
+    '<input id="epCat" type="text" value="' + esc(p.category || '') + '">' +
+    '<label>Average weight of one pack (lb)</label>' +
+    '<input id="epWeight" type="number" inputmode="decimal" step="0.01" min="0" value="' +
+      (p.avgWeight || '') + '" placeholder="not recorded">' +
+    '<label>Usual grade</label>' +
+    '<input id="epGrade" type="text" value="' + esc(p.grade || '') + '" placeholder="e.g. Gold">' +
+
+    '<label style="margin-top:14px">Price per pack ($)</label>' +
+    '<input id="epPrice" type="number" inputmode="decimal" step="0.01" min="0" value="' +
+      (p.price || '') + '">' +
+    '<p class="muted" style="margin:2px 0 10px">' +
+      (p.pricePerLb ? 'Works out to ' + plain(p.pricePerLb) + '/lb · ' + plain(p.pricePerKg) + '/kg. ' : '') +
+      'Change the pack price and these are worked out again.</p>' +
+    '<label>Market price per pack ($)</label>' +
+    '<input id="epMarket" type="number" inputmode="decimal" step="0.01" min="0" value="' +
+      (p.marketPrice || '') + '" placeholder="leave blank if the same">' +
+    '<label>Tell me when it drops below</label>' +
+    '<input id="epReorder" type="number" inputmode="numeric" step="1" min="0" value="' +
+      (p.reorder === '' || p.reorder === undefined ? '' : p.reorder) + '" placeholder="packs">' +
+    '<label>Notes</label>' +
+    '<input id="epNotes" type="text" value="' + esc(p.notes || '') + '">' +
+
+    '<button id="epGo" style="margin-top:14px" onclick="saveProduct(\'' + esc(sku) + '\')">Save changes</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Close</button>' +
+    '<p class="muted" style="margin-top:10px">Code: ' + esc(sku) + '</p>');
+}
+
+async function saveProduct(sku) {
+  const btn = $('epGo');
+  const num = id => { const v = ($(id).value || '').trim(); return v === '' ? '' : Number(v); };
+  const body = {
+    sku: sku,
+    product: ($('epName').value || '').trim(),
+    content: ($('epContent').value || '').trim(),
+    category: ($('epCat').value || '').trim(),
+    avgWeight: num('epWeight'),
+    grade: ($('epGrade').value || '').trim(),
+    price: num('epPrice'),
+    marketPrice: num('epMarket'),
+    reorder: num('epReorder'),
+    notes: ($('epNotes').value || '').trim()
+  };
+  if (!body.product) return toast('It needs a name.', 'bad');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    const res = await api('updateProduct', { product: body });
+    if (res.products) data.products = res.products;
+    if (res.boxes) data.boxList = res.boxes;
+    save(LS.data, data);
+    closeSheet();
+    toast('Saved.', 'ok');
+    renderAll();
+    sync(true, true);
+  } catch (e) {
+    toast(e.message, 'bad');
+    if (btn) { btn.disabled = false; btn.textContent = 'Save changes'; }
+  }
+}
+
+/* ───────────── one lot: where it is and what it weighs ─────────────
+ * Count, weight and moving between freezers already worked. What was missing
+ * was fixing a lot filed under the wrong freezer, batch, grade or size — the
+ * mistakes that actually happen when stock is entered in a hurry.
+ */
+function openLot(key) {
+  const l = lineByKey(key);
+  if (!l) return toast('That lot is no longer there.', 'bad');
+  const fOpts = (data.freezers || []).filter(f => f.active !== false)
+    .map(f => '<option value="' + esc(f.id) + '"' + (f.id === l.freezer ? ' selected' : '') +
+              '>' + esc(f.name || f.id) + '</option>').join('');
+  const bOpts = '<option value="">no batch</option>' +
+    (data.batches || []).map(b => '<option value="' + esc(b.id) + '"' +
+      (b.id === l.batch ? ' selected' : '') + '>' + esc(b.id) +
+      (b.grade ? ' · ' + esc(b.grade) : '') + '</option>').join('');
+
+  openSheet((l.product || l.sku) + ' — this lot',
+    (l.freezer ? freezerName(l.freezer) : '—') + ' · ' + (l.batch || 'no batch') +
+      (l.grade ? ' · ' + l.grade : '') + ' · ' + l.packages + ' pkg',
+
+    '<label>How many packages are really there</label>' +
+    '<div class="row"><input type="number" inputmode="numeric" id="lsCount" value="' + l.packages + '" min="0" step="1">' +
+      '<button id="lsSet" onclick="commitRecount(\'' + esc(key) + '\')">Set count</button></div>' +
+
+    '<label style="margin-top:16px">Weight of these ' + l.packages + ' packages (lb)</label>' +
+    '<div class="row"><input type="number" inputmode="decimal" id="lsWeight" step="0.01" ' +
+      'placeholder="' + (l.weight ? l.weight : 'not weighed yet') + '" value="' + (l.weight || '') + '">' +
+      '<button id="lsWeighGo" onclick="commitWeigh(\'' + esc(key) + '\', false)">Set total</button></div>' +
+    '<button class="ghost small" style="margin-top:7px" onclick="commitWeigh(\'' + esc(key) + '\', true)">' +
+      'That number is per package instead</button>' +
+
+    '<label style="margin-top:18px">Filed under</label>' +
+    '<p class="muted" style="margin:2px 0 8px">Fix anything that was entered wrongly. ' +
+      'Leave the count blank to correct the whole lot.</p>' +
+    '<div class="row"><select id="rlFreezer" style="flex:1">' + fOpts + '</select>' +
+      '<select id="rlBatch" style="flex:1">' + bOpts + '</select></div>' +
+    '<div class="row" style="margin-top:6px">' +
+      '<input id="rlGrade" type="text" value="' + esc(l.grade || '') + '" placeholder="grade" style="flex:1">' +
+      '<input id="rlSize" type="text" value="' + esc(l.size || '') + '" placeholder="size" style="flex:1">' +
+      '<input id="rlQty" type="number" inputmode="numeric" min="1" max="' + l.packages +
+        '" step="1" placeholder="all ' + l.packages + '" style="flex:1">' +
+    '</div>' +
+    '<button class="ghost" id="rlGo" style="margin-top:8px" onclick="commitRelabel(\'' + esc(key) + '\')">' +
+      'Correct this lot</button>' +
+
+    '<button class="ghost" style="margin-top:16px" onclick="closeSheet()">Close</button>');
+}
+
+function commitRelabel(key) {
+  const l = lineByKey(key);
+  if (!l) return toast('That lot is no longer there.', 'bad');
+  const toFreezer = ($('rlFreezer') || {}).value || '';
+  const toBatch = ($('rlBatch') || {}).value || '';
+  const toGrade = (($('rlGrade') || {}).value || '').trim();
+  const toSize = (($('rlSize') || {}).value || '').trim();
+  const qtyRaw = (($('rlQty') || {}).value || '').trim();
+  const qty = qtyRaw === '' ? l.packages : Number(qtyRaw);
+
+  if (!(qty > 0)) return toast('How many packages?', 'bad');
+  if (qty > l.packages) return toast('There are only ' + l.packages + ' in that lot.', 'bad');
+  if (toFreezer === (l.freezer || '') && toBatch === (l.batch || '') &&
+      toGrade === (l.grade || '') && toSize === (l.size || '')) {
+    return toast('Nothing was changed.', 'bad');
+  }
+
+  enqueue([{ type: 'RELABEL', sku: l.sku, product: l.product, content: l.content,
+             size: l.size, grade: l.grade, batch: l.batch, freezer: l.freezer,
+             packages: qty, toFreezer, toBatch, toGrade, toSize }]);
+  closeSheet();
+  toast('Corrected.', 'ok');
+}
+
 function toggleSub(sku) {
   const el = document.getElementById('sub-' + sku);
   if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
@@ -2007,7 +2185,11 @@ function commitQuickAdjust(sku, dir) {
   toast((dir < 0 ? 'Took out ' : 'Added ') + qty + ' × ' + (p.product || sku) + '.', 'ok');
 }
 
-function openLineSheet(key) {
+/* Kept as an alias: openLot superseded this, and anything still reaching for
+   the old name should land on the new screen rather than a stale one. */
+function openLineSheet(key) { return openLot(key); }
+
+function openLineSheetOld_(key) {
   const l = lineByKey(key);
   if (!l) return;
   const fOpts = data.freezers.filter(f => f.active && f.id !== l.freezer)
@@ -2925,14 +3107,54 @@ function renderPhotos() {
 }
 
 /* ───────── sheet, settings, navigation ───────── */
-function closeSheet() { $('sheet').classList.remove('on'); $('scrim').classList.remove('on'); }
+/* ─────────────────── the phone's back button ───────────────────
+ * Installed as an app, this used to close on the first back press, losing
+ * whatever was half-typed. Back should mean what it means everywhere else:
+ * shut the panel, or step back a screen, and only leave from the first
+ * screen. The only way to get that on a phone is to put real entries in the
+ * browser's history as the app is used, and to answer popstate.
+ */
+let sheetIsOpen = false;
+let ignoreNextPop = false;
+
+function pushHist(kind, name) {
+  try {
+    history.pushState({ pcw: kind, name: name || '' }, '',
+      location.pathname + location.search + '#' + (name || kind));
+  } catch (e) { /* history blocked — the app still works, back just exits */ }
+}
+
+function closeSheet(opts) {
+  const was = sheetIsOpen;
+  sheetIsOpen = false;
+  $('sheet').classList.remove('on');
+  $('scrim').classList.remove('on');
+  // Closing by button has to consume the history entry the sheet added, or
+  // the next back press would appear to do nothing at all.
+  if (was && !(opts && opts.fromHistory)) {
+    ignoreNextPop = true;
+    try { history.back(); } catch (e) { ignoreNextPop = false; }
+  }
+}
+
 function openSheet(title, sub, body) {
   $('sheetTitle').textContent = title;
   $('sheetSub').textContent = sub || '';
   $('sheetBody').innerHTML = body;
   $('sheet').classList.add('on');
   $('scrim').classList.add('on');
+  if (!sheetIsOpen) pushHist('sheet', 'panel');
+  sheetIsOpen = true;
 }
+
+window.addEventListener('popstate', ev => {
+  if (ignoreNextPop) { ignoreNextPop = false; return; }
+  // A panel is open: back shuts the panel and goes no further.
+  if (sheetIsOpen) { closeSheet({ fromHistory: true }); return; }
+  const st = (ev.state && ev.state.pcw) ? ev.state : null;
+  const name = st && st.pcw === 'view' ? st.name : 'orders';
+  showView(name, { fromHistory: true });
+});
 
 function openSettings() {
   const last = load(LS.sync, null);
@@ -2970,7 +3192,8 @@ const TITLES = { order:'Order', neworder:'New order', followup:'Follow up',
                  market:'Market day', boxes:'Boxes',
                  calendar:'Calendar', calnew:'Add to the calendar' };
 
-function showView(name) {
+function showView(name, opts) {
+  const fromHistory = !!(opts && opts.fromHistory);
   if (name !== 'order') openOrderId = null;
   if (name === 'calendar') loadSchedule(true);
   if (name === 'calnew' && !$('cnDate').value) $('cnDate').value = todayISO();
@@ -2980,7 +3203,8 @@ function showView(name) {
   $('btnBack').classList.toggle('on', !!SUBVIEWS[name]);
   $('title').textContent = name === 'orders' ? 'Orders and Follow-Up'
     : (TITLES[name] || ((data.settings.BUSINESS || 'PCW') + ' Inventory'));
-  closeSheet();
+  closeSheet({ fromHistory: true });   // the view change owns the history entry
+  if (!fromHistory) pushHist('view', name);
   window.scrollTo(0, 0);
 }
 
@@ -3074,6 +3298,10 @@ setInterval(() => {
 
 /* ───────────────────────── boot ───────────────────────── */
 $('inDate').value = todayISO(); $('ordDate').value = todayISO();
+// The screen we open on is the bottom of the stack: back from here leaves the
+// app, which is what it should do.
+try { history.replaceState({ pcw: 'view', name: 'orders' }, '', location.pathname + location.search); }
+catch (e) {}
 renderAll();
 if (signedIn()) {
   hideSignIn(); sync(true);
