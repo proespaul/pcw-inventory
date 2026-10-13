@@ -670,7 +670,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-13 17:19 UTC';
+const APP_BUILD = '2026-10-13 17:50 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos' };
 const MAX_PHOTOS = 8;
@@ -1648,12 +1648,50 @@ function renderBoxList() {
  * in the freezer can now be created where it is being counted.
  */
 function openAddThing() {
-  openSheet('Add something new', 'A cut of meat, or a box made of cuts',
+  openSheet('Add something new', 'A cut, a box, or somewhere to keep them',
     '<div class="row">' +
       '<button onclick="openAddProduct()">A cut</button>' +
       '<button onclick="openAddBox()">A box</button>' +
     '</div>' +
-    '<button class="ghost" style="margin-top:10px" onclick="closeSheet()">Cancel</button>');
+    '<button class="ghost" style="margin-top:10px" onclick="openAddFreezer()">A freezer</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Cancel</button>');
+}
+
+/* Freezers used to be addable only by typing a row into the spreadsheet,
+ * which is why the list quietly ended up with nothing but "Unassigned" in it
+ * and there was nowhere to move stock to. */
+function openAddFreezer() {
+  const have = (data.freezers || []).filter(f => f.active !== false);
+  openSheet('New freezer', 'Somewhere to keep stock',
+    '<label>Name</label>' +
+    '<input id="nfName" type="text" autocomplete="off" placeholder="e.g. Freezer 7, or Edmonton">' +
+    '<label>Where it is</label>' +
+    '<input id="nfWhere" type="text" autocomplete="off" placeholder="optional — e.g. the shop, Edmonton">' +
+    '<button id="nfGo" style="margin-top:12px" onclick="saveFreezer()">Add it</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Cancel</button>' +
+    '<p class="muted" style="margin-top:12px">You have ' + have.length + ': ' +
+      esc(have.map(f => f.name || f.id).join(', ')) + '</p>');
+  setTimeout(() => { const el = $('nfName'); if (el) el.focus(); }, 60);
+}
+
+async function saveFreezer() {
+  const name = ($('nfName').value || '').trim();
+  if (!name) return toast('It needs a name.', 'bad');
+  const btn = $('nfGo');
+  if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+  try {
+    const res = await api('addFreezer', { freezer: {
+      name: name, location: ($('nfWhere').value || '').trim()
+    }});
+    if (res.freezers) { data.freezers = res.freezers; save(LS.data, data); }
+    closeSheet();
+    toast(name + ' added.', 'ok');
+    renderAll();
+    sync(true, true);
+  } catch (e) {
+    toast(e.message, 'bad');
+    if (btn) { btn.disabled = false; btn.textContent = 'Add it'; }
+  }
 }
 
 function openAddProduct() {
