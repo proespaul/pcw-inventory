@@ -8,7 +8,7 @@
    one file is missing, so the worker never installed and offline mode died
    with it. v3 lists only files that exist, and the bump forces a clean
    re-install over the broken v2 state. */
-const CACHE = 'pcw-inv-v3';
+const CACHE = 'pcw-inv-v4';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
