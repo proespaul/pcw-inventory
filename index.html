@@ -198,6 +198,13 @@
   .seg button { flex:1; border:0; background:transparent; font-size:15px; font-weight:700;
                 padding:11px 8px; color:#5d6652; }
   .seg button.on { background:#3f4a2c; color:#fff; }
+  /* The three price channels are easy to mix up at a glance, so the chosen
+     one is coloured as well as labelled — the label still carries it, the
+     colour just makes "which am I quoting?" answerable without reading. */
+  #calcChannel button[data-c="website"].on   { background:#2a5d8f; }
+  #calcChannel button[data-c="market"].on    { background:#8a5a12; }
+  #calcChannel button[data-c="wholesale"].on { background:#5c3c74; }
+  #calcChannel button { font-size:13.5px; padding:11px 4px; }
   .boxrow .parts { margin:6px 0 0; padding:8px 10px; background:#f4f6ef;
                    border-radius:8px; font-size:13px; line-height:1.6; color:#43503a; }
   .boxrow .parts .pline { display:flex; justify-content:space-between; gap:8px; }
@@ -206,6 +213,11 @@
   .boxrow .money b { color:#20251c; }
   .gap-bad { color:#8c2f1f; font-weight:700; }
   .gap-ok { color:#2f6b35; font-weight:700; }
+  /* Anything the lot editor needs to say appears under the button that
+     caused it, rather than floating over the whole screen. */
+  .lotsay { margin:8px 0 0; font-size:13px; line-height:1.45; }
+  .lotsay.bad { color:#8c2f1f; font-weight:600; }
+  .lotsay.ok { color:#2f6b35; font-weight:600; }
   .join-box { margin:18px 0 0; text-align:left; }
   .join-label { display:block; font-size:12px; font-weight:700; letter-spacing:.04em;
                 text-transform:uppercase; color:#5d6652; margin:0 0 6px; }
@@ -386,8 +398,8 @@
       <label>Weight of this piece</label>
       <div class="row">
         <input type="number" inputmode="decimal" id="calcWeight" step="0.01" placeholder="blank for a set price">
-        <div class="seg" style="flex:0 0 130px" id="calcUnit">
-          <button data-u="lb" class="on">lb</button><button data-u="kg">kg</button>
+        <div class="seg" style="flex:0 0 150px" id="calcUnit">
+          <button data-u="lb" class="on">lb</button><button data-u="kg">kg</button><button data-u="oz">oz</button>
         </div>
       </div>
       <input type="file" accept="image/*" capture="environment" id="calcPhoto" style="display:none">
@@ -688,7 +700,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-15 15:36 UTC';
+const APP_BUILD = '2026-10-15 16:03 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes' };
 const MAX_PHOTOS = 8;
@@ -2200,6 +2212,7 @@ function openProduct(sku) {
             '" step="1" placeholder="all ' + l.packages + '" style="flex:1">' +
         '</div>' +
         '<button class="ghost" style="margin-top:8px" onclick="lotCorrect(\'' + k + '\',' + i + ')">Save these details</button>' +
+        '<p class="lotsay" id="ls' + i + '"></p>' +
       '</div>' +
     '</div>';
   }).join('') : '<p class="muted">None in the freezer right now.</p>';
@@ -2208,16 +2221,9 @@ function openProduct(sku) {
     (p.content || sku) + ' · ' + onHand + ' pkg' + (weight ? ' · ' + round2(weight) + ' lb' : ''),
 
     // ── where it is ──
-    (lines.length === 1
-      ? '<div class="row" style="margin-bottom:12px">' +
-          '<button class="ghost" onclick="lotStep(\'' +
-            esc(lines[0].key || [lines[0].sku, lines[0].size, lines[0].grade, lines[0].batch, lines[0].freezer].join('|')) +
-            '\',-1)">− one</button>' +
-          '<button onclick="lotStep(\'' +
-            esc(lines[0].key || [lines[0].sku, lines[0].size, lines[0].grade, lines[0].batch, lines[0].freezer].join('|')) +
-            '\',1)">+ one</button>' +
-        '</div>'
-      : '') +
+    // No second set of count buttons up here: the − and + on each lot row is
+    // the one way to change a count, and two of them side by side only
+    // raised the question of whether they did the same thing.
     '<label>In the freezer</label>' +
     '<div class="card list" style="margin:0 0 4px">' + lotRows + '</div>' +
     '<p class="muted" style="margin:2px 0 14px">− and + change the count. Tap a line to open the rest of it.</p>' +
@@ -2259,6 +2265,14 @@ function openProduct(sku) {
  * ordinary signed ledger entry — the same as anywhere else in the app — then
  * redraws the screen in place so the new numbers are visible without going
  * anywhere. Queued like everything else, so they work with no signal. */
+/* Say it under the button that caused it, not over the top of everything. */
+function lotSay(i, msg, kind) {
+  const el = $('ls' + i);
+  if (!el) { if (msg) toast(msg, kind); return; }
+  el.textContent = msg || '';
+  el.className = 'lotsay' + (msg ? ' ' + (kind || '') : '');
+}
+
 function lotStep(key, dir) {
   const l = lineByKey(key);
   if (!l) return toast('That lot is no longer there.', 'bad');
@@ -2272,29 +2286,29 @@ function lotStep(key, dir) {
 function lotCount(key, i) {
   const l = lineByKey(key);
   const n = Number(($('lc' + i) || {}).value);
-  if (!l || isNaN(n) || n < 0) return toast('Enter a number.', 'bad');
-  if (n === l.packages) return toast('That is what it already says.', 'bad');
+  if (!l || isNaN(n) || n < 0) return lotSay(i, 'Enter a number.', 'bad');
+  if (n === l.packages) return lotSay(i, 'That is what it already says.', 'bad');
   enqueue([{ type: 'COUNT', sku: l.sku, product: l.product, content: l.content, size: l.size,
              grade: l.grade, batch: l.batch, freezer: l.freezer, packages: n,
              party: 'Freezer count' }]);
-  toast('Count set to ' + n + '.', 'ok');
+  lotSay(i, 'Count set to ' + n + '.', 'ok');
   reopenProduct(l.sku);
 }
 
 function lotWeigh(key, i, perPackage) {
   const l = lineByKey(key);
   const w = Number(($('lw' + i) || {}).value);
-  if (!l || !w || w <= 0) return toast('Enter a weight.', 'bad');
+  if (!l || !w || w <= 0) return lotSay(i, 'Enter a weight.', 'bad');
   enqueue([{ type: 'WEIGH', sku: l.sku, product: l.product, content: l.content, size: l.size,
              grade: l.grade, batch: l.batch, freezer: l.freezer,
              weight: w, perPackage: !!perPackage, party: 'Weighed' }]);
-  toast(perPackage ? w + ' lb per pack.' : 'Weight set to ' + w + ' lb.', 'ok');
+  lotSay(i, perPackage ? w + ' lb per pack.' : 'Weight set to ' + w + ' lb.', 'ok');
   reopenProduct(l.sku);
 }
 
 function lotCorrect(key, i) {
   const l = lineByKey(key);
-  if (!l) return toast('That lot is no longer there.', 'bad');
+  if (!l) return lotSay(i, 'That lot is no longer there.', 'bad');
   const toFreezer = (($('lf' + i) || {}).value) || '';
   const toBatch   = (($('lb' + i) || {}).value) || '';
   const toGrade   = ((($('lg' + i) || {}).value) || '').trim();
@@ -2302,16 +2316,16 @@ function lotCorrect(key, i) {
   const raw       = ((($('lq' + i) || {}).value) || '').trim();
   const qty = raw === '' ? l.packages : Number(raw);
 
-  if (!(qty > 0)) return toast('How many packages?', 'bad');
-  if (qty > l.packages) return toast('There are only ' + l.packages + ' in that lot.', 'bad');
+  if (!(qty > 0)) return lotSay(i, 'How many packages?', 'bad');
+  if (qty > l.packages) return lotSay(i, 'There are only ' + l.packages + ' in that lot.', 'bad');
   if (toFreezer === (l.freezer || '') && toBatch === (l.batch || '') &&
       toGrade === (l.grade || '') && toSize === (l.size || '')) {
-    return toast('Nothing was changed.', 'bad');
+    return lotSay(i, 'Change the freezer, batch, grade or size first — nothing is different yet.', 'bad');
   }
   enqueue([{ type: 'RELABEL', sku: l.sku, product: l.product, content: l.content,
              size: l.size, grade: l.grade, batch: l.batch, freezer: l.freezer,
              packages: qty, toFreezer, toBatch, toGrade, toSize }]);
-  toast('Saved.', 'ok');
+  lotSay(i, 'Saved.', 'ok');
   reopenProduct(l.sku);
 }
 
@@ -2633,6 +2647,7 @@ function renderCalc() {
   const wholesale = calcChannel === 'wholesale';
   let w = Number($('calcWeight').value || 0);
   if (w && calcUnit === 'kg') w = w * LB_PER_KG;
+  else if (w && calcUnit === 'oz') w = w / 16;      // the butcher's labels are in ounces
   const perLb = market && !wholesale ? (Number(p.marketPerLb) || Number(p.pricePerLb))
                                      : Number(p.pricePerLb);
   const perPack = market && !wholesale ? (Number(p.marketPrice) || Number(p.price))
