@@ -198,13 +198,36 @@
   .seg button { flex:1; border:0; background:transparent; font-size:15px; font-weight:700;
                 padding:11px 8px; color:#5d6652; }
   .seg button.on { background:#3f4a2c; color:#fff; }
-  /* The three price channels are easy to mix up at a glance, so the chosen
-     one is coloured as well as labelled — the label still carries it, the
-     colour just makes "which am I quoting?" answerable without reading. */
-  #calcChannel button[data-c="website"].on   { background:#2a5d8f; }
-  #calcChannel button[data-c="market"].on    { background:#8a5a12; }
-  #calcChannel button[data-c="wholesale"].on { background:#5c3c74; }
+
+  /* Each choice keeps its own colour whether or not it is the one selected.
+     Colouring only the selected button left the other two looking identical,
+     so "which is wholesale?" still needed reading. The label carries the
+     meaning; the colour just makes them tellable apart at arm's length. */
+  #calcChannel button, #calcUnit button { background:#fff; font-weight:700; }
+  #calcChannel button[data-c="website"]   { color:#2a5d8f; }
+  #calcChannel button[data-c="market"]    { color:#8a5a12; }
+  #calcChannel button[data-c="wholesale"] { color:#2f5d3a; }
+  #calcChannel button[data-c="website"].on   { background:#2a5d8f; color:#fff; }
+  #calcChannel button[data-c="market"].on    { background:#8a5a12; color:#fff; }
+  #calcChannel button[data-c="wholesale"].on { background:#2f5d3a; color:#fff; }
   #calcChannel button { font-size:13.5px; padding:11px 4px; }
+  #calcChannel button + button, #calcUnit button + button { border-left:1.5px solid #cdd3c2; }
+
+  #calcUnit button[data-u="lb"]    { color:#2a5d8f; }
+  #calcUnit button[data-u="kg"]    { color:#8a5a12; }
+  #calcUnit button[data-u="oz"]    { color:#2f5d3a; }
+  #calcUnit button[data-u="lb"].on { background:#2a5d8f; color:#fff; }
+  #calcUnit button[data-u="kg"].on { background:#8a5a12; color:#fff; }
+  #calcUnit button[data-u="oz"].on { background:#2f5d3a; color:#fff; }
+
+  /* The strip the phone's own back / home buttons sit on. Left to itself it
+     took the page's pale background and the buttons disappeared into it. */
+  html { background:#17230e; }
+  body::after {
+    content:''; position:fixed; left:0; right:0; bottom:0;
+    height:env(safe-area-inset-bottom); background:#17230e;
+    z-index:31; pointer-events:none;
+  }
   .boxrow .parts { margin:6px 0 0; padding:8px 10px; background:#f4f6ef;
                    border-radius:8px; font-size:13px; line-height:1.6; color:#43503a; }
   .boxrow .parts .pline { display:flex; justify-content:space-between; gap:8px; }
@@ -700,7 +723,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-15 16:03 UTC';
+const APP_BUILD = '2026-10-15 16:22 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes' };
 const MAX_PHOTOS = 8;
@@ -2153,6 +2176,21 @@ function applyPhotoCount() {
  * prices, the reorder point — and per lot, the freezer, batch, grade and size
  * it was filed under, which until now could only be fixed in the spreadsheet.
  */
+/* A change made on this screen is queued and sent in the background, but the
+ * screen redraws from the data we already have — so a lot can still look the
+ * way it did a second ago. Marking it as on its way is what stops the same
+ * correction being made twice, which is where the "could not find it" message
+ * came from. */
+function lotPending(l) {
+  if (!l || !queue.length) return 0;
+  return queue.filter(o =>
+    o.sku === l.sku &&
+    (o.freezer || '') === (l.freezer || '') &&
+    (o.batch || '') === (l.batch || '') &&
+    ['RELABEL', 'COUNT', 'WEIGH', 'ADJUST'].includes(o.type)
+  ).length;
+}
+
 function freezerName(id) {
   const f = (data.freezers || []).find(x => x.id === id);
   return (f && (f.name || f.id)) || id || '';
@@ -2173,6 +2211,7 @@ function openProduct(sku) {
   const lotRows = lines.length ? lines.map((l, i) => {
     const key = l.key || [l.sku, l.size, l.grade, l.batch, l.freezer].join('|');
     const k = esc(key);
+    const pend = lotPending(l);
     return '<div class="lot">' +
       '<div class="item" style="padding:6px 0">' +
         '<div class="name" onclick="toggleSub(\'lot-' + i + '\')">' +
@@ -2180,7 +2219,8 @@ function openProduct(sku) {
           '<span>' + esc(l.batch || 'no batch') +
             (l.grade ? ' · ' + esc(l.grade) : '') +
             (l.size ? ' · ' + esc(l.size) : '') +
-            ' · ' + (l.weight ? round2(l.weight) + ' lb' : 'no weight') + '</span>' +
+            ' · ' + (l.weight ? round2(l.weight) + ' lb' : 'no weight') +
+            (pend ? ' · <b>sending…</b>' : '') + '</span>' +
         '</div>' +
         '<div class="stepper">' +
           '<button onclick="lotStep(\'' + k + '\',-1)">−</button>' +
@@ -2211,7 +2251,11 @@ function openProduct(sku) {
           '<input id="lq' + i + '" type="number" inputmode="numeric" min="1" max="' + l.packages +
             '" step="1" placeholder="all ' + l.packages + '" style="flex:1">' +
         '</div>' +
-        '<button class="ghost" style="margin-top:8px" onclick="lotCorrect(\'' + k + '\',' + i + ')">Save these details</button>' +
+        (pend
+          ? '<button class="ghost" style="margin-top:8px" disabled>Sending the last change…</button>' +
+            '<p class="lotsay">Wait for this to go up before changing it again — ' +
+              'making the same correction twice is what causes “could not find it”.</p>'
+          : '<button class="ghost" style="margin-top:8px" onclick="lotCorrect(\'' + k + '\',' + i + ')">Save these details</button>') +
         '<p class="lotsay" id="ls' + i + '"></p>' +
       '</div>' +
     '</div>';
