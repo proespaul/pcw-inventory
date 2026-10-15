@@ -670,9 +670,9 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-13 17:50 UTC';
+const APP_BUILD = '2026-10-15 15:15 UTC';
 
-const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos' };
+const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut' };
 const MAX_PHOTOS = 8;
 const LB_PER_KG = 2.2046226218;
 
@@ -981,14 +981,14 @@ async function api(action, payload = {}) {
   try { json = JSON.parse(text); }
   catch (e) { throw new Error('The backend did not return data. It may need redeploying.'); }
   if (!json.ok) {
-    // Only these two mean the session itself is gone. Matching anything with
-    // the words "sign in" in it swept up transient backend errors too, and
-    // signed people out for no reason.
-    if (/^Session expired/i.test(json.error || '') ||
-        /^Please sign in\.?$/i.test(json.error || '')) {
-      session = null; save(LS.session, null);
-      showSignIn('Your sign-in has run out. Please sign in again.');
-    }
+    // The backend now says outright whether the session is dead, instead of
+    // us reading the wording. Even then we do not take its word on the first
+    // reply: one odd answer should not cost somebody their place mid-count,
+    // so it is checked once more before anything is thrown away.
+    const saysDead = json.sessionDead === true ||
+      (json.sessionDead === undefined &&            // older backend
+       /^Session expired/i.test(json.error || ''));
+    if (saysDead) await handleSessionDead(json);
     throw new Error(json.error || 'Backend refused the request.');
   }
   // The session is a signed note with a date on it. The server hands back a
@@ -1006,6 +1006,83 @@ async function api(action, payload = {}) {
     if (moved) save(LS.session, session);
   }
   return json;
+}
+
+/* What to do when the backend says the session is finished.
+ *
+ * Confirm it first. A single failed reply is not proof — a request can lose
+ * its token on the way out, or come back mangled — and signing somebody out
+ * costs them a Google round trip in the middle of counting a freezer. So we
+ * ask a second, independent question, and only act if that fails too.
+ *
+ * Then try to fix it silently: Google can usually re-issue a sign-in without
+ * showing anything. The wall is the last resort, not the first move.
+ */
+let lastSignOut = load(LS.signout, null);
+
+async function handleSessionDead(json) {
+  if (handleSessionDead._busy) return;
+  handleSessionDead._busy = true;
+  try {
+    // 1. Second opinion.
+    if (session && session.token) {
+      try {
+        const check = await postLogin({ action: 'me', sessionToken: session.token });
+        if (check && check.ok) return;            // false alarm; carry on
+      } catch (e) { return; }                     // could not ask — assume fine
+    }
+
+    // 2. Record why, so it is not a mystery next time.
+    lastSignOut = { at: new Date().toISOString(),
+                    why: (json && json.reason) || (json && json.error) || 'unknown' };
+    save(LS.signout, lastSignOut);
+
+    session = null; me = null;
+    save(LS.session, null); save(LS.me, null);
+
+    // 3. Try to get back in without bothering anybody.
+    const quiet = await silentReauth();
+    if (quiet) { toast('Signed back in.', 'ok'); return; }
+
+    showSignIn('Signed out — ' + lastSignOut.why + '. Please sign in again.');
+  } finally {
+    handleSessionDead._busy = false;
+  }
+}
+
+/* Ask Google for a sign-in without putting anything on screen. Works when the
+   phone is still signed in to Google, which it almost always is. */
+function silentReauth() {
+  return new Promise(resolve => {
+    if (!window.google || !google.accounts || !google.accounts.id) return resolve(false);
+    let done = false;
+    const finish = v => { if (!done) { done = true; resolve(v); } };
+    try {
+      google.accounts.id.initialize({
+        client_id: CONFIG.GOOGLE_CLIENT_ID,
+        auto_select: true,
+        itp_support: true,
+        callback: async resp => {
+          if (!resp || !resp.credential) return finish(false);
+          try {
+            const r = await postLogin({ action: 'login', idToken: resp.credential });
+            if (r && r.ok) {
+              session = { token: r.sessionToken, exp: r.exp };
+              me = r.me || null;
+              save(LS.session, session); save(LS.me, me);
+              hideSignIn();
+              sync(true);
+              return finish(true);
+            }
+          } catch (e) {}
+          finish(false);
+        }
+      });
+      initAuth._done = true;     // we have just re-initialised it ourselves
+      google.accounts.id.prompt();
+    } catch (e) { return finish(false); }
+    setTimeout(() => finish(false), 4000);   // never hang on it
+  });
 }
 
 function enqueue(ops) {
@@ -3258,6 +3335,9 @@ function openSettings() {
     '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Close</button>' +
     '<p class="muted">Access is managed on the STAFF tab of the Sheet. Anyone with a ' +
     'pcwagyu.com Google account can sign in; anyone else has to be listed there.</p>' +
+    (lastSignOut ? '<p class="muted" style="margin-top:12px;color:#8c2f1f">' +
+       '<b>Last signed out:</b> ' + esc(lastSignOut.why) + '<br>' +
+       new Date(lastSignOut.at).toLocaleString() + '</p>' : '') +
     '<p class="muted" style="margin-top:12px">App build <b>' + APP_BUILD + '</b>' +
       '<span id="svBuild"></span><br>' +
       'If this is older than the one you were given, this phone is showing a ' +
