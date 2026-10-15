@@ -199,33 +199,35 @@
                 padding:11px 8px; color:#5d6652; }
   .seg button.on { background:#3f4a2c; color:#fff; }
 
-  /* Each choice keeps its own colour whether or not it is the one selected.
-     Colouring only the selected button left the other two looking identical,
-     so "which is wholesale?" still needed reading. The label carries the
-     meaning; the colour just makes them tellable apart at arm's length. */
-  #calcChannel button, #calcUnit button { background:#fff; font-weight:700; }
-  #calcChannel button[data-c="website"]   { color:#2a5d8f; }
-  #calcChannel button[data-c="market"]    { color:#8a5a12; }
-  #calcChannel button[data-c="wholesale"] { color:#2f5d3a; }
-  #calcChannel button[data-c="website"].on   { background:#2a5d8f; color:#fff; }
-  #calcChannel button[data-c="market"].on    { background:#8a5a12; color:#fff; }
-  #calcChannel button[data-c="wholesale"].on { background:#2f5d3a; color:#fff; }
+  /* The button itself is the colour -- blue, white, dark green -- not just
+     its lettering. Colouring only the text left the three looking like one
+     pale strip, so "which is wholesale?" still needed reading. Which one is
+     in use is shown by the ring drawn inside it. */
+  #calcChannel button, #calcUnit button { font-weight:700; border:0; }
+  #calcChannel button[data-c="website"],
+  #calcUnit    button[data-u="lb"]       { background:#2a5d8f; color:#fff; }
+  #calcChannel button[data-c="market"],
+  #calcUnit    button[data-u="kg"]       { background:#fff;    color:#20251c; }
+  #calcChannel button[data-c="wholesale"],
+  #calcUnit    button[data-u="oz"]       { background:#2f5d3a; color:#fff; }
+
+  /* The one in use: a ring inside the button -- pale on the two dark fills,
+     dark on the white one, so it shows on all three. */
+  #calcChannel button.on, #calcUnit button.on {
+    box-shadow: inset 0 0 0 3px #f4f6ef, inset 0 0 0 4.5px rgba(0,0,0,.35);
+  }
+  #calcChannel button[data-c="market"].on, #calcUnit button[data-u="kg"].on {
+    box-shadow: inset 0 0 0 3px #20251c;
+  }
   #calcChannel button { font-size:13.5px; padding:11px 4px; }
   #calcChannel button + button, #calcUnit button + button { border-left:1.5px solid #cdd3c2; }
-
-  #calcUnit button[data-u="lb"]    { color:#2a5d8f; }
-  #calcUnit button[data-u="kg"]    { color:#8a5a12; }
-  #calcUnit button[data-u="oz"]    { color:#2f5d3a; }
-  #calcUnit button[data-u="lb"].on { background:#2a5d8f; color:#fff; }
-  #calcUnit button[data-u="kg"].on { background:#8a5a12; color:#fff; }
-  #calcUnit button[data-u="oz"].on { background:#2f5d3a; color:#fff; }
 
   /* The strip the phone's own back / home buttons sit on. Left to itself it
      took the page's pale background and the buttons disappeared into it. */
   html { background:#17230e; }
   body::after {
     content:''; position:fixed; left:0; right:0; bottom:0;
-    height:env(safe-area-inset-bottom); background:#17230e;
+    height:env(safe-area-inset-bottom, 0px); background:#17230e;
     z-index:31; pointer-events:none;
   }
   .boxrow .parts { margin:6px 0 0; padding:8px 10px; background:#f4f6ef;
@@ -723,7 +725,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-15 16:22 UTC';
+const APP_BUILD = '2026-10-15 18:05 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes' };
 const MAX_PHOTOS = 8;
