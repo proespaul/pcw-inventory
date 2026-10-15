@@ -381,6 +381,7 @@
       <div class="seg" id="calcChannel">
         <button data-c="website" class="on">Website</button>
         <button data-c="market">Farmers market</button>
+        <button data-c="wholesale">Wholesale</button>
       </div>
       <label>Weight of this piece</label>
       <div class="row">
@@ -471,6 +472,9 @@
         <span class="grow">Market day<small>Fast tally at the table — no names, no typing</small></span></button>
       <button onclick="showView('boxes')"><span class="ic">📦</span>
         <span class="grow">Boxes<small>What you can build, and ideas worth making</small></span></button>
+      <button onclick="showView('status')"><span class="ic">📉</span>
+        <span class="grow">Inventory status<small>What is out, oversold or running low</small></span>
+        <span class="count" id="cStatus"></span></button>
       <button onclick="openSettings()"><span class="ic">⚙️</span>
         <span class="grow">Sync &amp; settings<small>Connection, who's using this phone</small></span></button>
     </div>
@@ -606,6 +610,20 @@
     <p class="muted" style="text-align:center">Nothing leaves stock until you record the day.</p>
   </section>
 
+  <!-- Everything the freezer is short of, in one place, instead of popping up
+       over whatever somebody was in the middle of doing. -->
+  <section class="view" id="view-status">
+    <div class="card" id="statusTotals"></div>
+    <div id="statusNotes"></div>
+    <h3>Nothing left</h3>
+    <div class="card list" id="statusOut"></div>
+    <h3>Running low</h3>
+    <div class="card list" id="statusLow"></div>
+    <h3>Promised more than we have</h3>
+    <div class="card list" id="statusOver"></div>
+    <p class="muted" style="text-align:center">Tap anything here to open it.</p>
+  </section>
+
   <section class="view" id="view-boxes">
     <h3>What you can build now</h3>
     <div class="card list" id="boxBuild"></div>
@@ -670,9 +688,9 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-15 15:15 UTC';
+const APP_BUILD = '2026-10-15 15:36 UTC';
 
-const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut' };
+const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes' };
 const MAX_PHOTOS = 8;
 const LB_PER_KG = 2.2046226218;
 
@@ -685,6 +703,7 @@ let data  = load(LS.data, { products:[], batches:[], freezers:[], stock:[], orde
                             settings:{}, ageing:[], boxes:[], lists:{}, steerCosts:{} });
 let queue = load(LS.queue, []);
 let photos = load(LS.photos, []);
+let stockNotes = load(LS.notes, []);
 let intakeCart = [], orderCart = [], marketCart = {};
 let openOrderId = null, backTo = null, boxIdeas = [];
 let calcChannel = 'website', calcUnit = 'lb';
@@ -1130,7 +1149,13 @@ async function sync(quiet, force) {
       const done = new Set(res.accepted || []);
       queue = queue.filter(o => !done.has(o.clientKey));
       save(LS.queue, queue);
-      if (res.warnings && res.warnings.length) toast(res.warnings[0], 'bad');
+      // Something that did not happen is worth interrupting for. The freezer
+      // running low is not — that belongs on the Inventory status screen,
+      // where it can be read when there is a moment, not while counting.
+      const refused = res.refused || (res.sessionDead ? [] : (res.warnings || []));
+      stockNotes = (res.stockNotes || []).slice(0, 20);
+      save(LS.notes, stockNotes);
+      if (refused.length) toast(refused[0], 'bad');
       else if (!quiet) toast('Sent.', 'ok');
     }
     // Send the stamp we already hold. If nothing has changed the backend
@@ -1319,7 +1344,7 @@ function renderAll() {
   renderMenuCounts();
   renderFollowups();
   renderWholesale(); renderWaitlist(); renderClients(); renderSchedule(); renderCnLines();
-  renderMarketGrid(); renderBoxes();
+  renderMarketGrid(); renderBoxes(); renderStatus();
   renderSteerNumbers();
   if (openOrderId) renderOrderDetail();
   renderCart('intake'); renderCart('order');
@@ -2127,18 +2152,55 @@ function openProduct(sku) {
   const onHand = lines.reduce((t, l) => t + l.packages, 0);
   const weight = lines.reduce((t, l) => t + (l.weight || 0), 0);
 
-  const lotRows = lines.length ? lines.map(l => {
+  // Everything about a lot, on this screen. The count moves with − and +, and
+  // the rest of it opens underneath rather than on a screen of its own — the
+  // whole point of tapping a product is to see and change what is there.
+  const fOpts = (data.freezers || []).filter(f => f.active !== false);
+  const bOpts = (data.batches || []);
+
+  const lotRows = lines.length ? lines.map((l, i) => {
     const key = l.key || [l.sku, l.size, l.grade, l.batch, l.freezer].join('|');
-    return '<div class="sub" onclick="openLot(\'' + esc(key) + '\')" style="cursor:pointer">' +
-      '<span class="grow">' +
-        '<b>' + esc(l.freezer ? freezerName(l.freezer) : 'no freezer') + '</b>' +
-        ' · ' + esc(l.batch || 'no batch') +
-        (l.grade ? ' · ' + esc(l.grade) : '') +
-        (l.size ? ' · ' + esc(l.size) : '') +
-      '</span>' +
-      '<b>' + l.packages + ' pkg</b>' +
-      '<span>' + (l.weight ? round2(l.weight) + ' lb' : 'no weight') + '</span>' +
-      '<button class="ghost small" onclick="event.stopPropagation();openLot(\'' + esc(key) + '\')">Edit</button>' +
+    const k = esc(key);
+    return '<div class="lot">' +
+      '<div class="item" style="padding:6px 0">' +
+        '<div class="name" onclick="toggleSub(\'lot-' + i + '\')">' +
+          '<b>' + esc(l.freezer ? freezerName(l.freezer) : 'no freezer') + '</b>' +
+          '<span>' + esc(l.batch || 'no batch') +
+            (l.grade ? ' · ' + esc(l.grade) : '') +
+            (l.size ? ' · ' + esc(l.size) : '') +
+            ' · ' + (l.weight ? round2(l.weight) + ' lb' : 'no weight') + '</span>' +
+        '</div>' +
+        '<div class="stepper">' +
+          '<button onclick="lotStep(\'' + k + '\',-1)">−</button>' +
+          '<span class="n">' + l.packages + '</span>' +
+          '<button class="plus" onclick="lotStep(\'' + k + '\',1)">+</button>' +
+        '</div>' +
+      '</div>' +
+      '<div id="sub-lot-' + i + '" style="display:none;padding:2px 0 10px">' +
+        '<label>How many are really there</label>' +
+        '<div class="row"><input type="number" inputmode="numeric" id="lc' + i + '" value="' + l.packages + '" min="0" step="1">' +
+          '<button onclick="lotCount(\'' + k + '\',' + i + ')">Set count</button></div>' +
+        '<label>Weight of these ' + l.packages + ' packages (lb)</label>' +
+        '<div class="row"><input type="number" inputmode="decimal" id="lw' + i + '" step="0.01" value="' + (l.weight || '') + '" placeholder="not weighed">' +
+          '<button onclick="lotWeigh(\'' + k + '\',' + i + ',false)">Total</button>' +
+          '<button class="ghost" onclick="lotWeigh(\'' + k + '\',' + i + ',true)">Per pack</button></div>' +
+        '<label>Filed under</label>' +
+        '<div class="row">' +
+          '<select id="lf' + i + '" style="flex:1">' + fOpts.map(f =>
+            '<option value="' + esc(f.id) + '"' + (f.id === l.freezer ? ' selected' : '') + '>' +
+            esc(f.name || f.id) + '</option>').join('') + '</select>' +
+          '<select id="lb' + i + '" style="flex:1"><option value="">no batch</option>' + bOpts.map(bb =>
+            '<option value="' + esc(bb.id) + '"' + (bb.id === l.batch ? ' selected' : '') + '>' +
+            esc(bb.id) + '</option>').join('') + '</select>' +
+        '</div>' +
+        '<div class="row" style="margin-top:6px">' +
+          '<input id="lg' + i + '" type="text" value="' + esc(l.grade || '') + '" placeholder="grade" style="flex:1">' +
+          '<input id="lz' + i + '" type="text" value="' + esc(l.size || '') + '" placeholder="size" style="flex:1">' +
+          '<input id="lq' + i + '" type="number" inputmode="numeric" min="1" max="' + l.packages +
+            '" step="1" placeholder="all ' + l.packages + '" style="flex:1">' +
+        '</div>' +
+        '<button class="ghost" style="margin-top:8px" onclick="lotCorrect(\'' + k + '\',' + i + ')">Save these details</button>' +
+      '</div>' +
     '</div>';
   }).join('') : '<p class="muted">None in the freezer right now.</p>';
 
@@ -2146,9 +2208,19 @@ function openProduct(sku) {
     (p.content || sku) + ' · ' + onHand + ' pkg' + (weight ? ' · ' + round2(weight) + ' lb' : ''),
 
     // ── where it is ──
+    (lines.length === 1
+      ? '<div class="row" style="margin-bottom:12px">' +
+          '<button class="ghost" onclick="lotStep(\'' +
+            esc(lines[0].key || [lines[0].sku, lines[0].size, lines[0].grade, lines[0].batch, lines[0].freezer].join('|')) +
+            '\',-1)">− one</button>' +
+          '<button onclick="lotStep(\'' +
+            esc(lines[0].key || [lines[0].sku, lines[0].size, lines[0].grade, lines[0].batch, lines[0].freezer].join('|')) +
+            '\',1)">+ one</button>' +
+        '</div>'
+      : '') +
     '<label>In the freezer</label>' +
     '<div class="card list" style="margin:0 0 4px">' + lotRows + '</div>' +
-    '<p class="muted" style="margin:2px 0 14px">Tap a line to change its freezer, batch, grade, count or weight.</p>' +
+    '<p class="muted" style="margin:2px 0 14px">− and + change the count. Tap a line to open the rest of it.</p>' +
 
     // ── what it is ──
     '<label>Name</label>' +
@@ -2181,6 +2253,73 @@ function openProduct(sku) {
     '<button id="epGo" style="margin-top:14px" onclick="saveProduct(\'' + esc(sku) + '\')">Save changes</button>' +
     '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Close</button>' +
     '<p class="muted" style="margin-top:10px">Code: ' + esc(sku) + '</p>');
+}
+
+/* The handlers behind the lot rows on the product screen. Each one writes an
+ * ordinary signed ledger entry — the same as anywhere else in the app — then
+ * redraws the screen in place so the new numbers are visible without going
+ * anywhere. Queued like everything else, so they work with no signal. */
+function lotStep(key, dir) {
+  const l = lineByKey(key);
+  if (!l) return toast('That lot is no longer there.', 'bad');
+  if (dir < 0 && l.packages <= 0) return toast('None there to take out.', 'bad');
+  enqueue([{ type: 'ADJUST', sku: l.sku, product: l.product, content: l.content,
+             size: l.size, grade: l.grade, batch: l.batch, freezer: l.freezer,
+             packages: dir, reason: dir > 0 ? 'Found extra' : 'Correction' }]);
+  reopenProduct(l.sku);
+}
+
+function lotCount(key, i) {
+  const l = lineByKey(key);
+  const n = Number(($('lc' + i) || {}).value);
+  if (!l || isNaN(n) || n < 0) return toast('Enter a number.', 'bad');
+  if (n === l.packages) return toast('That is what it already says.', 'bad');
+  enqueue([{ type: 'COUNT', sku: l.sku, product: l.product, content: l.content, size: l.size,
+             grade: l.grade, batch: l.batch, freezer: l.freezer, packages: n,
+             party: 'Freezer count' }]);
+  toast('Count set to ' + n + '.', 'ok');
+  reopenProduct(l.sku);
+}
+
+function lotWeigh(key, i, perPackage) {
+  const l = lineByKey(key);
+  const w = Number(($('lw' + i) || {}).value);
+  if (!l || !w || w <= 0) return toast('Enter a weight.', 'bad');
+  enqueue([{ type: 'WEIGH', sku: l.sku, product: l.product, content: l.content, size: l.size,
+             grade: l.grade, batch: l.batch, freezer: l.freezer,
+             weight: w, perPackage: !!perPackage, party: 'Weighed' }]);
+  toast(perPackage ? w + ' lb per pack.' : 'Weight set to ' + w + ' lb.', 'ok');
+  reopenProduct(l.sku);
+}
+
+function lotCorrect(key, i) {
+  const l = lineByKey(key);
+  if (!l) return toast('That lot is no longer there.', 'bad');
+  const toFreezer = (($('lf' + i) || {}).value) || '';
+  const toBatch   = (($('lb' + i) || {}).value) || '';
+  const toGrade   = ((($('lg' + i) || {}).value) || '').trim();
+  const toSize    = ((($('lz' + i) || {}).value) || '').trim();
+  const raw       = ((($('lq' + i) || {}).value) || '').trim();
+  const qty = raw === '' ? l.packages : Number(raw);
+
+  if (!(qty > 0)) return toast('How many packages?', 'bad');
+  if (qty > l.packages) return toast('There are only ' + l.packages + ' in that lot.', 'bad');
+  if (toFreezer === (l.freezer || '') && toBatch === (l.batch || '') &&
+      toGrade === (l.grade || '') && toSize === (l.size || '')) {
+    return toast('Nothing was changed.', 'bad');
+  }
+  enqueue([{ type: 'RELABEL', sku: l.sku, product: l.product, content: l.content,
+             size: l.size, grade: l.grade, batch: l.batch, freezer: l.freezer,
+             packages: qty, toFreezer, toBatch, toGrade, toSize }]);
+  toast('Saved.', 'ok');
+  reopenProduct(l.sku);
+}
+
+/* Redraw the product screen on the spot, so a change is visible where it was
+   made instead of after closing and reopening. */
+function reopenProduct(sku) {
+  renderAll();
+  setTimeout(() => openProduct(sku), 30);
 }
 
 async function saveProduct(sku) {
@@ -2286,6 +2425,61 @@ function commitRelabel(key) {
   closeSheet();
   toast('Corrected.', 'ok');
 }
+
+/* ─────────── Inventory status ───────────
+ * Everything the freezer is short of, gathered up. This exists so that
+ * nothing about stock levels has to interrupt anybody: a count can be
+ * finished without a message landing on top of it, and this screen is here
+ * afterwards with the whole picture rather than one line of it.
+ */
+function renderStatus() {
+  const boxes = boxSkus();
+  const rows = productTotals();
+  const out  = rows.filter(r => r.status === 'out' || (r.packages <= 0 && r.status !== 'oversold'));
+  const over = rows.filter(r => r.status === 'oversold');
+  const low  = rows.filter(r => r.status === 'low');
+
+  const line = r => '<div class="item" onclick="openProduct(\'' + esc(r.sku) + '\')">' +
+    (photoFor(r.sku) ? '<img class="cutpic" src="' + photoFor(r.sku) + '" alt="" loading="lazy">' : '') +
+    '<div class="name"><b>' + esc(r.product) + (boxes.has(r.sku) ? ' <span class="tag">box</span>' : '') + '</b>' +
+      '<span>' + esc(r.content || r.sku) +
+      (r.committed ? ' · ' + r.committed + ' promised' : '') +
+      (r.reorder !== '' && r.reorder !== undefined ? ' · tell me below ' + r.reorder : '') +
+      '</span></div>' +
+    '<div class="qty"><b>' + (Math.round(r.packages * 100) / 100) + '</b>' +
+      '<span>' + (r.committed ? r.available + ' free' : 'on hand') + '</span></div></div>';
+
+  const fill = (id, list, empty) => {
+    $(id).innerHTML = list.length ? list.map(line).join('')
+                                  : '<div class="empty">' + empty + '</div>';
+  };
+  fill('statusOut', out, 'Nothing has run out.');
+  fill('statusLow', low, 'Nothing is running low.');
+  fill('statusOver', over, 'Nothing is oversold.');
+
+  $('statusTotals').innerHTML =
+    '<div class="item" style="border:0;padding:2px"><div class="name">' +
+    '<b>' + (out.length + low.length + over.length) + ' to look at</b>' +
+    '<span>' + out.length + ' out · ' + low.length + ' low · ' + over.length + ' oversold</span></div>' +
+    '<div class="qty"><b>' + rows.length + '</b><span>products</span></div></div>';
+
+  // Anything the backend mentioned on the last send, kept rather than flashed.
+  $('statusNotes').innerHTML = (stockNotes && stockNotes.length)
+    ? '<div class="card"><b>From the last few entries</b>' +
+        stockNotes.map(n => '<p class="muted" style="margin:6px 0 0">' + esc(n) + '</p>').join('') +
+        '<button class="ghost small" style="margin-top:10px" onclick="clearStockNotes()">Clear these</button>' +
+      '</div>'
+    : '';
+
+  const badge = $('cStatus');
+  if (badge) {
+    const n = out.length + over.length;
+    badge.textContent = n || '';
+    badge.style.display = n ? '' : 'none';
+  }
+}
+
+function clearStockNotes() { stockNotes = []; save(LS.notes, stockNotes); renderStatus(); }
 
 function toggleSub(sku) {
   const el = document.getElementById('sub-' + sku);
@@ -2408,6 +2602,24 @@ function commitMove(key) {
   toast('Moved ' + qty + ' to ' + to + '.', 'ok');
 }
 
+/* Processed meat is sold at list price with no markup, website or market.
+ * The backend decides this from the SETTINGS tab; the app keeps a matching
+ * read of it so the Price screen can say so instead of implying a markup
+ * that was never applied. */
+function noMarkupHere(p) {
+  if (!p) return false;
+  const cfg = (data.settings || {});
+  const list = v => String(v || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
+  const cats = cfg.NO_MARKUP_CATEGORIES !== undefined
+    ? list(cfg.NO_MARKUP_CATEGORIES) : ['processed', 'tallow'];
+  const skus = cfg.NO_MARKUP_SKUS !== undefined
+    ? list(cfg.NO_MARKUP_SKUS)
+    : ['burger-patties-5-pack','burger-patties-30-pack',
+       'seasoned-patties-4-pack','seasoned-patties-30-pack'];
+  return skus.includes(String(p.sku || '').toLowerCase()) ||
+         cats.includes(String(p.category || '').toLowerCase());
+}
+
 /* ───────── 3. Price ───────── */
 function renderCalc() {
   const sku = $('calcProduct').value;
@@ -2415,21 +2627,28 @@ function renderCalc() {
   if (!p) { $('calcPrice').textContent = '—'; $('calcBasis').textContent = 'Pick a product.'; return; }
 
   const market = calcChannel === 'market';
+  // Wholesale is the price list as written: no markup on top, and none of the
+  // rounding either. A wholesale quote that came back as $84.99 instead of
+  // $84.37 would be wrong, not tidier.
+  const wholesale = calcChannel === 'wholesale';
   let w = Number($('calcWeight').value || 0);
   if (w && calcUnit === 'kg') w = w * LB_PER_KG;
-  const perLb = market ? (Number(p.marketPerLb) || Number(p.pricePerLb)) : Number(p.pricePerLb);
-  const perPack = market ? (Number(p.marketPrice) || Number(p.price)) : Number(p.price);
+  const perLb = market && !wholesale ? (Number(p.marketPerLb) || Number(p.pricePerLb))
+                                     : Number(p.pricePerLb);
+  const perPack = market && !wholesale ? (Number(p.marketPrice) || Number(p.price))
+                                       : Number(p.price);
+  const tidy = v => wholesale ? Math.round(v * 100) / 100 : round59(v);
 
   // A price typed into the sheet is a finished number and is shown as typed.
   // A weight × $/lb sum is rounded, because those land on $84.37.
   let price = 0, basis = '', raw = 0, rounded = false;
   if (w && perLb) {
-    raw = w * perLb; price = round59(raw); rounded = true;
+    raw = w * perLb; price = tidy(raw); rounded = !wholesale;
     basis = w.toFixed(2) + ' lb × ' + money(perLb) + '/lb';
   }
   else if (perPack) { price = perPack; basis = 'set price for one ' + p.product; }
   else if (perLb && Number(p.avgWeight)) {
-    raw = perLb * Number(p.avgWeight); price = round59(raw); rounded = true;
+    raw = perLb * Number(p.avgWeight); price = tidy(raw); rounded = !wholesale;
     basis = 'average ' + p.avgWeight + ' lb × ' + money(perLb) + '/lb';
   } else {
     $('calcPrice').textContent = '—';
@@ -2441,10 +2660,11 @@ function renderCalc() {
 
   // Processed meat is one price everywhere at the moment, so saying "website"
   // beside it would imply a market price exists when it does not.
-  const twoPrices = market
-    ? (Number(p.marketPerLb) > 0 || Number(p.marketPrice) > 0)
-    : (Number(p.marketPerLb) > 0 || Number(p.marketPrice) > 0);
-  const where = twoPrices ? (market ? 'farmers market' : 'website') : 'one price everywhere';
+  const twoPrices = Number(p.marketPerLb) > 0 || Number(p.marketPrice) > 0;
+  const where = wholesale ? 'wholesale — price list, no markup'
+    : twoPrices ? (market ? 'farmers market' : 'website')
+    : noMarkupHere(p) ? 'processed — one price, no markup'
+    : 'one price everywhere';
 
   $('calcPrice').textContent = plain(price);
   $('calcBasis').textContent = basis + ' · ' + where +
@@ -3308,11 +3528,23 @@ function openSheet(title, sub, body) {
   sheetIsOpen = true;
 }
 
+let skippedSheets = 0;
 window.addEventListener('popstate', ev => {
   if (ignoreNextPop) { ignoreNextPop = false; return; }
   // A panel is open: back shuts the panel and goes no further.
-  if (sheetIsOpen) { closeSheet({ fromHistory: true }); return; }
+  if (sheetIsOpen) { closeSheet({ fromHistory: true }); skippedSheets = 0; return; }
+
   const st = (ev.state && ev.state.pcw) ? ev.state : null;
+
+  // Landing on a panel's history entry when no panel is open means the panel
+  // was closed by moving to another screen, and its entry is still sitting
+  // there. Stepping over it is right: treating it as "no view" sent people
+  // to the first screen instead of the one they came from.
+  if (st && st.pcw === 'sheet' && skippedSheets < 5) {
+    skippedSheets++;
+    try { history.back(); return; } catch (e) { /* fall through */ }
+  }
+  skippedSheets = 0;
   const name = st && st.pcw === 'view' ? st.name : 'orders';
   showView(name, { fromHistory: true });
 });
@@ -3377,12 +3609,12 @@ function discardQueue() {
 
 const SUBVIEWS = { order:'orders', neworder:'orders', followup:'orders',
                    wholesale:'menu', waitlist:'menu',
-                   steer:'menu', clients:'menu', market:'menu', boxes:'menu',
+                   steer:'menu', clients:'menu', market:'menu', boxes:'menu', status:'menu',
                    calnew:'calendar' };
 const TITLES = { order:'Order', neworder:'New order', followup:'Follow up',
                  wholesale:'Wholesale',
                  waitlist:'Cut waiting list', steer:'Meat coming in', clients:'Customers',
-                 market:'Market day', boxes:'Boxes',
+                 market:'Market day', boxes:'Boxes', status:'Inventory status',
                  calendar:'Calendar', calnew:'Add to the calendar' };
 
 function showView(name, opts) {
