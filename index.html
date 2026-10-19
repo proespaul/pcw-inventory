@@ -18,13 +18,21 @@
     --bg:#eef0e8; --card:#ffffff; --ink:#17230e; --muted:#6c7a6c; --line:#d6dbc9;
     --brand:#17230e; --brand-2:#2d490b; --accent:#2d490b; --ok:#2d490b; --warn:#a8721a;
     --bad:#9a2a2a; --on-brand:#ffffff; --radius:14px; --nav-h:62px;
+    /* The three sales channels, as lettering. Website blue, farmers market
+       amber, wholesale green — the same three everywhere they are named. */
+    --ch-site:#2a5d8f; --ch-mkt:#8a5a12; --ch-whole:#2f5d3a;
   }
   @media (prefers-color-scheme: dark){
     :root{ --bg:#10170b; --card:#1a2512; --ink:#e8eae0; --muted:#9aa892; --line:#2b3a20;
            --brand:#0c1207; --brand-2:#7b9763; --accent:#9dba81; --ok:#7b9763;
            --warn:#c99a3c; --bad:#cf6b6b;
            /* sage is light, so what sits on it has to be dark */
-           --on-brand:#0f1609; }
+           --on-brand:#0f1609;
+           /* The daylight versions of these three are dark inks chosen to
+              read on white. On the dark card they came out at about 2:1 —
+              wholesale green on dark green especially. These are the same
+              three colours lifted until they read properly. */
+           --ch-site:#8fc0ec; --ch-mkt:#e6bc6b; --ch-whole:#9ad9ae; }
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   body{margin:0;background:var(--bg);color:var(--ink);
@@ -95,6 +103,17 @@
   .tag.low{background:#f6e7c8;color:#7e5a11}.tag.out{background:#f2d9d9;color:#8d2323}
   .tag.due{background:#f2d9d9;color:#8d2323}.tag.soon{background:#f6e7c8;color:#7e5a11}
   .tag.ok{background:#dde5d0;color:#2d490b}
+  /* A product sitting in more than one freezer or batch: the product on top,
+     then its lots indented under it, each with its own count. */
+  .multi{border-bottom:1px solid var(--line);padding-bottom:4px}
+  .list>div:last-child.multi{border-bottom:0}
+  .multi .item.head{border-bottom:0;padding-bottom:4px}
+  .multi .item.lotline{margin-left:14px;padding:7px 0;border-bottom:0;
+                       border-left:2px solid var(--line);padding-left:10px}
+  .multi .item.lotline .name b{font-size:13.5px;font-weight:600;color:var(--muted)}
+  .multi .item.lotline .name span{font-size:11.5px}
+  .multi .item.lotline .stepper button{width:34px;height:34px;font-size:18px}
+  .multi .item.lotline .stepper .n{min-width:38px;font-size:15px}
   .sub{padding:7px 0 7px 12px;border-left:2px solid var(--line);margin:0 0 8px 2px;
        font-size:13px;color:var(--muted);display:flex;gap:8px;align-items:center}
   .sub b{color:var(--ink);font-variant-numeric:tabular-nums}
@@ -163,6 +182,23 @@
   .sheet.on{transform:translateY(0)}
   .sheet h2{margin-bottom:2px}
   .grab{width:38px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 12px}
+  /* Prices: a channel per row, a unit per column. The three channel colours
+     are the same ones the Price tab uses, so "wholesale" means the same
+     green in both places. */
+  .pgrid{display:grid;grid-template-columns:74px 1fr 1fr 1fr;gap:5px;
+         align-items:center;margin:0 0 10px}
+  .pgrid.pack{grid-template-columns:118px 1fr}
+  .pgrid .h{font-size:10.5px;color:var(--muted);text-align:center;font-weight:700;
+            letter-spacing:.3px;text-transform:uppercase}
+  .pgrid .rl{font-size:12.5px;font-weight:700;line-height:1.15}
+  .pgrid .rl.site{color:var(--ch-site)} .pgrid .rl.mkt{color:var(--ch-mkt)}
+  .pgrid .rl.whole{color:var(--ch-whole)}
+  .pgrid input{margin:0;padding:9px 7px;font-size:14px;text-align:right}
+  .packdet{margin:0 0 10px}
+  .packdet summary{font-size:13px;font-weight:700;color:var(--muted);cursor:pointer;
+                   padding:7px 0;list-style:none}
+  .packdet summary::before{content:'▸ ';font-size:11px}
+  .packdet[open] summary::before{content:'▾ '}
   .chips{display:flex;gap:7px;flex-wrap:wrap;margin:10px 0}
   .chips button{width:auto;flex:0 0 auto;padding:9px 13px;font-size:14px;background:var(--bg);
                 color:var(--ink);border:1px solid var(--line)}
@@ -725,7 +761,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-15 18:05 UTC';
+const APP_BUILD = '2026-10-19 19:55 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes' };
 const MAX_PHOTOS = 8;
@@ -1578,6 +1614,58 @@ function packOrder(o) {
   showView(backTo || 'orders');
 }
 
+/* ─────────── what kind of thing is this ───────────
+ * Steaks and roasts are weighed and priced by the pound. Sausage, smokies,
+ * patties and tallow come counted and are priced by the pack. Which of those
+ * a product is decides which boxes are worth showing on its screen — asking
+ * for the average weight of a 5-pack of patties, or the pieces in a ribeye,
+ * is how a screen ends up too busy to use.
+ *
+ * The product's own numbers decide it where they can, because they are the
+ * truth; the category is only the fallback for something priced neither way
+ * yet. Ground Beef 2 lb has both a pound price and a pack price and belongs
+ * on the weighed side; Burger Patties has only a pack price and does not.
+ */
+const PACKED_CATS = ['processed', 'ground', 'tallow', 'box'];
+const KNOWN_CATS  = ['Steak', 'Roast', 'Ribs', 'Ground', 'Processed',
+                     'Other cuts', 'Box', 'Tallow'];
+const GRADES      = ['Bronze', 'Silver', 'Gold', 'Platinum'];
+
+function catOf(p) { return String((p || {}).category || '').toLowerCase(); }
+
+function pricedByPack(p) {
+  if (Number((p || {}).pricePerLb) > 0) return false;
+  if (Number((p || {}).price) > 0) return true;
+  return PACKED_CATS.includes(catOf(p));
+}
+/* Pieces in a pack only means something for things that come counted. */
+function hasPieces(p) {
+  return ['processed', 'ground'].includes(catOf(p)) || Number((p || {}).piecesPerPack) > 0;
+}
+/* Cut sizes — 8 oz, 12 oz — are a steak idea. */
+function hasSizes(p)  { return catOf(p) === 'steak' || !!String((p || {}).sizes || ''); }
+/* Tallow is not graded; everything that came off an animal is. */
+function hasGrade(p)  { return catOf(p) !== 'tallow'; }
+/* Only weighed things have a useful pack weight. */
+function hasWeight(p) { return catOf(p) !== 'tallow'; }
+
+function categoryList() {
+  const seen = new Map();
+  KNOWN_CATS.forEach(c => seen.set(c.toLowerCase(), c));
+  (data.products || []).forEach(p => {
+    const c = String(p.category || '').trim();
+    if (c && !seen.has(c.toLowerCase())) seen.set(c.toLowerCase(), c);
+  });
+  return [...seen.values()];
+}
+
+function gradeList(current) {
+  const out = GRADES.slice();
+  const c = String(current || '').trim();
+  if (c && !out.some(g => g.toLowerCase() === c.toLowerCase())) out.unshift(c);
+  return out;
+}
+
 /* ───────── 2. Inventory ───────── */
 /* Which drawer of the inventory is open. */
 let invKind = 'cuts';
@@ -1594,7 +1682,7 @@ function setInvKind(kind) {
   $('btnInvPhoto').style.display = boxes ? 'none' : '';
   $('invHint').textContent = boxes
     ? 'Tap a box to see what goes in it. ⋯ to change the contents.'
-    : 'Tap − or + to change a count. Tap the product for sizes, batches and freezers.';
+    : 'Tap − or + to change a count. Tap the name to open the product.';
   renderStock();
 }
 
@@ -1642,29 +1730,56 @@ function renderStock() {
               : r.status === 'out' ? '<span class="tag out">all promised</span>'
               : r.status === 'low' ? '<span class="tag low">low</span>' : '';
     const pend = r.pending ? '<span class="tag">' + (r.pending > 0 ? '+' : '') + r.pending + ' pending</span>' : '';
-    const subs = r.lines.length ? '<div id="sub-' + esc(r.sku) + '" style="display:none">' +
-      r.lines.map(l =>
-        '<div class="sub"><span class="grow">' +
-        (l.size ? '<b>' + esc(l.size) + '</b> · ' : '') + esc(l.batch || 'no batch') +
-        ' · ' + esc(l.freezer || '—') + (l.grade ? ' · ' + esc(l.grade) : '') +
-        (l.days ? ' · ' + Math.round(l.days / 30) + ' mo' : '') + '</span>' +
-        '<b>' + l.packages + ' pkg</b>' +
-        '<span>' + (l.weight ? round2(l.weight) + ' lb' : 'no weight') + '</span>' +
-        '<button class="ghost small" onclick="event.stopPropagation();openLot(\'' +
-          esc(l.key || '') + '\')">⋯</button></div>').join('') + '</div>' : '';
     const pic = photoFor(r.sku);
-    return '<div><div class="item">' +
-      (pic ? '<img class="cutpic" src="' + pic + '" alt="" loading="lazy" ' +
-             'onclick="event.stopPropagation();showCut(\'' + esc(r.sku) + '\')">' : '') +
-      '<div class="name" onclick="openProduct(\'' + esc(r.sku) + '\')"><b>' + esc(r.product) + tag + pend + '</b>' +
-        '<span>' + esc(r.content || r.sku) +
-        (r.perLb ? ' · ' + plain(r.perLb) + '/lb' : '') + '</span></div>' +
+    const thumb = pic
+      ? '<img class="cutpic" src="' + pic + '" alt="" loading="lazy" ' +
+        'onclick="event.stopPropagation();showCut(\'' + esc(r.sku) + '\')">' : '';
+    // What a pound of it is worth, or what a pack costs where there is no
+    // pound price — the number you actually want beside a count.
+    const rate = r.perLb ? plain(r.perLb) + '/lb'
+               : r.perPack ? plain(r.perPack) + '/pack' : '';
+    const lots = (r.lines || []).filter(l => l.packages !== 0);
+    const step = (key, n, free) =>
       '<div class="stepper">' +
-        '<button onclick="quickAdjust(\'' + esc(r.sku) + '\',-1)">−</button>' +
-        '<span class="n">' + (Math.round(r.packages * 100) / 100) +
-          (r.committed ? '<i>' + r.available + ' free</i>' : '') + '</span>' +
-        '<button class="plus" onclick="quickAdjust(\'' + esc(r.sku) + '\',1)">+</button>' +
-      '</div></div>' + subs + '</div>';
+        '<button onclick="quickAdjust(\'' + esc(r.sku) + '\',-1,\'' + esc(key) + '\')">−</button>' +
+        '<span class="n">' + (Math.round(n * 100) / 100) +
+          (free ? '<i>' + free + '</i>' : '') + '</span>' +
+        '<button class="plus" onclick="quickAdjust(\'' + esc(r.sku) + '\',1,\'' + esc(key) + '\')">+</button>' +
+      '</div>';
+
+    // One lot (or none): the whole product on a single line.
+    if (lots.length <= 1) {
+      const l = lots[0];
+      const where = l && l.freezer ? freezerName(l.freezer) : '';
+      return '<div><div class="item">' + thumb +
+        '<div class="name" onclick="openProduct(\'' + esc(r.sku) + '\')">' +
+          '<b>' + esc(r.product) + tag + pend + '</b>' +
+          '<span>' + [where, rate].filter(Boolean).join(' · ') + '</span>' +
+        '</div>' +
+        step(l ? (l.key || '') : '', r.packages, r.committed ? r.available + ' free' : '') +
+      '</div></div>';
+    }
+
+    // Same product in more than one freezer or batch: one line each, stacked,
+    // so a pack can be taken off the right one instead of the app guessing.
+    const lotRows = lots.map(l =>
+      '<div class="item lotline">' +
+        '<div class="name" onclick="openProduct(\'' + esc(r.sku) + '\')">' +
+          '<b>' + esc(l.freezer ? freezerName(l.freezer) : 'no freezer') + '</b>' +
+          '<span>' + [esc(l.batch || 'no batch'), l.grade ? esc(l.grade) : '',
+                      l.size ? esc(l.size) : '',
+                      l.weight ? round2(l.weight) + ' lb' : ''].filter(Boolean).join(' · ') + '</span>' +
+        '</div>' + step(l.key || '', l.packages, '') +
+      '</div>').join('');
+
+    return '<div class="multi"><div class="item head">' + thumb +
+      '<div class="name" onclick="openProduct(\'' + esc(r.sku) + '\')">' +
+        '<b>' + esc(r.product) + tag + pend + '</b>' +
+        '<span>' + [rate, lots.length + ' places'].filter(Boolean).join(' · ') + '</span>' +
+      '</div>' +
+      '<div class="qty"><b>' + (Math.round(r.packages * 100) / 100) + '</b>' +
+        '<span>' + (r.committed ? r.available + ' free' : 'in total') + '</span></div>' +
+    '</div>' + lotRows + '</div>';
   }).join('');
 }
 
@@ -2204,12 +2319,13 @@ function openProduct(sku) {
   const onHand = lines.reduce((t, l) => t + l.packages, 0);
   const weight = lines.reduce((t, l) => t + (l.weight || 0), 0);
 
-  // Everything about a lot, on this screen. The count moves with − and +, and
-  // the rest of it opens underneath rather than on a screen of its own — the
-  // whole point of tapping a product is to see and change what is there.
   const fOpts = (data.freezers || []).filter(f => f.active !== false);
   const bOpts = (data.batches || []);
+  const byPack = pricedByPack(p);
 
+  // ── where it is ──────────────────────────────────────────────────────
+  // One line per lot, the same as the inventory list, with − and + that ask
+  // the same two questions: how many, and why.
   const lotRows = lines.length ? lines.map((l, i) => {
     const key = l.key || [l.sku, l.size, l.grade, l.batch, l.freezer].join('|');
     const k = esc(key);
@@ -2248,7 +2364,9 @@ function openProduct(sku) {
             esc(bb.id) + '</option>').join('') + '</select>' +
         '</div>' +
         '<div class="row" style="margin-top:6px">' +
-          '<input id="lg' + i + '" type="text" value="' + esc(l.grade || '') + '" placeholder="grade" style="flex:1">' +
+          '<select id="lg' + i + '" style="flex:1"><option value="">no grade</option>' +
+            gradeList(l.grade).map(g => '<option value="' + esc(g) + '"' +
+              (g === l.grade ? ' selected' : '') + '>' + esc(g) + '</option>').join('') + '</select>' +
           '<input id="lz' + i + '" type="text" value="' + esc(l.size || '') + '" placeholder="size" style="flex:1">' +
           '<input id="lq' + i + '" type="number" inputmode="numeric" min="1" max="' + l.packages +
             '" step="1" placeholder="all ' + l.packages + '" style="flex:1">' +
@@ -2263,39 +2381,101 @@ function openProduct(sku) {
     '</div>';
   }).join('') : '<p class="muted">None in the freezer right now.</p>';
 
+  // ── the date it went in ──────────────────────────────────────────────
+  // Hung off the batch, because that is what a date belongs to: every pack
+  // from the same batch went in on the same day.
+  const lotBatches = [...new Set(lines.map(l => l.batch).filter(Boolean))];
+  const pickBatch = lotBatches[0] || (bOpts[0] || {}).id || '';
+  const batchRow = bOpts.length
+    ? '<label>Batch and the date it went in</label>' +
+      '<div class="row">' +
+        '<select id="epBatch" style="flex:1" onchange="syncBatchDate()">' + bOpts.map(b =>
+          '<option value="' + esc(b.id) + '"' + (b.id === pickBatch ? ' selected' : '') + '>' +
+          esc(b.id) + '</option>').join('') + '</select>' +
+        '<input type="date" id="epDate" style="flex:1" value="' +
+          esc((bOpts.find(b => b.id === pickBatch) || {}).packDate || '') + '">' +
+      '</div>' +
+      '<p class="muted" style="margin:2px 0 10px">The date belongs to the batch, so ' +
+        'changing it here changes it for everything in that batch.</p>'
+    : '';
+
+  // ── prices ───────────────────────────────────────────────────────────
+  const cell = (id, v) => '<input id="' + id + '" type="number" inputmode="decimal" ' +
+    'step="0.01" min="0" value="' + (v > 0 ? round2(v) : '') + '">';
+  const unitRow = (ch, cls, name, perLb) =>
+    '<div class="rl ' + cls + '">' + name + '</div>' +
+    '<input id="pr_' + ch + '_lb" type="number" inputmode="decimal" step="0.01" min="0" value="' +
+      (perLb > 0 ? round2(perLb) : '') + '" oninput="priceUnits(\'' + ch + '\',\'lb\')">' +
+    '<input id="pr_' + ch + '_kg" type="number" inputmode="decimal" step="0.01" min="0" value="' +
+      (perLb > 0 ? round2(perLb * LB_PER_KG) : '') + '" oninput="priceUnits(\'' + ch + '\',\'kg\')">' +
+    '<input id="pr_' + ch + '_oz" type="number" inputmode="decimal" step="0.01" min="0" value="' +
+      (perLb > 0 ? Math.round(perLb / 16 * 100) / 100 : '') + '" oninput="priceUnits(\'' + ch + '\',\'oz\')">';
+
+  const packGrid =
+    '<div class="pgrid pack"><div></div><div class="h">per pack</div>' +
+      '<div class="rl site">Website</div>' + cell('pk_s', p.price) +
+      '<div class="rl mkt">Farmers market</div>' + cell('pk_m', p.marketPrice) +
+      '<div class="rl whole">Wholesale</div>' + cell('pk_w', p.wholesale) +
+    '</div>';
+
+  const weightGrid =
+    '<div class="pgrid"><div></div><div class="h">$ / lb</div><div class="h">$ / kg</div><div class="h">$ / oz</div>' +
+      unitRow('s', 'site',  'Website', Number(p.pricePerLb)) +
+      unitRow('m', 'mkt',   'Farmers market', Number(p.marketPerLb)) +
+      unitRow('w', 'whole', 'Wholesale', Number(p.wholesalePerLb)) +
+    '</div>';
+
+  const anyPack = Number(p.price) > 0 || Number(p.marketPrice) > 0 || Number(p.wholesale) > 0;
+  const prices = byPack
+    ? '<p class="muted" style="margin:0 0 8px">Sold by the pack, so one price each way.</p>' + packGrid
+    : weightGrid +
+      '<details class="packdet"' + (anyPack ? ' open' : '') + '>' +
+        '<summary>Set price for a whole pack</summary>' +
+        '<p class="muted" style="margin:4px 0 6px">Leave these blank and a pack is ' +
+          'worked out from its weight. Fill one in and that is the price, whatever it weighs.</p>' +
+        packGrid +
+      '</details>';
+
   openSheet(p.product || sku,
     (p.content || sku) + ' · ' + onHand + ' pkg' + (weight ? ' · ' + round2(weight) + ' lb' : ''),
 
-    // ── where it is ──
-    // No second set of count buttons up here: the − and + on each lot row is
-    // the one way to change a count, and two of them side by side only
-    // raised the question of whether they did the same thing.
     '<label>In the freezer</label>' +
     '<div class="card list" style="margin:0 0 4px">' + lotRows + '</div>' +
-    '<p class="muted" style="margin:2px 0 14px">− and + change the count. Tap a line to open the rest of it.</p>' +
+    '<p class="muted" style="margin:2px 0 14px">− and + ask how many and why. ' +
+      'Tap a line to fix the freezer, batch, grade or weight.</p>' +
 
     // ── what it is ──
     '<label>Name</label>' +
     '<input id="epName" type="text" value="' + esc(p.product || '') + '">' +
+    '<label>Category</label>' +
+    '<select id="epCat">' + categoryList().map(c =>
+      '<option value="' + esc(c) + '"' +
+      (c.toLowerCase() === catOf(p) ? ' selected' : '') + '>' + esc(c) + '</option>').join('') +
+      '<option value="__new">+ a new category…</option></select>' +
     '<label>What is in a pack</label>' +
     '<input id="epContent" type="text" value="' + esc(p.content || '') + '" placeholder="e.g. 2 × 12 oz">' +
-    '<label>Category</label>' +
-    '<input id="epCat" type="text" value="' + esc(p.category || '') + '">' +
-    '<label>Average weight of one pack (lb)</label>' +
-    '<input id="epWeight" type="number" inputmode="decimal" step="0.01" min="0" value="' +
-      (p.avgWeight || '') + '" placeholder="not recorded">' +
-    '<label>Usual grade</label>' +
-    '<input id="epGrade" type="text" value="' + esc(p.grade || '') + '" placeholder="e.g. Gold">' +
+    (hasSizes(p)
+      ? '<label>Sizes it comes in</label>' +
+        '<input id="epSizes" type="text" value="' + esc(p.sizes || '') +
+        '" placeholder="e.g. 8 oz / 12 oz">' : '') +
+    (hasWeight(p)
+      ? '<label>Average weight of one pack (lb)</label>' +
+        '<input id="epWeight" type="number" inputmode="decimal" step="0.01" min="0" value="' +
+        (p.avgWeight || '') + '" placeholder="not recorded">' : '') +
+    (hasPieces(p)
+      ? '<label>How many in a pack</label>' +
+        '<input id="epPieces" type="number" inputmode="numeric" step="1" min="0" value="' +
+        (p.piecesPerPack || '') + '" placeholder="e.g. 5 patties">' : '') +
+    (hasGrade(p)
+      ? '<label>Usual grade</label>' +
+        '<select id="epGrade"><option value="">— not set —</option>' +
+        gradeList(p.grade).map(g => '<option value="' + esc(g) + '"' +
+          ((p.grade ? g === p.grade : g === 'Gold') ? ' selected' : '') + '>' +
+          esc(g) + '</option>').join('') + '</select>' : '') +
+    batchRow +
 
-    '<label style="margin-top:14px">Price per pack ($)</label>' +
-    '<input id="epPrice" type="number" inputmode="decimal" step="0.01" min="0" value="' +
-      (p.price || '') + '">' +
-    '<p class="muted" style="margin:2px 0 10px">' +
-      (p.pricePerLb ? 'Works out to ' + plain(p.pricePerLb) + '/lb · ' + plain(p.pricePerKg) + '/kg. ' : '') +
-      'Change the pack price and these are worked out again.</p>' +
-    '<label>Market price per pack ($)</label>' +
-    '<input id="epMarket" type="number" inputmode="decimal" step="0.01" min="0" value="' +
-      (p.marketPrice || '') + '" placeholder="leave blank if the same">' +
+    '<label style="margin-top:14px">Prices</label>' + prices +
+
     '<label>Tell me when it drops below</label>' +
     '<input id="epReorder" type="number" inputmode="numeric" step="1" min="0" value="' +
       (p.reorder === '' || p.reorder === undefined ? '' : p.reorder) + '" placeholder="packs">' +
@@ -2305,6 +2485,43 @@ function openProduct(sku) {
     '<button id="epGo" style="margin-top:14px" onclick="saveProduct(\'' + esc(sku) + '\')">Save changes</button>' +
     '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Close</button>' +
     '<p class="muted" style="margin-top:10px">Code: ' + esc(sku) + '</p>');
+
+  const cat = $('epCat');
+  if (cat) cat.addEventListener('change', () => {
+    if (cat.value !== '__new') return;
+    const typed = (prompt('What is the new category called?') || '').trim();
+    if (!typed) { cat.selectedIndex = 0; return; }
+    const o = document.createElement('option');
+    o.value = typed; o.textContent = typed;
+    cat.insertBefore(o, cat.lastElementChild);
+    cat.value = typed;
+  });
+}
+
+/* Per pound, per kilo and per ounce are three ways of saying one number, so
+   typing any of them fills the other two. Clearing one clears them all —
+   half a price left behind is worse than none. */
+function priceUnits(ch, from) {
+  const src = $('pr_' + ch + '_' + from);
+  if (!src) return;
+  const raw = String(src.value || '').trim();
+  const others = ['lb', 'kg', 'oz'].filter(u => u !== from);
+  if (raw === '') { others.forEach(u => { const el = $('pr_' + ch + '_' + u); if (el) el.value = ''; }); return; }
+  const v = Number(raw);
+  if (!isFinite(v) || v < 0) return;
+  const perLb = from === 'lb' ? v : from === 'kg' ? v / LB_PER_KG : v * 16;
+  const put = (u, val) => { const el = $('pr_' + ch + '_' + u); if (el) el.value = Math.round(val * 100) / 100; };
+  if (from !== 'lb') put('lb', perLb);
+  if (from !== 'kg') put('kg', perLb * LB_PER_KG);
+  if (from !== 'oz') put('oz', perLb / 16);
+}
+
+/* Picking a different batch shows that batch's date, not the last one's. */
+function syncBatchDate() {
+  const sel = $('epBatch'), box = $('epDate');
+  if (!sel || !box) return;
+  const b = (data.batches || []).find(x => x.id === sel.value) || {};
+  box.value = b.packDate || '';
 }
 
 /* The handlers behind the lot rows on the product screen. Each one writes an
@@ -2323,10 +2540,9 @@ function lotStep(key, dir) {
   const l = lineByKey(key);
   if (!l) return toast('That lot is no longer there.', 'bad');
   if (dir < 0 && l.packages <= 0) return toast('None there to take out.', 'bad');
-  enqueue([{ type: 'ADJUST', sku: l.sku, product: l.product, content: l.content,
-             size: l.size, grade: l.grade, batch: l.batch, freezer: l.freezer,
-             packages: dir, reason: dir > 0 ? 'Found extra' : 'Correction' }]);
-  reopenProduct(l.sku);
+  // The same sheet the inventory list opens: how many, and why. A count that
+  // moved for no recorded reason is the one the ledger cannot explain later.
+  quickAdjust(l.sku, dir, key, true);
 }
 
 function lotCount(key, i) {
@@ -2384,22 +2600,48 @@ function reopenProduct(sku) {
 
 async function saveProduct(sku) {
   const btn = $('epGo');
-  const num = id => { const v = ($(id).value || '').trim(); return v === '' ? '' : Number(v); };
-  const body = {
+  // A field that is not on this kind of product's screen is left alone, not
+  // sent as blank — otherwise opening a sausage would wipe its pack weight.
+  const num = id => { const el = $(id); if (!el) return undefined;
+                      const v = (el.value || '').trim(); return v === '' ? '' : Number(v); };
+  const txt = id => { const el = $(id); return el ? (el.value || '').trim() : undefined; };
+  const drop = o => { Object.keys(o).forEach(k => { if (o[k] === undefined) delete o[k]; }); return o; };
+
+  const body = drop({
     sku: sku,
-    product: ($('epName').value || '').trim(),
-    content: ($('epContent').value || '').trim(),
-    category: ($('epCat').value || '').trim(),
+    product: txt('epName'),
+    content: txt('epContent'),
+    category: txt('epCat'),
+    sizes: txt('epSizes'),
     avgWeight: num('epWeight'),
-    grade: ($('epGrade').value || '').trim(),
-    price: num('epPrice'),
-    marketPrice: num('epMarket'),
+    piecesPerPack: num('epPieces'),
+    grade: txt('epGrade'),
+    price: num('pk_s'),
+    marketPrice: num('pk_m'),
+    wholesale: num('pk_w'),
+    pricePerLb: num('pr_s_lb'),
+    marketPerLb: num('pr_m_lb'),
+    wholesalePerLb: num('pr_w_lb'),
     reorder: num('epReorder'),
-    notes: ($('epNotes').value || '').trim()
-  };
+    notes: txt('epNotes')
+  });
+  if (body.category === '__new') delete body.category;
   if (!body.product) return toast('It needs a name.', 'bad');
+
+  // The date lives on the batch, so it is a separate write — and only when
+  // it actually changed, so saving a price does not touch the batch at all.
+  const bSel = $('epBatch'), bDate = $('epDate');
+  const batchId = bSel ? bSel.value : '';
+  const wantDate = bDate ? (bDate.value || '').trim() : '';
+  const hadDate = batchId
+    ? (((data.batches || []).find(x => x.id === batchId) || {}).packDate || '') : '';
+
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
   try {
+    if (batchId && wantDate !== hadDate) {
+      const r = await api('updateBatch', { batch: { id: batchId, packDate: wantDate } });
+      if (r.batches) data.batches = r.batches;
+    }
     const res = await api('updateProduct', { product: body });
     if (res.products) data.products = res.products;
     if (res.boxes) data.boxList = res.boxes;
@@ -2546,58 +2788,114 @@ function toggleSub(sku) {
   if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
-function quickAdjust(sku, dir) {
+/* Why a count moved. A sale is a sale wherever it happened, a new batch is
+   stock arriving, and the rest are corrections to what the freezer holds. */
+const OUT_REASONS = ['Sold in person', 'Sold on website', 'Sample / giveaway',
+                     'Personal use', 'Damaged / spoiled', 'Correction'];
+const IN_REASONS  = ['New batch', 'Return', 'Correction'];
+const SALE_REASONS = ['Sold in person', 'Sold on website'];
+function reasonType(reason, dir) {
+  if (SALE_REASONS.includes(reason)) return 'SALE';
+  if (reason === 'New batch') return 'INTAKE';
+  return 'ADJUST';
+}
+
+/* lotKey, when given, is the exact lot whose − or + was tapped, so no picker
+   is needed and the pack comes off the right batch. backToProduct reopens the
+   product screen afterwards, because that is where the tap came from. */
+function quickAdjust(sku, dir, lotKey, backToProduct) {
   const lines = data.stock.filter(l => l.sku === sku && l.packages > 0);
   const p = data.products.find(x => x.sku === sku) || {};
   if (dir < 0 && !lines.length) return toast('Nothing on hand to take out.', 'bad');
 
-  const lineOpts = lines.map(l =>
-    opt(l.key || [l.sku, l.size, l.grade, l.batch, l.freezer].join('|'),
-        (l.size ? l.size + ' · ' : '') + (l.grade ? l.grade + ' · ' : '') +
-        (l.batch || 'no batch') + ' · ' + (l.freezer || '—') + ' · ' + l.packages + ' pkg')).join('');
-  const reasons = dir < 0
-    ? ['Sold at the door', 'Spoiled / freezer burn', 'Sample / giveaway', 'Family use', 'Damaged pack', 'Correction']
-    : ['Found extra', 'Correction', 'Returned'];
+  const target = lotKey ? lineByKey(lotKey) : null;
+  const picked = target || (lines.length === 1 ? lines[0] : null);
+  const label = l => (l.size ? l.size + ' · ' : '') + (l.grade ? l.grade + ' · ' : '') +
+                     (l.batch || 'no batch') + ' · ' + (l.freezer ? freezerName(l.freezer) : '—') +
+                     ' · ' + l.packages + ' pkg';
 
-  openSheet((dir < 0 ? 'Take out ' : 'Add ') + (p.product || sku), p.content || '',
-    (lines.length > 1 ? '<label>From</label><select id="qaLine">' + lineOpts + '</select>' :
-     '<input type="hidden" id="qaLine" value="' + esc(lines.length ? (lines[0].key || '') : '') + '">') +
+  // Taking out: which lot it leaves. Putting in: which lot it joins — and
+  // that one may not exist yet, which is the whole point of "New batch".
+  let where;
+  if (dir < 0) {
+    where = picked
+      ? '<input type="hidden" id="qaLine" value="' + esc(picked.key || '') + '">'
+      : '<label>From</label><select id="qaLine">' +
+        lines.map(l => opt(l.key || [l.sku, l.size, l.grade, l.batch, l.freezer].join('|'),
+                           label(l))).join('') + '</select>';
+  } else {
+    const fs = (data.freezers || []).filter(f => f.active !== false);
+    const here = picked ? picked.freezer : (fs[0] || {}).id;
+    const batch = picked ? picked.batch : '';
+    where = '<label>Into</label><div class="row">' +
+      '<select id="qaFreezer" style="flex:1">' + fs.map(f =>
+        '<option value="' + esc(f.id) + '"' + (f.id === here ? ' selected' : '') + '>' +
+        esc(f.name || f.id) + '</option>').join('') + '</select>' +
+      '<select id="qaBatch" style="flex:1"><option value="">no batch</option>' +
+        (data.batches || []).map(b => '<option value="' + esc(b.id) + '"' +
+          (b.id === batch ? ' selected' : '') + '>' + esc(b.id) + '</option>').join('') +
+      '</select></div>';
+  }
+
+  const reasons = dir < 0 ? OUT_REASONS : IN_REASONS;
+  const back = backToProduct ? 'true' : 'false';
+
+  openSheet((dir < 0 ? 'Take out ' : 'Add ') + (p.product || sku),
+    picked ? label(picked) : (p.content || ''),
+    where +
     '<label>Packages</label>' +
-    '<div class="chips" id="qaChips">' + [1,2,4,6,12].map(n =>
-      '<button data-n="' + n + '" onclick="setQa(' + n + ')">' + n + '</button>').join('') + '</div>' +
-    '<input type="number" inputmode="numeric" id="qaQty" min="1" step="1" value="1">' +
+    '<div class="chips" id="qaChips">' + [1,2,3,4,5].map(n =>
+      '<button data-n="' + n + '" class="' + (n === 1 ? 'on' : '') + '" ' +
+      'onclick="setQa(' + n + ')">' + n + '</button>').join('') + '</div>' +
+    '<label>Or type one</label>' +
+    '<input type="number" inputmode="numeric" id="qaQty" min="1" step="1" value="1" ' +
+      'oninput="setQa(Number(this.value), true)">' +
     '<label>Why</label><select id="qaReason">' + reasons.map(r => opt(r, r)).join('') + '</select>' +
-    '<button id="qaGo" style="margin-top:12px" onclick="commitQuickAdjust(\'' + esc(sku) + '\',' + dir + ')">' +
-      (dir < 0 ? 'Take out' : 'Add') + '</button>' +
-    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Cancel</button>');
+    '<button id="qaGo" style="margin-top:12px" onclick="commitQuickAdjust(\'' + esc(sku) + '\',' +
+      dir + ',' + back + ')">' + (dir < 0 ? 'Take out' : 'Add') + '</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="' +
+      (backToProduct ? 'reopenProduct(\'' + esc(sku) + '\')' : 'closeSheet()') + '">Cancel</button>');
+  setTimeout(() => { const f = $('qaQty'); if (f) f.focus(); }, 60);
 }
 
-function setQa(n) {
-  $('qaQty').value = n;
-  document.querySelectorAll('#qaChips button').forEach(b => b.classList.toggle('on', Number(b.dataset.n) === n));
+function setQa(n, fromBox) {
+  if (!fromBox && $('qaQty')) $('qaQty').value = n;
+  document.querySelectorAll('#qaChips button').forEach(b =>
+    b.classList.toggle('on', Number(b.dataset.n) === n));
 }
 
-function commitQuickAdjust(sku, dir) {
+function commitQuickAdjust(sku, dir, backToProduct) {
   const qty = Number($('qaQty').value);
   if (!qty || qty <= 0) return toast('Enter how many packages.', 'bad');
-  const l = lineByKey(($('qaLine') || {}).value || '');
   const p = data.products.find(x => x.sku === sku) || {};
   const reason = $('qaReason').value;
-  if (dir < 0 && l && qty > l.packages) return toast('Only ' + l.packages + ' in that spot.', 'bad');
+  const type = reasonType(reason, dir);
+
+  let size = '', grade = p.grade || '', batch = '', freezer = '';
   if (dir < 0) {
+    const l = lineByKey(($('qaLine') || {}).value || '');
+    if (l) {
+      if (qty > l.packages) return toast('Only ' + l.packages + ' in that spot.', 'bad');
+      size = l.size; grade = l.grade; batch = l.batch; freezer = l.freezer;
+    }
     const free = physicalOnHand(sku) - (committedBySku()[sku] || 0);
     if (qty > free && !confirm('That takes ' + (p.product || sku) +
         ' below what is promised to open orders. Carry on?')) return;
+  } else {
+    freezer = (($('qaFreezer') || {}).value) || '';
+    batch   = (($('qaBatch')   || {}).value) || '';
   }
+
   enqueue([{
-    type: reason === 'Sold at the door' ? 'SALE' : 'ADJUST',
-    sku, product: p.product, content: p.content,
-    size: l ? l.size : '', grade: l ? l.grade : (p.grade || ''),
-    batch: l ? l.batch : '', freezer: l ? l.freezer : '',
-    packages: reason === 'Sold at the door' ? qty : dir * qty, party: reason
+    type: type, sku, product: p.product, content: p.content,
+    size, grade, batch, freezer,
+    // SALE and INTAKE both count upwards and carry their own direction;
+    // an ADJUST is signed, so it needs the − or + the user actually tapped.
+    packages: (type === 'ADJUST') ? dir * qty : qty,
+    party: reason
   }]);
-  closeSheet();
   toast((dir < 0 ? 'Took out ' : 'Added ') + qty + ' × ' + (p.product || sku) + '.', 'ok');
+  if (backToProduct) reopenProduct(sku); else closeSheet();
 }
 
 /* Kept as an alias: openLot superseded this, and anything still reaching for
