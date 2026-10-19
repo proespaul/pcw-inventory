@@ -7,9 +7,15 @@
    v2 listed a photos.js that is not there; addAll refuses the whole list if
    one file is missing, so the worker never installed and offline mode died
    with it. v3 lists only files that exist, and the bump forces a clean
-   re-install over the broken v2 state. */
-const CACHE = 'pcw-inv-v4';
+   re-install over the broken v2 state. v5 goes with the change below, so a
+   phone sitting on an old page gets a clean start rather than holding it. */
+const CACHE = 'pcw-inv-v5';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
+
+/* How long to wait for the real page before falling back to the stored one.
+   Long enough for a slow rural connection, short enough that nobody standing
+   in the shed thinks the app has hung. */
+const PAGE_WAIT_MS = 2500;
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -23,21 +29,67 @@ self.addEventListener('activate', e => {
   );
 });
 
+/* The page itself, as opposed to the bits it loads. */
+function isPage(req) {
+  if (req.mode === 'navigate') return true;
+  try { return /(^|\/)(index\.html)?$/.test(new URL(req.url).pathname); }
+  catch (err) { return false; }
+}
+
+function keep(req, res) {
+  if (res && res.status === 200 && res.type === 'basic') {
+    const copy = res.clone();
+    caches.open(CACHE).then(c => c.put(req, copy));
+  }
+  return res;
+}
+
+/* Whatever we have, including the shell copy if this exact URL is a miss —
+   a navigation can arrive as "…/pcw-inventory/" or "…/index.html". */
+function stored(req) {
+  return caches.match(req).then(hit => hit || caches.match('./index.html'));
+}
+
+/**
+ * The page: network first.
+ *
+ * It used to be cache first, which is why a new version only appeared on the
+ * SECOND open — the first one rendered yesterday's copy and quietly fetched
+ * today's for next time. Asking the network first means a deploy lands the
+ * moment the phone has signal, and the stored copy is still there the instant
+ * the network is slow or gone, so the shed still works.
+ */
+function pageFirst(req) {
+  return new Promise(resolve => {
+    let settled = false;
+    const done = r => { if (!settled && r) { settled = true; resolve(r); } };
+
+    const timer = setTimeout(() => { stored(req).then(done); }, PAGE_WAIT_MS);
+
+    fetch(req).then(res => {
+      clearTimeout(timer);
+      done(keep(req, res));
+    }).catch(() => {
+      clearTimeout(timer);
+      stored(req).then(hit => done(hit || Response.error()));
+    });
+  });
+}
+
+/* Everything else: cache first, refreshed in the background. Icons and the
+   manifest change about twice a year; waiting on the network for them would
+   cost every open and buy nothing. */
+function shellFirst(req) {
+  return caches.match(req).then(hit => {
+    const net = fetch(req).then(res => keep(req, res)).catch(() => hit);
+    return hit || net;
+  });
+}
+
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;                       // never cache API posts
   if (req.url.indexOf('script.google.com') !== -1) return; // never cache the backend
 
-  e.respondWith(
-    caches.match(req).then(hit => {
-      const net = fetch(req).then(res => {
-        if (res && res.status === 200 && res.type === 'basic') {
-          const copy = res.clone();
-          caches.open(CACHE).then(c => c.put(req, copy));
-        }
-        return res;
-      }).catch(() => hit);
-      return hit || net;
-    })
-  );
+  e.respondWith(isPage(req) ? pageFirst(req) : shellFirst(req));
 });
