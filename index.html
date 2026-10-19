@@ -194,6 +194,9 @@
   .pgrid .rl.site{color:var(--ch-site)} .pgrid .rl.mkt{color:var(--ch-mkt)}
   .pgrid .rl.whole{color:var(--ch-whole)}
   .pgrid input{margin:0;padding:9px 7px;font-size:14px;text-align:right}
+  /* A figure the rule worked out, as opposed to one somebody typed. */
+  .pgrid input.calc{color:var(--muted);font-style:italic}
+  .pgrid .rl.calc{opacity:.72;font-weight:600}
   .packdet{margin:0 0 10px}
   .packdet summary{font-size:13px;font-weight:700;color:var(--muted);cursor:pointer;
                    padding:7px 0;list-style:none}
@@ -293,7 +296,12 @@
 
   /* the cut photo beside an inventory row */
   .cutpic{width:46px;height:46px;border-radius:9px;object-fit:cover;flex:0 0 auto;
-          margin-right:10px;background:#e4e7dc;border:1px solid #d5dac9}
+          margin:0 10px 0 0;background:#e4e7dc;border:1px solid #d5dac9}
+  /* In the list it now follows the name, so the gap goes on the other side. */
+  .item > .cutpic{margin:0 0 0 4px}
+  /* On the product screen it leads, big enough to recognise a cut by. */
+  .prodpic{display:block;width:100%;max-height:150px;object-fit:cover;border-radius:12px;
+           margin:0 0 12px;background:#e4e7dc;border:1px solid var(--line)}
 
   /* a link that reads as a button — Call and Email on a customer */
   .btnlike{display:block;width:100%;box-sizing:border-box;text-align:center;
@@ -452,9 +460,9 @@
       <select id="calcProduct"></select>
       <label>Selling it where?</label>
       <div class="seg" id="calcChannel">
-        <button data-c="website" class="on">Website</button>
+        <button data-c="wholesale" class="on">Wholesale</button>
+        <button data-c="website">Website</button>
         <button data-c="market">Farmers market</button>
-        <button data-c="wholesale">Wholesale</button>
       </div>
       <label>Weight of this piece</label>
       <div class="row">
@@ -761,7 +769,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-19 19:55 UTC';
+const APP_BUILD = '2026-10-20 15:20 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes' };
 const MAX_PHOTOS = 8;
@@ -779,7 +787,9 @@ let photos = load(LS.photos, []);
 let stockNotes = load(LS.notes, []);
 let intakeCart = [], orderCart = [], marketCart = {};
 let openOrderId = null, backTo = null, boxIdeas = [];
-let calcChannel = 'website', calcUnit = 'lb';
+// Wholesale opens first because it is the price list — the number already
+// written down. The other two are worked out from it.
+let calcChannel = 'wholesale', calcUnit = 'lb';
 
 
 /* ─────────── what the cut looks like ───────────
@@ -1649,6 +1659,41 @@ function hasGrade(p)  { return catOf(p) !== 'tallow'; }
 /* Only weighed things have a useful pack weight. */
 function hasWeight(p) { return catOf(p) !== 'tallow'; }
 
+/* The three prices, worked out the same way the backend does it.
+   The price list is the wholesale rate; website and farmers market are that
+   plus their markup, rounded to 5 or 9. A price typed into a channel beats
+   the rule. Processed is one price everywhere, and a box's prices were set
+   by hand so they are read as typed. */
+function markupPct(key, fallback) {
+  const raw = String((data.settings || {})[key] || '').replace('%', '').trim();
+  if (raw === '') return fallback;
+  const n = Number(raw);
+  if (!isFinite(n) || n <= 0) return fallback;
+  return (n > 0 && n < 2) ? Math.round((n - 1) * 1000) / 10 : n;
+}
+
+function channelPrices(p) {
+  p = p || {};
+  const listLb   = Number(p.pricePerLb) || Number(p.strayWholesalePerLb) || 0;
+  const listPack = Number(p.price)      || Number(p.strayWholesale)      || 0;
+  const flat = noMarkupHere(p);
+  const box  = !!p.isBox || catOf(p) === 'box';
+  const webPct = (flat || box) ? 0 : markupPct('WEBSITE_MARKUP', 30);
+  const mktPct = (flat || box) ? 0 : markupPct('MARKET_MARKUP', 15);
+  const marked = (base, pct) => !base ? 0
+    : !pct ? Math.round(base * 100) / 100 : round59(base * (1 + pct / 100));
+  return {
+    listPerLb: listLb, listPerPack: listPack,
+    flat, box, webPct, mktPct,
+    wholesalePerLb:   box ? Number(p.webSetPerLb) || 0 : listLb,
+    wholesalePerPack: box ? Number(p.webSet)      || 0 : listPack,
+    websitePerLb:   Number(p.webSetPerLb) || (box ? listLb   : marked(listLb, webPct)),
+    websitePerPack: Number(p.webSet)      || (box ? listPack : marked(listPack, webPct)),
+    marketPerLb:    Number(p.marketPerLb) || (box ? 0 : marked(listLb, mktPct)),
+    marketPerPack:  Number(p.marketPrice) || (box ? 0 : marked(listPack, mktPct))
+  };
+}
+
 function categoryList() {
   const seen = new Map();
   KNOWN_CATS.forEach(c => seen.set(c.toLowerCase(), c));
@@ -1718,7 +1763,9 @@ function renderStock() {
                         : 'weights not recorded yet') +
       (totalCommitted ? ' · ' + Math.round(totalCommitted * 100) / 100 + ' promised' : '') + '</span></div>' +
     '<div class="qty"><b>' + (totalVal ? plain(totalVal) : lowCount) + '</b>' +
-    '<span>' + (totalVal ? 'at retail · ' + lowCount + ' low' : 'low / out') + '</span></div></div>';
+    // Valued at price-list rates, which is the wholesale rate — not what the
+    // website would charge. Calling it "retail" overstated the freezer.
+    '<span>' + (totalVal ? 'at list · ' + lowCount + ' low' : 'low / out') + '</span></div></div>';
 
   if (!rows.length) {
     $('stockList').innerHTML = '<div class="empty">Nothing here yet.<br>Menu ▸ Meat coming in.</div>';
@@ -1731,9 +1778,13 @@ function renderStock() {
               : r.status === 'low' ? '<span class="tag low">low</span>' : '';
     const pend = r.pending ? '<span class="tag">' + (r.pending > 0 ? '+' : '') + r.pending + ' pending</span>' : '';
     const pic = photoFor(r.sku);
+    // The picture sits after the name and opens the product, same as the
+    // name does. Tapping it to get a bigger picture and nothing else was
+    // the wrong answer to the wrong question — the photo belongs on the
+    // product screen, where enlarging it makes sense.
     const thumb = pic
       ? '<img class="cutpic" src="' + pic + '" alt="" loading="lazy" ' +
-        'onclick="event.stopPropagation();showCut(\'' + esc(r.sku) + '\')">' : '';
+        'onclick="openProduct(\'' + esc(r.sku) + '\')">' : '';
     // What a pound of it is worth, or what a pack costs where there is no
     // pound price — the number you actually want beside a count.
     const rate = r.perLb ? plain(r.perLb) + '/lb'
@@ -1751,11 +1802,11 @@ function renderStock() {
     if (lots.length <= 1) {
       const l = lots[0];
       const where = l && l.freezer ? freezerName(l.freezer) : '';
-      return '<div><div class="item">' + thumb +
+      return '<div><div class="item">' +
         '<div class="name" onclick="openProduct(\'' + esc(r.sku) + '\')">' +
           '<b>' + esc(r.product) + tag + pend + '</b>' +
           '<span>' + [where, rate].filter(Boolean).join(' · ') + '</span>' +
-        '</div>' +
+        '</div>' + thumb +
         step(l ? (l.key || '') : '', r.packages, r.committed ? r.available + ' free' : '') +
       '</div></div>';
     }
@@ -1772,11 +1823,11 @@ function renderStock() {
         '</div>' + step(l.key || '', l.packages, '') +
       '</div>').join('');
 
-    return '<div class="multi"><div class="item head">' + thumb +
+    return '<div class="multi"><div class="item head">' +
       '<div class="name" onclick="openProduct(\'' + esc(r.sku) + '\')">' +
         '<b>' + esc(r.product) + tag + pend + '</b>' +
         '<span>' + [rate, lots.length + ' places'].filter(Boolean).join(' · ') + '</span>' +
-      '</div>' +
+      '</div>' + thumb +
       '<div class="qty"><b>' + (Math.round(r.packages * 100) / 100) + '</b>' +
         '<span>' + (r.committed ? r.available + ' free' : 'in total') + '</span></div>' +
     '</div>' + lotRows + '</div>';
@@ -2400,45 +2451,62 @@ function openProduct(sku) {
     : '';
 
   // ── prices ───────────────────────────────────────────────────────────
-  const cell = (id, v) => '<input id="' + id + '" type="number" inputmode="decimal" ' +
-    'step="0.01" min="0" value="' + (v > 0 ? round2(v) : '') + '">';
-  const unitRow = (ch, cls, name, perLb) =>
-    '<div class="rl ' + cls + '">' + name + '</div>' +
-    '<input id="pr_' + ch + '_lb" type="number" inputmode="decimal" step="0.01" min="0" value="' +
-      (perLb > 0 ? round2(perLb) : '') + '" oninput="priceUnits(\'' + ch + '\',\'lb\')">' +
-    '<input id="pr_' + ch + '_kg" type="number" inputmode="decimal" step="0.01" min="0" value="' +
-      (perLb > 0 ? round2(perLb * LB_PER_KG) : '') + '" oninput="priceUnits(\'' + ch + '\',\'kg\')">' +
-    '<input id="pr_' + ch + '_oz" type="number" inputmode="decimal" step="0.01" min="0" value="' +
-      (perLb > 0 ? Math.round(perLb / 16 * 100) / 100 : '') + '" oninput="priceUnits(\'' + ch + '\',\'oz\')">';
+  // Wholesale first, because it is the price list and the other two are
+  // worked out from it. A figure the rule produced is shown faintly; a
+  // figure somebody typed is shown solid. Typing over a faint one makes it
+  // yours, and clearing it hands that channel back to the rule.
+  const cp = channelPrices(p);
+  const set = { w: true,                                     // the list, always real
+                s: Number(byPack ? p.webSet : p.webSetPerLb) > 0,
+                m: Number(byPack ? p.marketPrice : p.marketPerLb) > 0 };
+  const cls = ch => 'rl ' + ({ w:'whole', s:'site', m:'mkt' }[ch]) + (set[ch] ? '' : ' calc');
+
+  const cell = (ch, v) => '<input id="pk_' + ch + '" class="' + (set[ch] ? '' : 'calc') +
+    '" type="number" inputmode="decimal" step="0.01" min="0" value="' +
+    (v > 0 ? round2(v) : '') + '">';
+  const unitRow = (ch, name, perLb) =>
+    '<div class="' + cls(ch) + '">' + name + '</div>' +
+    ['lb', 'kg', 'oz'].map(u => {
+      const v = u === 'lb' ? perLb : u === 'kg' ? perLb * LB_PER_KG : perLb / 16;
+      return '<input id="pr_' + ch + '_' + u + '" class="' + (set[ch] ? '' : 'calc') +
+        '" type="number" inputmode="decimal" step="0.01" min="0" value="' +
+        (perLb > 0 ? Math.round(v * 100) / 100 : '') +
+        '" oninput="priceUnits(\'' + ch + '\',\'' + u + '\')">';
+    }).join('');
 
   const packGrid =
     '<div class="pgrid pack"><div></div><div class="h">per pack</div>' +
-      '<div class="rl site">Website</div>' + cell('pk_s', p.price) +
-      '<div class="rl mkt">Farmers market</div>' + cell('pk_m', p.marketPrice) +
-      '<div class="rl whole">Wholesale</div>' + cell('pk_w', p.wholesale) +
+      '<div class="' + cls('w') + '">Wholesale</div>'     + cell('w', cp.wholesalePerPack) +
+      '<div class="' + cls('s') + '">Website</div>'       + cell('s', cp.websitePerPack) +
+      '<div class="' + cls('m') + '">Farmers market</div>' + cell('m', cp.marketPerPack) +
     '</div>';
 
   const weightGrid =
     '<div class="pgrid"><div></div><div class="h">$ / lb</div><div class="h">$ / kg</div><div class="h">$ / oz</div>' +
-      unitRow('s', 'site',  'Website', Number(p.pricePerLb)) +
-      unitRow('m', 'mkt',   'Farmers market', Number(p.marketPerLb)) +
-      unitRow('w', 'whole', 'Wholesale', Number(p.wholesalePerLb)) +
+      unitRow('w', 'Wholesale',      cp.wholesalePerLb) +
+      unitRow('s', 'Website',        cp.websitePerLb) +
+      unitRow('m', 'Farmers market', cp.marketPerLb) +
     '</div>';
 
-  const anyPack = Number(p.price) > 0 || Number(p.marketPrice) > 0 || Number(p.wholesale) > 0;
-  const prices = byPack
-    ? '<p class="muted" style="margin:0 0 8px">Sold by the pack, so one price each way.</p>' + packGrid
-    : weightGrid +
-      '<details class="packdet"' + (anyPack ? ' open' : '') + '>' +
-        '<summary>Set price for a whole pack</summary>' +
-        '<p class="muted" style="margin:4px 0 6px">Leave these blank and a pack is ' +
-          'worked out from its weight. Fill one in and that is the price, whatever it weighs.</p>' +
-        packGrid +
-      '</details>';
+  const rule = cp.box
+    ? 'A box is priced by hand against the website, so these are as you set them.'
+    : cp.flat
+      ? 'Processed meat is one price everywhere for now, so the markup is not applied.'
+      : 'Wholesale is the price list. Website is +' + cp.webPct + '% and the farmers ' +
+        'market +' + cp.mktPct + '%, rounded up to the next $5 — or $9 if that lands on a nought. ' +
+        'The faint figures came from that rule; type over one to set it yourself, ' +
+        'or empty it to hand it back.';
+
+  const prices = '<p class="muted" style="margin:0 0 8px">' + rule + '</p>' +
+    (byPack ? packGrid : weightGrid);
+
+  const shot = photoFor(sku);
 
   openSheet(p.product || sku,
     (p.content || sku) + ' · ' + onHand + ' pkg' + (weight ? ' · ' + round2(weight) + ' lb' : ''),
 
+    (shot ? '<img class="prodpic" src="' + shot + '" alt="" ' +
+            'onclick="showCut(\'' + esc(sku) + '\', true)">' : '') +
     '<label>In the freezer</label>' +
     '<div class="card list" style="margin:0 0 4px">' + lotRows + '</div>' +
     '<p class="muted" style="margin:2px 0 14px">− and + ask how many and why. ' +
@@ -2504,6 +2572,11 @@ function openProduct(sku) {
 function priceUnits(ch, from) {
   const src = $('pr_' + ch + '_' + from);
   if (!src) return;
+  // Once a figure is typed it is no longer the rule's, so it stops looking
+  // like the rule's.
+  ['lb', 'kg', 'oz'].forEach(u => { const el = $('pr_' + ch + '_' + u); if (el) el.classList.remove('calc'); });
+  const lab = document.querySelector('.pgrid .rl.' + ({ w:'whole', s:'site', m:'mkt' }[ch] || 'whole'));
+  if (lab) lab.classList.remove('calc');
   const raw = String(src.value || '').trim();
   const others = ['lb', 'kg', 'oz'].filter(u => u !== from);
   if (raw === '') { others.forEach(u => { const el = $('pr_' + ch + '_' + u); if (el) el.value = ''; }); return; }
@@ -2607,6 +2680,16 @@ async function saveProduct(sku) {
   const txt = id => { const el = $(id); return el ? (el.value || '').trim() : undefined; };
   const drop = o => { Object.keys(o).forEach(k => { if (o[k] === undefined) delete o[k]; }); return o; };
 
+  const was = channelPrices((data.products || []).find(x => x.sku === sku) || {});
+  const override = (id, key) => {
+    const v = num(id);
+    if (v === undefined) return undefined;              // not on this screen
+    if (v === '') return '';                            // cleared on purpose
+    // Same to the cent as the rule's answer: store nothing, so the rule stays
+    // in charge and a later change to the markup reaches this product too.
+    return Math.abs(v - Math.round((was[key] || 0) * 100) / 100) < 0.005 ? '' : v;
+  };
+
   const body = drop({
     sku: sku,
     product: txt('epName'),
@@ -2616,12 +2699,16 @@ async function saveProduct(sku) {
     avgWeight: num('epWeight'),
     piecesPerPack: num('epPieces'),
     grade: txt('epGrade'),
-    price: num('pk_s'),
-    marketPrice: num('pk_m'),
-    wholesale: num('pk_w'),
-    pricePerLb: num('pr_s_lb'),
-    marketPerLb: num('pr_m_lb'),
-    wholesalePerLb: num('pr_w_lb'),
+    // The wholesale row IS the price list, so it writes straight to it.
+    price: num('pk_w'),
+    pricePerLb: num('pr_w_lb'),
+    // The other two are stored only when they differ from what the rule
+    // gives; left at the rule's figure, the column is emptied so the rule
+    // keeps control and a later markup change carries through.
+    webSet: override('pk_s', 'websitePerPack'),
+    marketPrice: override('pk_m', 'marketPerPack'),
+    webSetPerLb: override('pr_s_lb', 'websitePerLb'),
+    marketPerLb: override('pr_m_lb', 'marketPerLb'),
     reorder: num('epReorder'),
     notes: txt('epNotes')
   });
@@ -2985,17 +3072,19 @@ function renderCalc() {
   if (!p) { $('calcPrice').textContent = '—'; $('calcBasis').textContent = 'Pick a product.'; return; }
 
   const market = calcChannel === 'market';
-  // Wholesale is the price list as written: no markup on top, and none of the
+  // Wholesale is the price list as written: nothing added, and none of the
   // rounding either. A wholesale quote that came back as $84.99 instead of
-  // $84.37 would be wrong, not tidier.
+  // $84.37 would be wrong, not tidier. Website and the market are that list
+  // plus their markup — the same sum the product screen shows.
   const wholesale = calcChannel === 'wholesale';
+  const cp = channelPrices(p);
   let w = Number($('calcWeight').value || 0);
   if (w && calcUnit === 'kg') w = w * LB_PER_KG;
   else if (w && calcUnit === 'oz') w = w / 16;      // the butcher's labels are in ounces
-  const perLb = market && !wholesale ? (Number(p.marketPerLb) || Number(p.pricePerLb))
-                                     : Number(p.pricePerLb);
-  const perPack = market && !wholesale ? (Number(p.marketPrice) || Number(p.price))
-                                       : Number(p.price);
+  const perLb = wholesale ? cp.wholesalePerLb : market ? cp.marketPerLb : cp.websitePerLb;
+  const perPack = wholesale ? cp.wholesalePerPack : market ? cp.marketPerPack : cp.websitePerPack;
+  // The channel price already carries its markup and its rounding, so a
+  // weight sum is only tidied, never marked up a second time.
   const tidy = v => wholesale ? Math.round(v * 100) / 100 : round59(v);
 
   // A price typed into the sheet is a finished number and is shown as typed.
@@ -3019,11 +3108,11 @@ function renderCalc() {
 
   // Processed meat is one price everywhere at the moment, so saying "website"
   // beside it would imply a market price exists when it does not.
-  const twoPrices = Number(p.marketPerLb) > 0 || Number(p.marketPrice) > 0;
   const where = wholesale ? 'wholesale — price list, no markup'
-    : twoPrices ? (market ? 'farmers market' : 'website')
-    : noMarkupHere(p) ? 'processed — one price, no markup'
-    : 'one price everywhere';
+    : cp.flat ? 'processed — one price everywhere for now'
+    : cp.box ? (market ? 'farmers market — as priced' : 'website — as priced')
+    : market ? 'farmers market — list +' + cp.mktPct + '%'
+    : 'website — list +' + cp.webPct + '%';
 
   $('calcPrice').textContent = plain(price);
   $('calcBasis').textContent = basis + ' · ' + where +
@@ -3277,7 +3366,9 @@ function renderClients() {
 }
 
 // Tapping a thumbnail opens it big enough to compare against the pack in hand.
-function showCut(sku) {
+/* backToProduct: opened from the product screen, so closing goes back there
+   rather than dumping you on the list you were two taps away from. */
+function showCut(sku, backToProduct) {
   const pic = photoFor(sku);
   if (!pic) return;
   const p = (data.products || []).find(x => x.sku === sku) || {};
@@ -3285,7 +3376,9 @@ function showCut(sku) {
     '<img src="' + pic + '" alt="" style="width:100%;max-width:420px;border-radius:12px;display:block;margin:0 auto">' +
     '<p class="muted" style="margin-top:10px">For finding it in the freezer when the label has come off. ' +
     'Weights and trim vary from pack to pack.</p>' +
-    '<button class="ghost" style="margin-top:10px" onclick="closeSheet()">Close</button>');
+    '<button class="ghost" style="margin-top:10px" onclick="' +
+      (backToProduct ? 'reopenProduct(\'' + esc(sku) + '\')' : 'closeSheet()') + '">' +
+      (backToProduct ? 'Back to ' + esc(p.product || sku) : 'Close') + '</button>');
 }
 
 /* ─────────────────── one customer, everything ─────────────────── */
