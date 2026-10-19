@@ -202,6 +202,18 @@
                    padding:7px 0;list-style:none}
   .packdet summary::before{content:'▸ ';font-size:11px}
   .packdet[open] summary::before{content:'▾ '}
+  /* What you might mean, offered as you type. Tapping one fills the box and
+     puts the keyboard away, which is the whole point of it. */
+  .sugg{margin:0 0 10px}
+  .sugg:empty{margin:0 0 10px}
+  .sugg .card{margin:6px 0 0;padding:4px 10px;max-height:46vh;overflow:auto}
+  .sugg button{display:block;width:100%;text-align:left;background:none;color:var(--ink);
+               border:0;border-bottom:1px solid var(--line);border-radius:0;
+               padding:11px 2px;font-weight:600;font-size:15px}
+  .sugg button:last-child{border-bottom:0}
+  .sugg button span{display:block;font-size:12px;font-weight:400;color:var(--muted);margin-top:2px}
+  .sugg button mark{background:none;color:var(--accent);font-weight:800}
+  .sugg .none{padding:10px 2px;font-size:13px;color:var(--muted)}
   .chips{display:flex;gap:7px;flex-wrap:wrap;margin:10px 0}
   .chips button{width:auto;flex:0 0 auto;padding:9px 13px;font-size:14px;background:var(--bg);
                 color:var(--ink);border:1px solid var(--line)}
@@ -420,10 +432,12 @@
       <button data-kind="boxes" onclick="setInvKind('boxes')">Boxes</button>
     </div>
 
-    <div class="withmic search">
-      <input id="stockSearch" type="search" placeholder="Search…" autocomplete="off">
+    <div class="withmic search" style="margin-bottom:0">
+      <input id="stockSearch" type="search" placeholder="Search…" autocomplete="off"
+             enterkeyhint="search" inputmode="search">
       <button class="mic" onclick="dictate('stockSearch',this,renderStock)">🎤</button>
     </div>
+    <div class="sugg" id="sugg-stockSearch"></div>
     <div class="row" style="margin-bottom:10px" id="invFilters">
       <select id="stockFreezer"><option value="">All freezers</option></select>
       <select id="stockSort">
@@ -450,11 +464,12 @@
     <div class="card">
       <h2>What's this worth?</h2>
       <label>Type what it says on the label</label>
-      <div class="withmic search">
-        <input id="calcFind" type="search" placeholder="e.g. ExL Denver, flat iron, 2lb GB"
-               autocomplete="off" spellcheck="false">
+      <div class="withmic search" style="margin-bottom:0">
+        <input id="calcFind" type="search" placeholder="e.g. jerky, ExL Denver, 2lb GB"
+               autocomplete="off" spellcheck="false" enterkeyhint="search" inputmode="search">
         <button class="mic" onclick="dictate('calcFind',this,findByName)">🎤</button>
       </div>
+      <div class="sugg" id="sugg-calcFind"></div>
       <p class="muted" id="calcFound" style="margin:6px 0 0"></p>
       <label>…or pick it from the list</label>
       <select id="calcProduct"></select>
@@ -769,7 +784,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-20 17:10 UTC';
+const APP_BUILD = '2026-10-20 19:05 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes' };
 const MAX_PHOTOS = 8;
@@ -1462,7 +1477,16 @@ function fillSelects() {
 
   const products = data.products.filter(p => p.active)
     .sort((a, b) => String(a.product).localeCompare(String(b.product)));
-  const pOpts = products.map(p => opt(p.sku, p.product + (p.content ? ' — ' + p.content : ''))).join('');
+  // The contents are only worth appending when they are what tells two
+  // products apart. On "Maple Ginger Jerky — 0.31 lb" the weight just reads
+  // like part of the name, which is what it used to be called.
+  const seen = {};
+  products.forEach(p => { const n = String(p.product || '').toLowerCase();
+                          seen[n] = (seen[n] || 0) + 1; });
+  const pOpts = products.map(p => {
+    const dup = seen[String(p.product || '').toLowerCase()] > 1;
+    return opt(p.sku, p.product + (dup && p.content ? ' — ' + p.content : ''));
+  }).join('');
   ['inProduct', 'ordProduct', 'calcProduct', 'cnProduct'].forEach(id => {
     const el = $(id), v = el.value;
     el.innerHTML = pOpts || opt('', 'No products yet');
@@ -1697,6 +1721,103 @@ function channelPrices(p) {
     marketPerPack:  Number(p.marketPrice) || (box ? 0 : marked(listPack, mktPct))
   };
 }
+
+/* ───────── type a bit, pick from what comes up ─────────
+ * Both search boxes offer matches as you type. Every word you have typed has
+ * to appear somewhere in the product — so "jerky" brings up all of them and
+ * "maple jerky" narrows to one — and what starts with your words is listed
+ * before what merely contains them.
+ *
+ * This runs off the catalogue already in the phone's hand, so it answers
+ * instantly and keeps working with no signal.
+ */
+function matchProducts(q, limit) {
+  const words = String(q || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const hits = (data.products || []).filter(p => p.active !== false).map(p => {
+    const name = String(p.product || '').toLowerCase();
+    const hay = [name, p.content, p.category, p.sku].join(' ').toLowerCase();
+    if (!words.every(w => hay.includes(w))) return null;
+    // Best first: the name starts with what was typed, then the name holds
+    // it somewhere, then it was only the category or the code that matched.
+    const joined = words.join(' ');
+    const rank = name.startsWith(joined) ? 0
+               : words.every(w => name.includes(w)) ? 1 : 2;
+    return { p, rank, name };
+  }).filter(Boolean);
+  hits.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name));
+  return hits.slice(0, limit || 8).map(h => h.p);
+}
+
+/* Bold the bit they typed, so the eye lands on why this one came up. */
+function markHit(text, q) {
+  const words = String(q || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+  let out = esc(text);
+  words.forEach(w => {
+    const at = out.toLowerCase().indexOf(w);
+    if (at === -1 || out.slice(0, at).includes('<mark>')) return;
+    out = out.slice(0, at) + '<mark>' + out.slice(at, at + w.length) + '</mark>' + out.slice(at + w.length);
+  });
+  return out;
+}
+
+function closeSuggest(inputId) {
+  if (inputId) { const b = $('sugg-' + inputId); if (b) b.innerHTML = ''; return; }
+  document.querySelectorAll('.sugg').forEach(b => { b.innerHTML = ''; });
+}
+
+/* handler is the name of a global that takes the chosen SKU. */
+function suggest(inputId, handler) {
+  const box = $('sugg-' + inputId), el = $(inputId);
+  if (!box || !el) return;
+  const q = el.value.trim();
+  if (q.length < 2) { box.innerHTML = ''; return; }
+  const hits = matchProducts(q, 8);
+  if (!hits.length) {
+    box.innerHTML = '<div class="card"><div class="none">Nothing on the list looks like that.</div></div>';
+    return;
+  }
+  box.innerHTML = '<div class="card">' + hits.map(p => {
+    const cp = channelPrices(p);
+    const rate = cp.wholesalePerLb ? plain(cp.wholesalePerLb) + '/lb'
+               : cp.wholesalePerPack ? plain(cp.wholesalePerPack) + '/pack' : '';
+    const onHand = (data.stock || []).filter(l => l.sku === p.sku)
+      .reduce((t, l) => t + Number(l.packages || 0), 0);
+    return '<button type="button" onclick="' + handler + '(\'' + esc(p.sku) + '\')">' +
+      markHit(p.product || p.sku, q) +
+      '<span>' + [p.content, rate, onHand ? onHand + ' on hand' : 'none on hand']
+        .filter(Boolean).map(esc).join(' · ') + '</span></button>';
+  }).join('') + '</div>';
+}
+
+/* Enter, or the keyboard's own search key, means "that will do" — put the
+   keyboard away rather than leaving it covering the answer. */
+function searchDone(inputId) {
+  const el = $(inputId);
+  if (el) el.blur();
+  closeSuggest(inputId);
+}
+
+function takeStockSuggestion(sku) {
+  const p = (data.products || []).find(x => x.sku === sku);
+  $('stockSearch').value = p ? (p.product || sku) : sku;
+  searchDone('stockSearch');
+  renderStock();
+}
+
+function takeCalcSuggestion(sku) {
+  const p = (data.products || []).find(x => x.sku === sku);
+  $('calcFind').value = p ? (p.product || sku) : sku;
+  searchDone('calcFind');
+  pickProduct(sku);
+  $('calcFound').textContent = p ? 'Pricing ' + p.product : '';
+}
+
+/* Tapping anywhere else puts the list away. */
+document.addEventListener('click', ev => {
+  if (ev.target.closest('.sugg') || ev.target.closest('.withmic')) return;
+  closeSuggest();
+});
 
 function categoryList() {
   const seen = new Map();
@@ -4104,11 +4225,29 @@ $('btnFuCalled').addEventListener('click', () => markFollowup('contacted'));
 $('scrim').addEventListener('click', closeSheet);
 $('syncPill').addEventListener('click', openSettings);
 
-$('stockSearch').addEventListener('input', renderStock);
+$('stockSearch').addEventListener('input', () => {
+  renderStock();
+  suggest('stockSearch', 'takeStockSuggestion');
+});
+$('stockSearch').addEventListener('keydown', ev => {
+  if (ev.key === 'Enter') { ev.preventDefault(); searchDone('stockSearch'); }
+});
+$('stockSearch').addEventListener('search', () => searchDone('stockSearch'));
 $('stockFreezer').addEventListener('change', renderStock);
 $('stockSort').addEventListener('change', renderStock);
 $('clientSearch').addEventListener('input', renderClients);
-$('calcFind').addEventListener('input', findByName);
+$('calcFind').addEventListener('input', () => {
+  suggest('calcFind', 'takeCalcSuggestion');
+  // The catalogue in hand answers almost everything, instantly and with no
+  // signal. The server's fuzzier matcher is only worth waking for label text
+  // that matched nothing here — "ExL 2lb GB" and the like.
+  if (!matchProducts($('calcFind').value, 1).length) findByName();
+  else $('calcFound').textContent = '';
+});
+$('calcFind').addEventListener('keydown', ev => {
+  if (ev.key === 'Enter') { ev.preventDefault(); searchDone('calcFind'); }
+});
+$('calcFind').addEventListener('search', () => searchDone('calcFind'));
 $('btnCnAdd').addEventListener('click', cnAddLine);
 $('btnCnSave').addEventListener('click', cnSave);
 
