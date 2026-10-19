@@ -784,7 +784,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-20 19:05 UTC';
+const APP_BUILD = '2026-10-20 22:30 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes' };
 const MAX_PHOTOS = 8;
@@ -4338,7 +4338,34 @@ if (signedIn()) {
   // every single open, even though the session is perfectly good.
 }
 
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+/* ───────── picking up a new version without being asked ─────────
+ * Installed as a home-screen app, "closing" it on Android usually just puts
+ * it in the background: coming back resumes the same page, no navigation
+ * happens, and so nothing ever checks whether there is a newer version. That
+ * is how a phone can be opened and closed four times and still be running
+ * last week's app.
+ *
+ * So: ask the worker to look for a new version whenever the app comes back to
+ * the front, and when one takes over, reload once so the new code is actually
+ * what is running. The reload is a page reload, not a download — everything
+ * typed while offline lives in the queue in storage and survives it.
+ */
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    const look = () => { try { reg.update(); } catch (e) {} };
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) look(); });
+    window.addEventListener('focus', look);
+    setInterval(look, 30 * 60 * 1000);          // and once in a while regardless
+  }).catch(() => {});
+
+  // A new worker has taken over, so the page in front of us is the old one.
+  let swReloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (swReloaded) return;
+    swReloaded = true;
+    location.reload();
+  });
+}
 </script>
 </body>
 </html>
