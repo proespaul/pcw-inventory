@@ -769,7 +769,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-20 15:20 UTC';
+const APP_BUILD = '2026-10-20 17:10 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes' };
 const MAX_PHOTOS = 8;
@@ -1369,9 +1369,13 @@ function productTotals() {
 
   data.stock.forEach(l => {
     if (freezerFilter && l.freezer !== freezerFilter) return;
+    // The catalogue decides what a thing is called today; the name carried on
+    // the stock line is whatever the ledger wrote when the meat went in, and
+    // stays at the old name after a rename. Catalogue first, ledger only as
+    // the fallback for a SKU that has left the catalogue.
     const p = byProduct[l.sku] || (byProduct[l.sku] = {
-      sku: l.sku, product: l.product || (prodIndex[l.sku] || {}).product || l.sku,
-      content: l.content || (prodIndex[l.sku] || {}).content || '',
+      sku: l.sku, product: (prodIndex[l.sku] || {}).product || l.product || l.sku,
+      content: (prodIndex[l.sku] || {}).content || l.content || '',
       packages: 0, weight: 0, days: 0, lines: []
     });
     p.packages += Number(l.packages || 0);
