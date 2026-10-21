@@ -217,8 +217,13 @@
   .sugg .none{padding:10px 2px;font-size:13px;color:var(--muted)}
   /* Kenji's bar. Sticks under the header so it is reachable on every tab
      without taking a tab of its own. */
-  .kenji{display:flex;align-items:center;gap:10px;
+  .kenji{display:flex;align-items:center;gap:10px;position:relative;
          padding:8px 12px;background:var(--card);border-bottom:1px solid var(--line)}
+  /* The countdown, drawn as well as counted — easier to read at arm's
+     length than a number, and it empties as the seconds go. */
+  .kbar{position:absolute;left:0;right:0;bottom:0;height:3px;overflow:hidden}
+  .kbar>div{height:100%;width:0;background:var(--brand-2);
+            transition:width .25s linear}
   .kmic{width:44px;height:44px;flex:0 0 auto;padding:0;border-radius:50%;font-size:20px;
         line-height:1;background:var(--brand-2);color:var(--on-brand)}
   .kmic.on{background:var(--bad);color:#fff;animation:kpulse 1.1s ease-in-out infinite}
@@ -360,6 +365,7 @@
   <button class="kmic" id="kMic" onclick="kenjiListen()" aria-label="Ask Kenji">🎤</button>
   <div class="ksay" id="kSay">Ask Kenji — “how many ribeye?”, “took out two, sold in person”</div>
   <button class="kx" id="kStop" onclick="kenjiReset()" title="Start again" hidden>✕</button>
+  <div class="kbar"><div id="kBar"></div></div>
 </div>
 </div>
 
@@ -817,9 +823,9 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-21 23:10 UTC';
+const APP_BUILD = '2026-10-22 02:05 UTC';
 
-const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes' };
+const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes' };
 const MAX_PHOTOS = 8;
 const LB_PER_KG = 2.2046226218;
 
@@ -956,6 +962,7 @@ function kSay(msg, kind) {
 }
 
 function kenjiReset() {
+  kenjiDoneWaiting();
   kenjiTurns = [];
   kenjiPending = null;
   kSay('Ask Kenji — “how many ribeye?”, “took out two, sold in person”');
@@ -998,23 +1005,87 @@ function kenjiListen() {
   try { r.start(); } catch (e) { kSay('Could not start listening.', 'bad'); }
 }
 
+/* ───────── counting down, not up ─────────
+ * A count-up tells you time is passing, which you knew. A countdown tells
+ * you how much longer — but only if the number means something, so it is
+ * not a guess from thin air: the app remembers how long its last few
+ * answers actually took on this phone, on this connection, and counts down
+ * from the slowest of them. The first ever question has nothing to go on
+ * and starts from eight seconds.
+ *
+ * If it runs out before the answer lands it stops counting and says so
+ * rather than sitting at zero or going negative. A countdown that lies is
+ * worse than no countdown.
+ */
+const KENJI_FIRST_GUESS = 8;          // seconds, until it has seen a real one
+const KENJI_REMEMBER = 5;             // how many answers to judge by
+
+function kenjiTimes() {
+  const t = load(LS.asktimes, []);
+  return Array.isArray(t) ? t.filter(n => Number(n) > 0).slice(-KENJI_REMEMBER) : [];
+}
+function kenjiRemember(secs) {
+  const t = kenjiTimes().concat(Math.max(0.5, secs)).slice(-KENJI_REMEMBER);
+  save(LS.asktimes, t);
+}
+/* The slowest of the recent ones, so it usually finishes early rather than
+   late — overshooting feels like a fault, finishing early feels quick. */
+function kenjiEstimate() {
+  const t = kenjiTimes();
+  return t.length ? Math.ceil(Math.max.apply(null, t)) : KENJI_FIRST_GUESS;
+}
+
+let kenjiTick = null;
+let kenjiStarted = 0;
+
+function kenjiWaiting(said) {
+  kenjiStarted = Date.now();
+  const budget = kenjiEstimate();
+  const bar = $('kBar');
+  const show = () => {
+    const gone = (Date.now() - kenjiStarted) / 1000;
+    const left = budget - gone;
+    if (bar) bar.style.width = Math.max(0, Math.min(100, (left / budget) * 100)) + '%';
+    if (left > 0.5) {
+      kSay('“' + said + '” · ' + Math.ceil(left) + 's', 'said');
+    } else {
+      kSay('“' + said + '” · nearly there…', 'said');
+      if (bar) bar.style.width = '0%';
+    }
+  };
+  show();
+  kenjiTick = setInterval(show, 250);
+}
+
+function kenjiDoneWaiting(landed) {
+  if (kenjiTick) { clearInterval(kenjiTick); kenjiTick = null; }
+  const bar = $('kBar');
+  if (bar) bar.style.width = '0%';
+  // Only a real answer teaches it anything; an error or a cancel does not.
+  if (landed && kenjiStarted) kenjiRemember((Date.now() - kenjiStarted) / 1000);
+  kenjiStarted = 0;
+}
+
 async function kenjiAsk(said) {
   if (!said) return;
   kenjiBusy = true;
   $('kMic').classList.add('busy');
-  kSay('“' + said + '” …', 'said');
+  kenjiWaiting(said);
   try {
     const res = await api('ask', { say: said, history: kenjiTurns.slice(-6) });
     if (!res.ok) throw new Error(res.error || 'Kenji could not answer.');
     kenjiTurns.push({ role: 'user', text: said });
     kenjiTurns.push({ role: 'assistant', text: res.reply || '' });
+    kenjiDoneWaiting(true);
     kSay(res.reply || 'Done.');
     kenjiSpeak(res.reply || '');
     if (res.change) kenjiOffer(res.change);
     else if (res.newProduct) kenjiOfferProduct(res.newProduct);
   } catch (e) {
+    kenjiDoneWaiting();
     kSay(e.message, 'bad');
   } finally {
+    kenjiDoneWaiting();
     kenjiBusy = false;
     $('kMic').classList.remove('busy');
   }
