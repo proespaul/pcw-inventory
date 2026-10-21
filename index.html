@@ -817,7 +817,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-21 01:40 UTC';
+const APP_BUILD = '2026-10-21 18:30 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes' };
 const MAX_PHOTOS = 8;
@@ -1011,6 +1011,7 @@ async function kenjiAsk(said) {
     kSay(res.reply || 'Done.');
     kenjiSpeak(res.reply || '');
     if (res.change) kenjiOffer(res.change);
+    else if (res.newProduct) kenjiOfferProduct(res.newProduct);
   } catch (e) {
     kSay(e.message, 'bad');
   } finally {
@@ -1035,6 +1036,25 @@ function kenjiOffer(c) {
     '</div>' +
     '<button id="kGo" style="margin-top:14px" onclick="kenjiConfirm()">Yes, do it</button>' +
     '<button class="ghost" style="margin-top:8px" onclick="kenjiCancel()">No</button>');
+}
+
+/* A new product opens the ordinary form with what he heard already in it.
+   Nothing is added until the usual button is pressed, so every field gets
+   looked at — a misheard price here would go on to price a whole box. */
+function kenjiOfferProduct(np) {
+  openAddProduct();
+  const put = (id, v) => { const el = $(id); if (el && v !== '' && v !== undefined && v !== null) el.value = v; };
+  put('npName', np.product);
+  put('npContent', np.content);
+  put('npWeight', np.avgWeight);
+  put('npPrice', np.price);
+  put('npReorder', np.reorder);
+  if (np.category) {
+    const sel = $('npCat');
+    if (sel && [...sel.options].some(o => o.value === np.category)) sel.value = np.category;
+  }
+  $('sheetTitle').textContent = 'New cut — check it over';
+  $('sheetSub').textContent = 'Filled in from what Kenji heard. Nothing is added until you tap Add it.';
 }
 
 function kenjiCancel() {
@@ -2299,10 +2319,13 @@ function openAddProduct() {
     '<input id="npContent" type="text" autocomplete="off" placeholder="e.g. 2 × 12 oz, or 2 lb">' +
     '<label>Average weight of one pack (lb)</label>' +
     '<input id="npWeight" type="number" inputmode="decimal" step="0.01" min="0" placeholder="leave blank if unknown">' +
-    '<label>Price per pack ($)</label>' +
-    '<input id="npPrice" type="number" inputmode="decimal" step="0.01" min="0" placeholder="website price">' +
-    '<label>Market price per pack ($)</label>' +
-    '<input id="npMarket" type="number" inputmode="decimal" step="0.01" min="0" placeholder="leave blank if the same">' +
+    '<label>Price list — per pack ($)</label>' +
+    '<input id="npPrice" type="number" inputmode="decimal" step="0.01" min="0" placeholder="the wholesale rate">' +
+    '<p class="muted" style="margin:2px 0 10px">This is the wholesale rate. The website ' +
+      'and farmers market prices are worked out from it, and you can set either by hand ' +
+      'on the product afterwards.</p>' +
+    '<label>Farmers market price per pack ($)</label>' +
+    '<input id="npMarket" type="number" inputmode="decimal" step="0.01" min="0" placeholder="leave blank to work it out">' +
     '<label>Tell me when it drops below</label>' +
     '<input id="npReorder" type="number" inputmode="numeric" step="1" min="0" placeholder="packs">' +
     '<button id="npGo" style="margin-top:12px" onclick="saveNewProduct()">Add it</button>' +
