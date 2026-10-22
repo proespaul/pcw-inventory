@@ -366,6 +366,23 @@
   .ordsum{margin-top:10px;padding:10px 12px}
   .ordsum .kv.big{font-size:16px;padding-top:4px}
   .ordsum .kv.big b{font-size:19px}
+  /* "Jerky", "Smokies" — a line across the list so one kind of thing is in
+     one place rather than scattered through the alphabet. */
+  .kindhead{font:600 11px/1 system-ui;letter-spacing:.08em;text-transform:uppercase;
+            color:var(--muted);padding:14px 2px 5px;border-bottom:1px solid var(--line);
+            margin-bottom:2px}
+  .list > .kindhead:first-child{padding-top:4px}
+  .lotsay.bad{color:var(--bad)}
+  .kv.sub{padding:3px 0 3px 12px;font-size:12px;border:0}
+  .kv.sub b{font-size:12px;color:var(--muted)}
+  /* Waiting on a scale. Not an error — just not an answer yet. */
+  .oline .weigh{width:auto;flex:0 0 auto;padding:5px 9px;font-size:13px;border-radius:999px;
+                background:transparent;border:1px solid var(--line)}
+  .oline .weigh.on{background:var(--bad);border-color:var(--bad)}
+  .oline .why{gap:6px}
+  .oline .why > span:first-child{flex:1;min-width:0}
+  .want, .want b, .oline .sum .want{color:var(--warn)}
+  .oline .bits label.want input{border-color:var(--warn)}
   .editing{border-left:4px solid var(--warn);padding:10px 12px;margin-bottom:10px}
   .editing b{display:block;font-size:14px}
   .editing span{font-size:12px;color:var(--muted)}
@@ -445,10 +462,16 @@
     <h3>Packed — waiting to go out</h3>
     <div class="card flush list" id="boardPacked"></div>
 
+    <h3 id="boardOwedHead">Delivered — waiting to be paid</h3>
+    <div class="card flush list" id="boardOwed"></div>
+
     <button style="margin-top:12px" id="btnNewOrder">+ New order</button>
-    <details style="margin-top:10px"><summary>Delivered &amp; cancelled</summary>
+    <details style="margin-top:10px"><summary>Cancelled</summary>
       <div class="card flush list" id="boardDone" style="margin-top:8px"></div>
     </details>
+    <p class="muted" style="margin-top:10px;text-align:center">
+      Once an order is paid it moves to <a href="#"
+      onclick="event.preventDefault();showView('sales')">Sales, year to date</a>.</p>
 
     <h3 id="fuHead">Follow-ups</h3>
     <p class="muted" id="fuNote" style="margin:-4px 0 8px"></p>
@@ -537,6 +560,9 @@
       <button style="margin-top:11px" id="btnAddOrdLine">Add to order</button>
     </div>
     <button id="btnSaveOrder">Save order</button>
+    <!-- The camera for reading a scale. capture="environment" opens the back
+         camera straight away rather than a file picker. -->
+    <input type="file" accept="image/*" capture="environment" id="scalePhoto" style="display:none">
   </section>
 
   <!-- ══════════════ 2. INVENTORY ══════════════ -->
@@ -558,6 +584,7 @@
     <div class="row" style="margin-bottom:10px" id="invFilters">
       <select id="stockFreezer"><option value="">All freezers</option></select>
       <select id="stockSort">
+        <option value="kind">By kind</option>
         <option value="name">By name</option>
         <option value="qty">Fewest first</option>
         <option value="weight">By weight</option>
@@ -668,6 +695,15 @@
   </section>
 
   <!-- ══════════════ 4. MENU ══════════════ -->
+  <section class="view" id="view-sales">
+    <div class="card" id="salesTop"></div>
+    <div id="salesOwing"></div>
+    <h3>Month by month</h3>
+    <div class="card" id="salesMonths"></div>
+    <h3 id="salesListHead">Delivered</h3>
+    <div class="card flush list" id="salesList"></div>
+  </section>
+
   <section class="view" id="view-menu">
     <div class="menu">
       <button onclick="showView('wholesale')"><span class="ic">🤝</span>
@@ -685,6 +721,9 @@
         <span class="grow">Market day<small>Fast tally at the table — no names, no typing</small></span></button>
       <button onclick="showView('boxes')"><span class="ic">📦</span>
         <span class="grow">Boxes<small>What you can build, and ideas worth making</small></span></button>
+      <button onclick="showView('sales')"><span class="ic">💰</span>
+        <span class="grow">Sales, year to date<small>Everything delivered since April, and who still owes</small></span>
+        <span class="count" id="cOwing"></span></button>
       <button onclick="showView('status')"><span class="ic">📉</span>
         <span class="grow">Inventory status<small>What is out, oversold or running low</small></span>
         <span class="count" id="cStatus"></span></button>
@@ -901,9 +940,9 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-23 06:30 UTC';
+const APP_BUILD = '2026-10-23 15:30 UTC';
 
-const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes' };
+const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
 const LB_PER_KG = 2.2046226218;
 
@@ -917,6 +956,10 @@ let data  = load(LS.data, { products:[], batches:[], freezers:[], stock:[], orde
 let queue = load(LS.queue, []);
 let photos = load(LS.photos, []);
 let stockNotes = load(LS.notes, []);
+/* Changes the sheet turned away. They are off the queue so they stop being
+   re-sent, but they are not thrown away — the phone says what could not be
+   saved and why, and lets it be tried again or let go. */
+let stuck = load(LS.stuck, []);
 let intakeCart = [], orderCart = [], marketCart = {};
 let openOrderId = null, backTo = null, boxIdeas = [];
 // Wholesale opens first because it is the price list — the number already
@@ -1193,7 +1236,16 @@ async function kenjiAsk(said) {
   $('kMic').classList.add('busy');
   kenjiWaiting(said);
   try {
-    const res = await api('ask', { say: said, history: kenjiTurns.slice(-6) });
+    // What is on the screen, when it is an order being written. Only then —
+    // every other question stays as cheap as it was.
+    const onScreen = ((document.querySelector('.view.on') || {}).id === 'view-neworder'
+                      && orderCart.length)
+      ? { customer: $('ordCustomer').value.trim(), channel: orderChannel,
+          lines: orderCart.map(l => ({ sku: l.sku, product: l.product,
+                                       packages: l.packages, weight: l.weight })) }
+      : null;
+    const res = await api('ask', { say: said, history: kenjiTurns.slice(-6),
+                                   openOrder: onScreen });
     if (!res.ok) throw new Error(res.error || 'Kenji could not answer.');
     kenjiTurns.push({ role: 'user', text: said });
     kenjiTurns.push({ role: 'assistant', text: res.reply || '' });
@@ -1203,6 +1255,7 @@ async function kenjiAsk(said) {
     if (res.change) kenjiOffer(res.change);
     else if (res.newProduct) kenjiOfferProduct(res.newProduct);
     else if (res.newOrder) kenjiOfferOrder(res.newOrder);
+    if (res.weights) kenjiSetWeights(res.weights);
   } catch (e) {
     kenjiDoneWaiting();
     kSay(e.message, 'bad');
@@ -1260,6 +1313,24 @@ function kenjiOfferProduct(np) {
  * is changed the same way any other order is changed. Nothing is written
  * until the Save button is tapped, as with every other thing he proposes.
  */
+/* Weights he was told out loud, onto the order on the screen. These go
+   straight in rather than onto a confirmation card: a weight is visible on
+   the line the moment it lands, next to the price it just made, which is a
+   better check than a card asking "is this right?" about a number nobody
+   has seen in context yet. Wrong, and it is typed over. */
+function kenjiSetWeights(list) {
+  let done = 0;
+  (list || []).forEach(w => {
+    const i = Number(w.line) - 1;
+    if (!orderCart[i] || !(Number(w.lb) > 0)) return;
+    orderCart[i].weight = Number(w.lb);
+    done++;
+  });
+  if (!done) return;
+  renderCart('order');
+  toast(done === 1 ? 'Weight set.' : done + ' weights set.', 'ok');
+}
+
 function kenjiOfferOrder(o) {
   closeSheet();
   clearOrderDraft();
@@ -1657,14 +1728,32 @@ function applyBoot(boot) {
 async function sync(quiet, force) {
   // Nothing to do without a session; the queue stays on the phone untouched.
   if (!signedIn()) { setPill(); return; }
-  if (sync._busy) return;
+  /* Already sending. Remember that there is more and come back for it —
+     this used to just return, so anything entered while a sync was in
+     flight sat in the queue until something else happened to kick one off.
+     That is why the corner could read "1 waiting" on full signal. */
+  if (sync._busy) { sync._again = true; return; }
   sync._busy = true;
   setPill('syncing');
   try {
     if (queue.length) {
       const res = await api('submit', { ops: queue });
       const done = new Set(res.accepted || []);
-      queue = queue.filter(o => !done.has(o.clientKey));
+      /* Anything the backend turned away is taken out of the queue and put
+         to one side. Left in, it would be sent again on every sync for ever
+         — the same red banner each time, and a queue that never empties. */
+      const bad = res.refusedOps || [];
+      const badKeys = new Set(bad.map(x => x.clientKey).filter(Boolean));
+      if (bad.length) {
+        const byKey = Object.fromEntries(queue.map(o => [o.clientKey, o]));
+        bad.forEach(x => {
+          stuck.push({ at: new Date().toISOString(), why: x.why,
+                       op: byKey[x.clientKey] || { type: x.type, sku: x.sku } });
+        });
+        stuck = stuck.slice(-30);
+        save(LS.stuck, stuck);
+      }
+      queue = queue.filter(o => !done.has(o.clientKey) && !badKeys.has(o.clientKey));
       save(LS.queue, queue);
       // Something that did not happen is worth interrupting for. The freezer
       // running low is not — that belongs on the Inventory status screen,
@@ -1693,17 +1782,40 @@ async function sync(quiet, force) {
   } finally {
     sync._busy = false;
     setPill();
+    // Something arrived while that was in the air.
+    if (sync._again) { sync._again = false; setTimeout(() => sync(true), 60); }
   }
 }
 
+/**
+ * The word in the corner.
+ *
+ * Everything in this app takes effect on the phone the moment it is tapped
+ * and goes up afterwards, so the corner is about the SHEET, not about
+ * whether the change happened. The words matter:
+ *   Saving…   it is on its way up now
+ *   Offline   nothing can go up, and how much is held
+ *   N waiting something is held and we are not currently sending it
+ *   Synced    the phone and the sheet agree
+ * "Waiting" used to show for the two or three seconds a send takes, which
+ * reads as a fault when the signal is fine. On a working connection it now
+ * says Saving… instead.
+ */
 function setPill(state) {
   const p = $('syncPill');
+  if (stuck.length) {
+    p.textContent = stuck.length + ' not saved';
+    p.className = 'pill bad'; return;
+  }
   if (!signedIn() && workingOffline) {
     p.textContent = 'Offline' + (queue.length ? ' · ' + queue.length + ' waiting' : '');
     p.className = 'pill warn'; return;
   }
   if (!signedIn()) { p.textContent = 'Signed out'; p.className = 'pill warn'; return; }
-  if (state === 'syncing') { p.textContent = 'Syncing…'; p.className = 'pill'; return; }
+  if (state === 'syncing') {
+    p.textContent = queue.length ? 'Saving…' : 'Syncing…';
+    p.className = 'pill'; return;
+  }
   if (!navigator.onLine) { p.textContent = 'Offline' + (queue.length ? ' · ' + queue.length : ''); p.className = 'pill warn'; return; }
   if (queue.length) { p.textContent = queue.length + ' waiting'; p.className = 'pill warn'; return; }
   p.textContent = 'Synced'; p.className = 'pill ok';
@@ -1717,22 +1829,64 @@ function effectiveOrders() {
 
   queue.forEach(op => {
     if (op.type === 'ORDER_NEW' && !byId[op.orderId]) {
+      const money = priceLines((op.lines || []).map(l => ({
+        sku: l.sku, product: l.product, content: l.content, packages: l.packages,
+        weight: l.weight, promo: l.promo, manual: l.manual, total: l.total
+      })), op.channel);
       const o = {
         id: op.orderId, customer: op.customer, contact: op.contact || '',
         deliveryDate: op.deliveryDate || '', method: op.method || 'Pickup',
         status: 'Open', notes: op.notes || '', pending: true,
-        items: (op.lines || []).map(l => ({
+        channel: op.channel || 'website', total: money.total,
+        paid: false, paymentType: '',
+        items: (op.lines || []).map((l, i) => ({
           sku: l.sku, product: l.product || (prodIndex[l.sku] || {}).product || l.sku,
-          content: l.content || '', packages: Number(l.packages || 0), packed: 0, note: l.note || ''
+          content: l.content || '', packages: Number(l.packages || 0), packed: 0,
+          note: l.note || '', weight: (money.lines[i] || {}).weight || 0,
+          rate: (money.lines[i] || {}).rate || 0, total: (money.lines[i] || {}).total || 0,
+          promo: !!l.promo
         }))
       };
       out.push(o); byId[o.id] = o;
     } else if (op.type === 'ORDER_PACK' && byId[op.orderId]) {
       byId[op.orderId].status = 'Packed'; byId[op.orderId].pending = true;
     } else if (op.type === 'ORDER_STATUS' && byId[op.orderId]) {
-      if (op.status) byId[op.orderId].status = op.status;
-      if (op.deliveryDate) byId[op.orderId].deliveryDate = op.deliveryDate;
-      byId[op.orderId].pending = true;
+      const o = byId[op.orderId];
+      if (op.status) o.status = op.status;
+      if (op.deliveryDate) o.deliveryDate = op.deliveryDate;
+      // Paid is what moves an order off the Orders tab onto Sales, so it has
+      // to land on the screen the moment it is tapped rather than when the
+      // sheet gets round to agreeing.
+      if (op.paid !== undefined) {
+        o.paid = !!op.paid;
+        o.paymentType = op.paid ? (op.paymentType || '') : '';
+      } else if (op.paymentType !== undefined) {
+        o.paymentType = op.paymentType;
+      }
+      o.pending = true;
+    } else if (op.type === 'ORDER_EDIT' && byId[op.orderId]) {
+      // An edit is the whole order, so it replaces what was there.
+      const o = byId[op.orderId];
+      o.customer = op.customer || o.customer;
+      o.contact = op.contact !== undefined ? op.contact : o.contact;
+      o.deliveryDate = op.deliveryDate || o.deliveryDate;
+      o.method = op.method || o.method;
+      o.notes = op.notes !== undefined ? op.notes : o.notes;
+      o.channel = op.channel || o.channel;
+      const money = priceLines((op.lines || []).map(l => ({
+        sku: l.sku, product: l.product, content: l.content, packages: l.packages,
+        weight: l.weight, promo: l.promo, manual: l.manual, total: l.total
+      })), o.channel);
+      o.items = (op.lines || []).map((l, i) => ({
+        sku: l.sku, product: l.product || (prodIndex[l.sku] || {}).product || l.sku,
+        content: l.content || '', packages: Number(l.packages || 0),
+        packed: o.status === 'Packed' ? Number(l.packages || 0) : 0,
+        note: l.note || '', weight: (money.lines[i] || {}).weight || 0,
+        rate: (money.lines[i] || {}).rate || 0, total: (money.lines[i] || {}).total || 0,
+        promo: !!l.promo
+      }));
+      o.total = money.total;
+      o.pending = true;
     }
   });
   return out.sort((a, b) => String(a.deliveryDate || '9999').localeCompare(String(b.deliveryDate || '9999')));
@@ -1866,6 +2020,7 @@ function renderAll() {
   renderFollowups();
   renderWholesale(); renderWaitlist(); renderClients(); renderSchedule(); renderCnLines();
   renderMarketGrid(); renderBoxes(); renderStatus();
+  renderSales();
   renderSteerNumbers();
   if (openOrderId) renderOrderDetail();
   renderCart('intake'); renderCart('order');
@@ -1888,11 +2043,11 @@ function fillSelects() {
   const inF = $('inFreezer'), inFv = inF.value || data.settings.DEFAULT_FREEZER || '';
   inF.innerHTML = fOpts; keep(inF, inFv);
 
-  const batches = data.batches.filter(b => b.active);
   const inB = $('inBatch'), inBv = inB.value;
-  inB.innerHTML = batches.map(b => opt(b.id, b.id + (b.animal ? ' · ' + b.animal : ''))).join('')
-                  || opt('', 'No steers yet — add one');
+  inB.innerHTML = batchOptions('').map(b => opt(b.id, b.name)).join('') +
+                  '<option value="' + NEW_BATCH + '">+ A new steer…</option>';
   keep(inB, inBv);
+  inB.dataset.was = inB.value;
 
   const products = data.products.filter(p => p.active)
     .sort((a, b) => String(a.product).localeCompare(String(b.product)));
@@ -1930,7 +2085,13 @@ function renderBoard() {
   const orders = effectiveOrders();
   const open = orders.filter(o => o.status === 'Open');
   const packed = orders.filter(o => o.status === 'Packed');
-  const done = orders.filter(o => o.status === 'Delivered' || o.status === 'Cancelled').reverse();
+  /* A delivered order is not finished with until it is paid for, so it stays
+     on this tab — near the bottom, out of the way of the work — until the
+     money is in. Paying is what moves it to the Sales screen. Cancelled ones
+     belong nowhere else, so they stay, folded away. */
+  const owed = orders.filter(o => o.status === 'Delivered' && !o.paid)
+    .sort((a, b) => String(a.deliveryDate).localeCompare(String(b.deliveryDate)));
+  const done = orders.filter(o => o.status === 'Cancelled').reverse();
   const rows = productTotals();
   const low = rows.filter(r => r.status !== 'ok');
 
@@ -1947,8 +2108,15 @@ function renderBoard() {
     : '<div class="empty">Nothing waiting to be packed.</div>';
   $('boardPacked').innerHTML = packed.length ? packed.map(orderRowHtml).join('')
     : '<div class="empty">Nothing packed and waiting.</div>';
+  const owedSum = Math.round(owed.reduce((t, o) => t + Number(o.total || 0), 0) * 100) / 100;
+  $('boardOwedHead').textContent = owed.length
+    ? 'Delivered — ' + plain(owedSum) + ' waiting to be paid'
+    : 'Delivered — waiting to be paid';
+  $('boardOwed').innerHTML = owed.length ? owed.map(orderRowHtml).join('')
+    : '<div class="empty">Nothing owing.</div>';
+
   $('boardDone').innerHTML = done.length ? done.slice(0, 15).map(orderRowHtml).join('')
-    : '<div class="empty">Nothing yet.</div>';
+    : '<div class="empty">Nothing cancelled.</div>';
 
   const aged = data.ageing || [];
   if (aged.length) {
@@ -1999,6 +2167,10 @@ function orderRowHtml(o) {
   } else if (packed) {
     buttons = act('ghost', 'Edit', 'editOrder(\'' + esc(o.id) + '\')') +
               act('', 'Delivered', 'deliverOrder(\'' + esc(o.id) + '\')') +
+              act('ghost danger', 'Cancel', 'cancelOrder(\'' + esc(o.id) + '\')');
+  } else if (o.status === 'Delivered' && !o.paid) {
+    // The only thing left to do with it.
+    buttons = act('', 'Paid', 'openPaid(\'' + esc(o.id) + '\')') +
               act('ghost danger', 'Cancel', 'cancelOrder(\'' + esc(o.id) + '\')');
   }
 
@@ -2056,6 +2228,189 @@ function deliverOrder(id) {
   enqueue([{ type: 'ORDER_STATUS', orderId: o.id, status: 'Delivered' }]);
   toast('Marked delivered.', 'ok');
   return true;
+}
+
+/* ═════════════════════ SALES, YEAR TO DATE ═════════════════════
+ *
+ * Paul's year runs April to March, so a sale in February belongs to the year
+ * that began the previous April. Nothing is copied anywhere to make this
+ * screen: it adds up the orders themselves, which means it cannot drift from
+ * them and it works with no signal like everything else.
+ *
+ * Delivered and paid are two different days. An order goes out on the
+ * Tuesday and is settled on the Friday, and the gap between them is the
+ * money somebody still owes — which is the number worth having on a screen.
+ */
+const PAY_TYPES_FALLBACK = ['Cash', 'E-transfer', 'Cheque', 'Helcim (website)',
+                            'Stripe (website)', 'Other'];
+
+function payTypes() {
+  const raw = (data.settings || {}).PAYMENT_TYPES;
+  if (raw === undefined) return PAY_TYPES_FALLBACK.slice();
+  const list = String(raw).split(',').map(x => x.trim()).filter(Boolean);
+  return list.length ? list : PAY_TYPES_FALLBACK.slice();
+}
+
+function fiscalStartMonth() {
+  const n = Number((data.settings || {}).FISCAL_YEAR_STARTS);
+  return (n >= 1 && n <= 12) ? n : 4;            // April
+}
+
+/* The first day of the year a given date falls in, as yyyy-mm-dd. */
+function fiscalYearStart(onDate) {
+  const d = onDate ? new Date(onDate + 'T12:00:00') : new Date();
+  const m = fiscalStartMonth();
+  const year = (d.getMonth() + 1) >= m ? d.getFullYear() : d.getFullYear() - 1;
+  return year + '-' + String(m).padStart(2, '0') + '-01';
+}
+function fiscalYearEndLabel(startISO) {
+  const y = Number(startISO.slice(0, 4)), m = Number(startISO.slice(5, 7));
+  const endY = m === 1 ? y : y + 1;
+  const endM = m === 1 ? 12 : m - 1;
+  const nm = i => ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][i - 1];
+  return nm(m) + ' ' + y + ' – ' + nm(endM) + ' ' + endY;
+}
+
+/* Delivered orders in the current year, newest first. */
+function salesRows() {
+  const from = fiscalYearStart();
+  // Paid and delivered. An order that has gone out but not been settled is
+  // still on the Orders tab, where it is still somebody's job.
+  // effectiveOrders, not data.orders: a payment tapped ten seconds ago is
+  // still in the queue, and this screen has to show it anyway.
+  return effectiveOrders()
+    .filter(o => o.status === 'Delivered' && o.paid && String(o.deliveryDate || '') >= from)
+    .sort((a, b) => String(b.deliveryDate).localeCompare(String(a.deliveryDate)));
+}
+
+function renderSales() {
+  const from = fiscalYearStart();
+  const rows = salesRows();
+  const sum = list => Math.round(list.reduce((t, o) => t + Number(o.total || 0), 0) * 100) / 100;
+  // Still owed is on the Orders tab, where it is still a job to do. It is
+  // worth a line here too, because this is the screen you come to for the
+  // year's money and "sold" is not the same as "collected".
+  const owing = effectiveOrders().filter(o => o.status === 'Delivered' && !o.paid);
+
+  $('salesTop').innerHTML =
+    '<h2 style="margin:0 0 2px">' + esc(fiscalYearEndLabel(from)) + '</h2>' +
+    '<p class="muted" style="margin:0 0 10px">Paid for and delivered since ' + esc(from) + '</p>' +
+    '<div class="kv big"><span>Collected</span><b>' + plain(sum(rows)) + '</b></div>' +
+    '<div class="kv"><span>Orders</span><b>' + rows.length + '</b></div>' +
+    (owing.length
+      ? '<div class="kv want"><span>Still owed</span><b>' + plain(sum(owing)) +
+        ' · ' + owing.length + (owing.length === 1 ? ' order' : ' orders') + '</b></div>'
+      : '') +
+    channelSplit(rows) +
+    paidTypeSplit(rows);
+
+  $('salesOwing').innerHTML = owing.length
+    ? '<h3>Still owed</h3><div class="card flush list">' +
+      owing.map(saleRowHtml).join('') + '</div>' +
+      '<p class="muted" style="text-align:center">These are on the <a href="#" ' +
+      'onclick="event.preventDefault();showView(\'orders\')">Orders</a> tab until they are paid.</p>'
+    : '';
+
+  // By month, oldest first, so the year reads left to right as it happened.
+  const byMonth = {};
+  rows.forEach(o => {
+    const k = String(o.deliveryDate).slice(0, 7);
+    byMonth[k] = (byMonth[k] || 0) + Number(o.total || 0);
+  });
+  const months = Object.keys(byMonth).sort();
+  $('salesMonths').innerHTML = months.length
+    ? months.map(k => '<div class="kv"><span>' + esc(monthLabel(k)) + '</span><b>' +
+        plain(Math.round(byMonth[k] * 100) / 100) + '</b></div>').join('')
+    : '<p class="muted" style="margin:0">Nothing delivered yet this year.</p>';
+
+  $('salesListHead').textContent = 'Sales — ' + rows.length +
+    (rows.length === 1 ? ' order' : ' orders');
+  $('salesList').innerHTML = rows.length
+    ? rows.map(saleRowHtml).join('')
+    : '<div class="empty">Nothing paid for since ' + esc(from) + '.</div>';
+
+  const badge = $('cOwing');
+  if (badge) badge.textContent = owing.length ? String(owing.length) : '';
+}
+
+function monthLabel(k) {
+  const nm = ['January','February','March','April','May','June',
+              'July','August','September','October','November','December'];
+  return nm[Number(k.slice(5, 7)) - 1] + ' ' + k.slice(0, 4);
+}
+
+function channelSplit(rows) {
+  const by = {};
+  rows.forEach(o => { by[o.channel || 'website'] = (by[o.channel || 'website'] || 0) + Number(o.total || 0); });
+  const keys = Object.keys(by).sort();
+  if (keys.length < 2) return '';
+  return keys.map(k => '<div class="kv"><span>' + esc(CHANNEL_NAME[k] || k) + '</span><b>' +
+    plain(Math.round(by[k] * 100) / 100) + '</b></div>').join('');
+}
+
+/* How the year's money arrived. Worth a glance at tax time, and it is the
+   one thing the sales sheet records that nothing else does. */
+function paidTypeSplit(rows) {
+  const by = {};
+  rows.forEach(o => {
+    const k = o.paymentType || 'not said';
+    by[k] = (by[k] || 0) + Number(o.total || 0);
+  });
+  const keys = Object.keys(by).sort();
+  if (!keys.length) return '';
+  return '<div class="kv" style="border:0;padding-bottom:0"><span>How it came in</span><b></b></div>' +
+    keys.map(k => '<div class="kv sub"><span>' + esc(k) + '</span><b>' +
+      plain(Math.round(by[k] * 100) / 100) + '</b></div>').join('');
+}
+
+function saleRowHtml(o) {
+  const items = (o.items || []).slice(0, 3)
+    .map(i => i.packages + ' × ' + esc(i.product || i.sku)).join(' · ');
+  const more = (o.items || []).length > 3 ? ' · +' + ((o.items || []).length - 3) + ' more' : '';
+  return '<div class="ord" onclick="openOrder(\'' + esc(o.id) + '\')">' +
+    '<div class="head">' +
+      '<div class="who"><b>' + esc(o.customer) +
+        (o.paid ? '' : '<span class="tag low">not paid</span>') + '</b>' +
+        '<span>' + esc(o.deliveryDate || '') + ' · ' + esc(CHANNEL_NAME[o.channel] || o.channel || '') +
+        (o.paid && o.paymentType ? ' · ' + esc(o.paymentType) : '') + '</span></div>' +
+      '<div class="when"><b>' + plain(o.total || 0) + '</b>' + (o.paid ? 'paid' : '') + '</div>' +
+    '</div>' +
+    (items ? '<div class="what"><span>' + items + more + '</span></div>' : '') +
+    (o.paid
+      ? '<div class="acts"><button type="button" class="ghost" onclick="event.stopPropagation();' +
+        'unpayOrder(\'' + esc(o.id) + '\')">Not paid after all</button></div>'
+      : '<div class="acts"><button type="button" onclick="event.stopPropagation();' +
+        'openPaid(\'' + esc(o.id) + '\')">Paid</button></div>') +
+  '</div>';
+}
+
+/* Marking it paid asks how, because "paid" without "how" is half a record
+   and the half that is missing is the one the bookkeeper needs. */
+function openPaid(id) {
+  const o = orderById(id);
+  if (!o) return;
+  openSheet('Paid — ' + o.customer, plain(o.total || 0) + ' · ' + (o.deliveryDate || ''),
+    '<label>How did they pay?</label>' +
+    '<select id="payHow">' +
+      payTypes().map(t => '<option>' + esc(t) + '</option>').join('') +
+    '</select>' +
+    '<button style="margin-top:12px" onclick="confirmPaid(\'' + esc(id) + '\')">Mark it paid</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Cancel</button>');
+}
+
+function confirmPaid(id) {
+  const how = ($('payHow') || {}).value || '';
+  enqueue([{ type: 'ORDER_STATUS', orderId: id, paid: true, paymentType: how }]);
+  closeSheet();
+  toast('Marked paid — ' + how + '.', 'ok');
+}
+
+function unpayOrder(id) {
+  const o = orderById(id);
+  if (!o) return;
+  if (!confirm('Put ' + o.customer + '\u2019s order back to unpaid?')) return;
+  enqueue([{ type: 'ORDER_STATUS', orderId: id, paid: false }]);
+  toast('Back to unpaid.');
 }
 
 function openAgeing() {
@@ -2320,11 +2675,198 @@ function categoryList() {
   return [...seen.values()];
 }
 
+/**
+ * The freezer menu for a lot.
+ *
+ * Every freezer there is, with Unassigned last — it is where everything
+ * starts, so it has to be offered, but it is the one you are usually trying
+ * to get away from and does not belong at the top of the list.
+ *
+ * It also always contains the lot's own freezer, even one no longer on the
+ * list. A select whose value is not among its options quietly shows the
+ * first one instead, so saving the form would have moved the meat to a
+ * freezer nobody chose.
+ */
+const UNASSIGNED = 'UNASSIGNED';
+
+function prodBySku(sku) {
+  return (data.products || []).find(x => x.sku === sku) || null;
+}
+
+function freezerOptions(current) {
+  const live = (data.freezers || []).filter(f => f.active !== false &&
+    String(f.id).toUpperCase() !== UNASSIGNED);
+  const out = live.map(f => ({ id: f.id, name: f.name || f.id }));
+  const cur = String(current || '');
+  if (cur && cur.toUpperCase() !== UNASSIGNED && !out.some(f => f.id === cur)) {
+    out.unshift({ id: cur, name: cur + ' (no longer on the list)' });
+  }
+  out.push({ id: UNASSIGNED, name: 'Unassigned — not put away yet' });
+  return out;
+}
+
+/**
+ * The batch menu, with enough on each line to know what it is.
+ *
+ * "M26" tells you nothing unless you already know. The date it was packed
+ * and the grade it came in at are what make it recognisable at a freezer
+ * door six months later.
+ */
+function batchLabel(b) {
+  if (!b) return '';
+  const when = b.packDate || b.killDate || '';
+  const bits = [when ? 'packed ' + when : '', b.grade || '',
+                b.animal ? '#' + b.animal : ''].filter(Boolean);
+  return b.id + (bits.length ? ' — ' + bits.join(' · ') : '');
+}
+
+function batchOptions(current) {
+  const out = (data.batches || []).map(b => ({ id: b.id, name: batchLabel(b) }));
+  const cur = String(current || '');
+  if (cur && !out.some(b => b.id === cur)) out.unshift({ id: cur, name: cur });
+  return out;
+}
+
+/* A steer that is not on the list yet is a thing that happens at the worst
+   moment — standing at a freezer with a new batch in front of you. So the
+   menu that asks which batch also offers to make one. */
+const NEW_BATCH = '__new';
+
+function batchSelectHtml(current, id) {
+  return '<select id="' + id + '" onchange="batchPicked(this)">' +
+    '<option value="">no batch</option>' +
+    batchOptions(current).map(b => '<option value="' + esc(b.id) + '"' +
+      (b.id === current ? ' selected' : '') + '>' + esc(b.name) + '</option>').join('') +
+    '<option value="' + NEW_BATCH + '">+ A new steer…</option></select>';
+}
+
+function batchPicked(sel) {
+  if (!sel || sel.value !== NEW_BATCH) return;
+  sel.value = sel.dataset.was || '';
+  openNewBatch(sel.id);
+}
+
+/**
+ * A new steer, on a form rather than down a row of prompt boxes.
+ *
+ * It used to ask seven questions one after another in the browser's own
+ * little dialogs, which on a phone means seven taps with no way back and
+ * nothing on screen to check against.
+ */
+function openNewBatch(backInto) {
+  openSheet('A new steer', 'The batch everything from it is filed under',
+    '<label>Steer ID</label>' +
+    '<input id="nbId" type="text" autocomplete="off" placeholder="e.g. 2026-10-STEER-03">' +
+    '<div class="row"><div><label>Tag number</label>' +
+      '<input id="nbTag" type="text" autocomplete="off" placeholder="optional"></div>' +
+      '<div><label>Grade / BMS</label>' +
+      '<select id="nbGrade"><option value="">— not set —</option>' +
+        gradeList('').map(g => '<option' + (g === 'Gold' ? ' selected' : '') + '>' +
+          esc(g) + '</option>').join('') + '</select></div></div>' +
+    '<div class="row"><div><label>Kill date</label>' +
+      '<input id="nbKill" type="date"></div>' +
+      '<div><label>Pack date</label>' +
+      '<input id="nbPack" type="date" value="' + todayISO() + '"></div></div>' +
+    '<div class="row"><div><label>Butcher</label>' +
+      '<input id="nbButcher" type="text" autocomplete="off" placeholder="optional"></div>' +
+      '<div><label>Hanging weight (lb)</label>' +
+      '<input id="nbHang" type="number" inputmode="decimal" step="0.1" placeholder="optional"></div></div>' +
+    '<button id="nbGo" style="margin-top:12px" onclick="saveNewBatch(' +
+      JSON.stringify(backInto || '') + ')">Add the steer</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Cancel</button>');
+  setTimeout(() => { const el = $('nbId'); if (el) el.focus(); }, 60);
+}
+
+async function saveNewBatch(backInto) {
+  const id = ($('nbId').value || '').trim();
+  if (!id) return toast('It needs a steer ID.', 'bad');
+  if ((data.batches || []).some(b => String(b.id).toLowerCase() === id.toLowerCase())) {
+    return toast('There is already a steer called that.', 'bad');
+  }
+  const btn = $('nbGo');
+  if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+  try {
+    await api('addSteer', { steer: {
+      id, tag: ($('nbTag').value || '').trim(), butcher: ($('nbButcher').value || '').trim(),
+      killDate: $('nbKill').value || '', packDate: $('nbPack').value || '',
+      grade: $('nbGrade').value || '', hangingWeight: $('nbHang').value || ''
+    }});
+    await sync(true);
+    closeSheet();
+    toast('Added ' + id + '.', 'ok');
+    // Back where we came from, with the new steer already chosen.
+    const sel = backInto ? $(backInto) : null;
+    if (sel) {
+      if (![...sel.options].some(o => o.value === id)) {
+        sel.insertBefore(new Option(id, id), sel.options[sel.options.length - 1]);
+      }
+      sel.value = id;
+      sel.dispatchEvent(new Event('change'));
+    }
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Add the steer'; }
+    toast(e.message, 'bad');
+  }
+}
+
+/* Gold unless it is processed meat, which has no grade at all. A lot that
+   came across from the old sheet with the grade cell empty is a gap in the
+   record rather than a statement that it has no grade. */
+function defaultGrade(p) {
+  if (!p) return '';
+  if (noMarkupHere(p) || catOf(p) === 'processed' || catOf(p) === 'tallow') return '';
+  const want = String((data.settings || {}).DEFAULT_GRADE || 'Gold');
+  const list = gradeList('');
+  const hit = list.find(g => g.toLowerCase() === want.toLowerCase());
+  return hit || (list[0] || '');
+}
+
 function gradeList(current) {
   const out = GRADES.slice();
   const c = String(current || '').trim();
   if (c && !out.some(g => g.toLowerCase() === c.toLowerCase())) out.unshift(c);
   return out;
+}
+
+/**
+ * What kind of thing this is, finer than the category.
+ *
+ * The catalogue calls pepperoni, jerky, smokies, sausage and patties all
+ * "Processed", which is true and no help at all when you are looking down a
+ * list for the jerky. The name is what tells them apart, so the name is what
+ * decides — falling back to the category for everything the names do not
+ * cover.
+ *
+ * Ordered the way you would walk a freezer rather than alphabetically: the
+ * steaks first because that is what is asked for most.
+ */
+const KINDS = ['Steak', 'Roast', 'Ribs', 'Ground beef', 'Burger patties',
+               'Sausage', 'Smokies', 'Pepperoni', 'Jerky', 'Bacon', 'Hot dogs',
+               'Other cuts', 'Tallow', 'Box'];
+
+function kindOf(p) {
+  const n = String((p || {}).product || '').toLowerCase();
+  if (/pepperoni|pepp\b|beer stick/.test(n)) return 'Pepperoni';
+  if (/jerky/.test(n)) return 'Jerky';
+  if (/smokie/.test(n)) return 'Smokies';
+  if (/sausage/.test(n)) return 'Sausage';
+  if (/patt/.test(n)) return 'Burger patties';
+  if (/bacon/.test(n)) return 'Bacon';
+  if (/hot dog|wiener/.test(n)) return 'Hot dogs';
+  if (/ground/.test(n)) return 'Ground beef';
+  if (/tallow|lotion/.test(n)) return 'Tallow';
+  const cat = String((p || {}).category || '').trim();
+  const hit = KINDS.find(k => k.toLowerCase() === cat.toLowerCase());
+  if (hit) return hit;
+  if (/roast/.test(n)) return 'Roast';
+  if (/rib/.test(n)) return 'Ribs';
+  if (/steak/.test(n)) return 'Steak';
+  return cat || 'Other cuts';
+}
+
+function kindRank(k) {
+  const i = KINDS.indexOf(k);
+  return i === -1 ? KINDS.length : i;
 }
 
 /* ───────── 2. Inventory ───────── */
@@ -2406,12 +2948,18 @@ function renderStock() {
   let rows = productTotals().filter(r => !boxes.has(r.sku));
   if (q) rows = rows.filter(r => (r.product + ' ' + r.content + ' ' + r.sku).toLowerCase().includes(q));
 
-  const sort = $('stockSort').value;
+  const sort = $('stockSort').value || 'kind';
+  const prodIdx = Object.fromEntries((data.products || []).map(p => [p.sku, p]));
+  rows.forEach(r => { r.kind = kindOf(prodIdx[r.sku] || r); });
   rows.sort((a, b) =>
     sort === 'qty' ? a.packages - b.packages :
     sort === 'weight' ? b.weight - a.weight :
     sort === 'old' ? b.days - a.days :
-    String(a.product).localeCompare(String(b.product)));
+    sort === 'kind'
+      ? (kindRank(a.kind) - kindRank(b.kind)) ||
+        String(a.kind).localeCompare(String(b.kind)) ||
+        String(a.product).localeCompare(String(b.product))
+      : String(a.product).localeCompare(String(b.product)));
 
   const totalPkg = rows.reduce((s, r) => s + r.packages, 0);
   const totalWt = rows.reduce((s, r) => s + r.weight, 0);
@@ -2434,7 +2982,14 @@ function renderStock() {
     return;
   }
 
+  // A heading each time the kind changes, so the jerky is in one place.
+  let lastKind = null;
   $('stockList').innerHTML = rows.map(r => {
+    let head = '';
+    if (sort === 'kind' && r.kind !== lastKind) {
+      lastKind = r.kind;
+      head = '<div class="kindhead">' + esc(r.kind) + '</div>';
+    }
     const tag = r.status === 'oversold' ? '<span class="tag out">oversold</span>'
               : r.status === 'out' ? '<span class="tag out">all promised</span>'
               : r.status === 'low' ? '<span class="tag low">low</span>' : '';
@@ -2465,7 +3020,7 @@ function renderStock() {
       const l = lots[0];
       const where = l && l.freezer ? freezerName(l.freezer) : '';
       const inBoxes = boxedLine(r.sku, r.product);
-      return '<div><div class="item">' +
+      return head + '<div><div class="item">' +
         '<div class="name" onclick="openProduct(\'' + esc(r.sku) + '\')">' +
           '<b>' + esc(r.product) + tag + pend + '</b>' +
           '<span>' + [where, rate].filter(Boolean).join(' · ') + '</span>' +
@@ -2488,7 +3043,7 @@ function renderStock() {
       '</div>').join('');
 
     const inBoxes = boxedLine(r.sku, r.product);
-    return '<div class="multi"><div class="item head">' +
+    return head + '<div class="multi"><div class="item head">' +
       '<div class="name" onclick="openProduct(\'' + esc(r.sku) + '\')">' +
         '<b>' + esc(r.product) + tag + pend + '</b>' +
         '<span>' + [rate, lots.length + ' places'].filter(Boolean).join(' · ') + '</span>' +
@@ -3095,17 +3650,19 @@ function openProduct(sku) {
           '<button class="ghost" onclick="lotWeigh(\'' + k + '\',' + i + ',true)">Per pack</button></div>' +
         '<label>Filed under</label>' +
         '<div class="row">' +
-          '<select id="lf' + i + '" style="flex:1">' + fOpts.map(f =>
+          '<select id="lf' + i + '" style="flex:1">' + freezerOptions(l.freezer).map(f =>
             '<option value="' + esc(f.id) + '"' + (f.id === l.freezer ? ' selected' : '') + '>' +
-            esc(f.name || f.id) + '</option>').join('') + '</select>' +
-          '<select id="lb' + i + '" style="flex:1"><option value="">no batch</option>' + bOpts.map(bb =>
-            '<option value="' + esc(bb.id) + '"' + (bb.id === l.batch ? ' selected' : '') + '>' +
-            esc(bb.id) + '</option>').join('') + '</select>' +
+            esc(f.name) + '</option>').join('') + '</select>' +
+          batchSelectHtml(l.batch, 'lb' + i).replace('<select ', '<select style="flex:1" ') +
         '</div>' +
         '<div class="row" style="margin-top:6px">' +
+          // Gold is pre-picked on a lot that has no grade, because a blank
+          // grade is a gap in the record rather than a statement. Processed
+          // meat has no grade and is left alone.
           '<select id="lg' + i + '" style="flex:1"><option value="">no grade</option>' +
             gradeList(l.grade).map(g => '<option value="' + esc(g) + '"' +
-              (g === l.grade ? ' selected' : '') + '>' + esc(g) + '</option>').join('') + '</select>' +
+              (g === (l.grade || defaultGrade(p)) ? ' selected' : '') + '>' +
+              esc(g) + '</option>').join('') + '</select>' +
           '<input id="lz' + i + '" type="text" value="' + esc(l.size || '') + '" placeholder="size" style="flex:1">' +
           '<input id="lq' + i + '" type="number" inputmode="numeric" min="1" max="' + l.packages +
             '" step="1" placeholder="all ' + l.packages + '" style="flex:1">' +
@@ -3439,13 +3996,12 @@ async function saveProduct(sku) {
 function openLot(key) {
   const l = lineByKey(key);
   if (!l) return toast('That lot is no longer there.', 'bad');
-  const fOpts = (data.freezers || []).filter(f => f.active !== false)
+  // Same lists as the product screen: every freezer with Unassigned last,
+  // and a batch you can recognise without already knowing it.
+  const fOpts = freezerOptions(l.freezer)
     .map(f => '<option value="' + esc(f.id) + '"' + (f.id === l.freezer ? ' selected' : '') +
-              '>' + esc(f.name || f.id) + '</option>').join('');
-  const bOpts = '<option value="">no batch</option>' +
-    (data.batches || []).map(b => '<option value="' + esc(b.id) + '"' +
-      (b.id === l.batch ? ' selected' : '') + '>' + esc(b.id) +
-      (b.grade ? ' · ' + esc(b.grade) : '') + '</option>').join('');
+              '>' + esc(f.name) + '</option>').join('');
+  const bSel = batchSelectHtml(l.batch, 'rlBatch').replace('<select ', '<select style="flex:1" ');
 
   openSheet((l.product || l.sku) + ' — this lot',
     (l.freezer ? freezerName(l.freezer) : '—') + ' · ' + (l.batch || 'no batch') +
@@ -3466,9 +4022,12 @@ function openLot(key) {
     '<p class="muted" style="margin:2px 0 8px">Fix anything that was entered wrongly. ' +
       'Leave the count blank to correct the whole lot.</p>' +
     '<div class="row"><select id="rlFreezer" style="flex:1">' + fOpts + '</select>' +
-      '<select id="rlBatch" style="flex:1">' + bOpts + '</select></div>' +
+      bSel + '</div>' +
     '<div class="row" style="margin-top:6px">' +
-      '<input id="rlGrade" type="text" value="' + esc(l.grade || '') + '" placeholder="grade" style="flex:1">' +
+      '<select id="rlGrade" style="flex:1"><option value="">no grade</option>' +
+        gradeList(l.grade).map(g => '<option value="' + esc(g) + '"' +
+          (g === (l.grade || defaultGrade(prodBySku(l.sku))) ? ' selected' : '') + '>' +
+          esc(g) + '</option>').join('') + '</select>' +
       '<input id="rlSize" type="text" value="' + esc(l.size || '') + '" placeholder="size" style="flex:1">' +
       '<input id="rlQty" type="number" inputmode="numeric" min="1" max="' + l.packages +
         '" step="1" placeholder="all ' + l.packages + '" style="flex:1">' +
@@ -4534,9 +5093,13 @@ function renderOrderCart() {
   el.innerHTML = orderCart.map((l, i) => {
     const m = money.lines[i];
     const rate = m.basis === 'lb' ? plain(m.rate) + '/lb' : plain(m.rate) + '/pack';
+    // Nothing on the scale is not the same as nothing owing, and a confident
+    // $0.00 on a quote is the worst of the three things it could say.
     const sum = l.promo
       ? '<s>' + plain(m.worth) + '</s> free'
-      : plain(m.total) + (m.manual ? ' <i>typed in</i>' : '');
+      : m.needsWeight
+        ? '<span class="want">needs a weight</span>'
+        : plain(m.total) + (m.manual ? ' <i>typed in</i>' : '');
     return '<div class="line oline' + (l.promo ? ' promo' : '') + '">' +
       '<div class="top"><b>' + esc(l.label) + '</b>' +
       '<span class="sum">' + sum + '</span>' +
@@ -4545,17 +5108,27 @@ function renderOrderCart() {
         '<label>Packs<input type="number" inputmode="decimal" min="0" step="1" value="' +
           esc(String(l.packages)) + '" onchange="setLineQty(' + i + ',this.value)"></label>' +
         (m.basis === 'lb'
-          ? '<label>Weight lb<input type="number" inputmode="decimal" min="0" step="0.01" value="' +
-            esc(l.weight ? String(round2(l.weight)) : '') + '" placeholder="' + round2(m.weight) +
+          ? '<label' + (m.needsWeight ? ' class="want"' : '') + '>Weight lb' +
+            '<input type="number" inputmode="decimal" min="0" step="0.01" value="' +
+            esc(l.weight ? String(round2(l.weight)) : '') +
+            '" placeholder="' + (m.weight ? round2(m.weight) : 'lb') +
             '" onchange="setLineWeight(' + i + ',this.value)"></label>'
           : '<label>Rate<span class="ro">' + esc(rate) + '</span></label>') +
         '<label>Price<input type="number" inputmode="decimal" min="0" step="0.01" value="' +
-          esc(m.manual ? String(m.total) : '') + '" placeholder="' + m.worth +
+          esc(m.manual ? String(m.total) : '') +
+          // A greyed "0" reads as "this costs nothing". Ask for the number.
+          '" placeholder="' + (m.worth ? m.worth : 'or type it') +
           '" onchange="setLinePrice(' + i + ',this.value)"></label>' +
       '</div>' +
       // The rate goes underneath only when it is not already one of the three
       // boxes above — a pack-priced line shows it twice otherwise.
       '<div class="why"><span>' + (m.basis === 'lb' ? esc(rate) : '') + '</span>' +
+        (m.basis === 'lb'
+          ? '<button type="button" class="weigh" title="Photograph the scale or the label" ' +
+            'onclick="weighByPhoto(' + i + ')">📷</button>' +
+            '<button type="button" class="weigh" title="Say the weight" ' +
+            'onclick="weighBySpeaking(' + i + ',this)">🎤</button>'
+          : '') +
         '<button type="button" class="giveaway' + (l.promo ? ' on' : '') +
           '" onclick="toggleLinePromo(' + i + ')">' +
           (l.promo ? '✓ giving it away' : 'give it away') + '</button></div>' +
@@ -4566,9 +5139,15 @@ function renderOrderCart() {
     const gb = money.gbLb
       ? '<div class="kv"><span>Ground beef</span><b>' + round2(money.gbLb) + ' lb at ' +
         plain(money.gbRate) + '/lb</b></div>' : '';
-    foot.innerHTML = '<div class="card ordsum">' + gb +
+    // A total that is still waiting on a scale says so, rather than quietly
+    // reading low and being sent to a customer.
+    const waiting = money.needsWeight
+      ? '<div class="kv want"><span>Still to weigh</span><b>' + money.needsWeight +
+        (money.needsWeight === 1 ? ' line' : ' lines') + '</b></div>' : '';
+    foot.innerHTML = '<div class="card ordsum">' + gb + waiting +
       '<div class="kv big"><span>' + esc(CHANNEL_NAME[orderChannel] || orderChannel) +
-      ' total</span><b>' + plain(money.total) + '</b></div></div>';
+      (money.needsWeight ? ' so far' : ' total') + '</span><b>' +
+      plain(money.total) + '</b></div></div>';
   }
 }
 
@@ -4628,9 +5207,12 @@ function gbRate(totalLb) {
   return rate;
 }
 
-function priceOrderCart() {
+function priceOrderCart() { return priceLines(orderCart, orderChannel); }
+
+function priceLines(cart, channel) {
   const prods = Object.fromEntries((data.products || []).map(p => [p.sku, p]));
-  const ch = orderChannel;
+  const ch = channel || 'website';
+  const orderCart = cart || [];
 
   // Ground beef is banded on the whole order, so count its pounds first.
   let gbLb = 0;
@@ -4647,19 +5229,25 @@ function priceOrderCart() {
     const packs = Number(l.packages) || 0;
     const weight = Number(l.weight) || packs * Number(p.avgWeight || 0);
     const cp = channelPrices(p);
+    // A cut priced by the pound stays priced by the pound even with nothing
+    // on the scale — that is the line that needs a weight typed in, and it
+    // cannot ask for one if it has decided it is sold by the pack.
     let rate, basis;
+    const perLb = Number(cp[ch + 'PerLb']) || 0;
     if (isGroundBeef(l.sku)) { rate = gbPerLb; basis = 'lb'; }
-    else if (Number(cp[ch + 'PerLb']) && weight) { rate = Number(cp[ch + 'PerLb']); basis = 'lb'; }
+    else if (perLb && (weight || !Number(cp.listPerPack))) { rate = perLb; basis = 'lb'; }
     else { rate = Number(cp[ch + 'PerPack']) || 0; basis = 'pack'; }
     const worth = Math.round((basis === 'lb' ? rate * weight : rate * packs) * 100) / 100;
     const manual = !l.promo && l.manual && l.total !== '' && l.total !== null && l.total !== undefined;
     const lineTotal = l.promo ? 0 : (manual ? Math.round(Number(l.total) * 100) / 100 : worth);
+    const needsWeight = !l.promo && !manual && basis === 'lb' && !weight;
     total += lineTotal;
     return { weight: Math.round(weight * 100) / 100, rate: Math.round(rate * 100) / 100,
-             basis, worth, total: lineTotal, manual: !!manual };
+             basis, worth, total: lineTotal, manual: !!manual, needsWeight };
   });
   return { lines, total: Math.round(total * 100) / 100, gbLb: Math.round(gbLb * 100) / 100,
-           gbRate: gbPerLb };
+           gbRate: gbPerLb,
+           needsWeight: lines.filter(l => l.needsWeight).length };
 }
 
 function setOrderChannel(c) {
@@ -4672,6 +5260,98 @@ function setOrderChannel(c) {
 
 /* The three editable things on a line: how heavy it was, whether it is being
    given away, and a price typed over the top of the rule. */
+/**
+ * Three ways to get a weight onto a line: the keyboard, the scale, or saying
+ * it out loud.
+ *
+ * Standing at a scale with a pack of meat in one hand, the keyboard is the
+ * worst of them. The camera reads the display; the microphone takes "one
+ * point five". Both drop the number into the same box, which can still be
+ * typed over — nothing here is trusted enough to be unarguable.
+ */
+let weighingLine = -1;
+
+function weighByPhoto(i) {
+  weighingLine = i;
+  const el = $('scalePhoto');
+  if (el) { el.value = ''; el.click(); }
+}
+
+async function scalePhotoTaken(file) {
+  const i = weighingLine;
+  weighingLine = -1;
+  if (!file || !orderCart[i]) return;
+  if (!navigator.onLine) {
+    return toast('Reading the scale needs a signal. Type the weight instead.', 'bad');
+  }
+  toast('Reading the scale…');
+  try {
+    const dataUrl = await shrinkImage(file, 900, 0.75);
+    const comma = dataUrl.indexOf(',');
+    const res = await api('scaleRead', {
+      image: dataUrl.slice(comma + 1),
+      mime: (dataUrl.slice(5, comma) || 'image/jpeg').replace(';base64', ''),
+      unit: 'lb'
+    });
+    if (!res.ok) throw new Error(res.error || 'Could not read that.');
+    setLineWeight(i, res.weight);
+    toast(res.shown ? 'Read ' + res.weight + ' lb (' + res.shown + ')'
+                    : 'Read ' + res.weight + ' lb', 'ok');
+  } catch (e) { toast(e.message, 'bad'); }
+}
+
+/* "one point five", "one and a half", "1.5", "nought point eight". Spoken
+   numbers come back as words as often as digits, so both are read. */
+function spokenNumber(said) {
+  let t = String(said || '').toLowerCase().trim()
+    .replace(/[^a-z0-9. ]/g, ' ').replace(/\s+/g, ' ').trim();
+  const direct = t.match(/(\d+(?:\.\d+)?)/);
+  const words = { zero:0, nought:0, oh:0, one:1, two:2, three:3, four:4, five:5,
+                  six:6, seven:7, eight:8, nine:9, ten:10, eleven:11, twelve:12 };
+  if (/and a half/.test(t)) {
+    const w = t.replace(/and a half.*/, '').trim().split(' ').pop();
+    const base = direct && !words[w] ? Number(direct[1]) : words[w];
+    if (base !== undefined) return Math.round((base + 0.5) * 100) / 100;
+  }
+  if (/and a quarter/.test(t)) {
+    const w = t.replace(/and a quarter.*/, '').trim().split(' ').pop();
+    const base = direct && !words[w] ? Number(direct[1]) : words[w];
+    if (base !== undefined) return Math.round((base + 0.25) * 100) / 100;
+  }
+  if (direct) return Number(direct[1]);
+  // "one point five" — a word, "point", then the digits after it.
+  const m = t.match(/^(\w+) point ((?:\w+ ?)+)$/);
+  if (m && words[m[1]] !== undefined) {
+    const after = m[2].trim().split(' ').map(w => words[w])
+      .filter(n => n !== undefined).join('');
+    if (after !== '') return Number(words[m[1]] + '.' + after);
+  }
+  if (words[t] !== undefined) return words[t];
+  return null;
+}
+
+function weighBySpeaking(i, btn) {
+  if (!SR) return toast('No voice input in this browser — type the weight.', 'bad');
+  if (!navigator.onLine) {
+    return toast('The microphone needs a signal. Type the weight instead.', 'bad');
+  }
+  if (weighBySpeaking._on) { weighBySpeaking._on.stop(); return; }
+  const r = new SR();
+  r.lang = 'en-CA'; r.interimResults = false; r.maxAlternatives = 1;
+  btn.classList.add('on');
+  weighBySpeaking._on = r;
+  r.onresult = e => {
+    const said = e.results[0][0].transcript;
+    const n = spokenNumber(said);
+    if (n === null || !(n > 0)) return toast('Heard “' + said + '” — type it instead?', 'bad');
+    setLineWeight(i, n);
+    toast(n + ' lb', 'ok');
+  };
+  r.onerror = () => toast('Did not catch that.', 'bad');
+  r.onend = () => { btn.classList.remove('on'); weighBySpeaking._on = null; };
+  r.start();
+}
+
 function setLineWeight(i, v) {
   const l = orderCart[i]; if (!l) return;
   const w = String(v).trim();
@@ -4771,6 +5451,13 @@ function addOrderLine() {
   $('ordQty').value = ''; $('ordLineNote').value = '';
   renderCart('order');
   renderOrdAvail();
+  // Straight to the scale if that is what the line is waiting for.
+  const m = priceOrderCart().lines[orderCart.length - 1];
+  if (m && m.needsWeight) {
+    const box = document.querySelectorAll('#ordLines .oline')[orderCart.length - 1];
+    const w = box && box.querySelector('.bits label:nth-child(2) input');
+    if (w) w.focus();
+  }
 }
 
 /**
@@ -5046,6 +5733,14 @@ function openSheet(title, sub, body) {
   $('sheetBody').innerHTML = body;
   $('sheet').classList.add('on');
   $('scrim').classList.add('on');
+  /* At the top of itself, every time. A panel reuses the same element, so
+     without this the second one you open starts wherever the last one was
+     left — which on a long product screen means opening at the bottom and
+     having to scroll up to find the name of the thing you just tapped. */
+  const body_ = $('sheetBody');
+  if (body_) body_.scrollTop = 0;
+  const panel = $('sheet');
+  if (panel) panel.scrollTop = 0;
   if (!sheetIsOpen) pushHist('sheet', 'panel');
   sheetIsOpen = true;
 }
@@ -5074,6 +5769,78 @@ window.addEventListener('popstate', ev => {
   const name = st && st.pcw === 'view' ? st.name : 'orders';
   showView(name, { fromHistory: true });
 });
+
+/**
+ * What could not be saved, and what to do about it.
+ *
+ * A change the sheet turned away is off the queue — otherwise it is sent
+ * again on every sync for ever and the red banner never stops — but it is
+ * not thrown away either. It is listed here with the reason, and can be
+ * tried again once whatever was in the way is sorted out, or let go.
+ */
+function describeOp(op) {
+  op = op || {};
+  const p = prodBySku(op.sku) || {};
+  const what = p.product || op.sku || '';
+  const n = op.packages !== undefined ? Math.abs(Number(op.packages)) : '';
+  switch (String(op.type || '').toUpperCase()) {
+    case 'SALE':      return 'Sold ' + n + ' × ' + what;
+    case 'INTAKE':    return 'Took in ' + n + ' × ' + what;
+    case 'ADJUST':    return 'Adjusted ' + what + ' by ' + (Number(op.packages) > 0 ? '+' : '') + op.packages;
+    case 'COUNT':     return 'Counted ' + what + ' as ' + n;
+    case 'TRANSFER':  return 'Moved ' + n + ' × ' + what + ' to ' + (op.toFreezer || '');
+    case 'RELABEL':   return 'Corrected the details on ' + what;
+    case 'WEIGH':     return 'Weighed ' + what;
+    case 'BUILD_BOX': return 'Built ' + n + ' × ' + (op.boxSku || 'box');
+    case 'BREAK_BOX': return 'Took apart ' + n + ' × ' + (op.boxSku || 'box');
+    case 'ORDER_NEW':    return 'New order for ' + (op.customer || '');
+    case 'ORDER_EDIT':   return 'Changes to ' + (op.customer || 'an order');
+    case 'ORDER_PACK':   return 'Assembled ' + (op.orderId || 'an order');
+    case 'ORDER_STATUS': return 'A change to ' + (op.orderId || 'an order');
+    default: return (op.type || 'A change') + (what ? ' — ' + what : '');
+  }
+}
+
+function openStuck() {
+  if (!stuck.length) return openSettings();
+  openSheet(stuck.length + (stuck.length === 1 ? ' change was not saved' : ' changes were not saved'),
+    'The sheet turned these away. Nothing has been lost — sort out what is in the ' +
+    'way and try again, or let them go.',
+    stuck.map((x, i) =>
+      '<div class="line"><div class="top"><b>' + esc(describeOp(x.op)) + '</b>' +
+      '<button class="x" onclick="dropStuck(' + i + ')">✕</button></div>' +
+      '<p class="lotsay bad" style="margin:6px 0 0">' + esc(x.why) + '</p>' +
+      '<p class="muted" style="margin:3px 0 0;font-size:11px">' +
+        esc(String(x.at).slice(0, 16).replace('T', ' ')) + '</p></div>').join('') +
+    '<button style="margin-top:12px" onclick="retryStuck()">Try all of them again</button>' +
+    '<button class="ghost danger" style="margin-top:8px" onclick="dropAllStuck()">' +
+      'Let them all go</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Close</button>');
+}
+
+function retryStuck() {
+  const again = stuck.map(x => x.op).filter(Boolean);
+  stuck = []; save(LS.stuck, stuck);
+  closeSheet();
+  if (!again.length) { setPill(); return; }
+  // New keys, or the backend would recognise them as already seen.
+  again.forEach(o => { delete o.clientKey; });
+  enqueue(again);
+  toast('Trying ' + again.length + ' again…');
+}
+
+function dropStuck(i) {
+  stuck.splice(i, 1);
+  save(LS.stuck, stuck);
+  setPill();
+  if (stuck.length) openStuck(); else { closeSheet(); toast('Let go.'); }
+}
+
+function dropAllStuck() {
+  if (!confirm('Let all ' + stuck.length + ' go? They will not be saved.')) return;
+  stuck = []; save(LS.stuck, stuck);
+  closeSheet(); setPill(); toast('Let go.');
+}
 
 function openSettings() {
   const last = load(LS.sync, null);
@@ -5136,11 +5903,13 @@ function discardQueue() {
 const SUBVIEWS = { order:'orders', neworder:'orders', followup:'orders',
                    wholesale:'menu', waitlist:'menu',
                    steer:'menu', clients:'menu', market:'menu', boxes:'menu', status:'menu',
+                   sales:'menu',
                    calnew:'calendar' };
 const TITLES = { order:'Order', neworder:'New order', followup:'Follow up',
                  wholesale:'Wholesale',
                  waitlist:'Cut waiting list', steer:'Meat coming in', clients:'Customers',
                  market:'Market day', boxes:'Boxes', status:'Inventory status',
+                 sales:'Sales, year to date',
                  calendar:'Calendar', calnew:'Add to the calendar' };
 
 function showView(name, opts) {
@@ -5151,6 +5920,7 @@ function showView(name, opts) {
   if (name !== 'neworder' && editingOrderId) clearOrderDraft();
   if (name === 'neworder') paintOrderMode();
   if (name === 'calendar') loadSchedule(true);
+  if (name === 'sales') renderSales();
   if (name === 'calnew' && !$('cnDate').value) $('cnDate').value = todayISO();
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('on', v.id === 'view-' + name));
   document.querySelectorAll('nav button').forEach(b =>
@@ -5179,7 +5949,7 @@ $('btnFuRewrite').addEventListener('click', () => openFu &&
 $('btnFuSnooze').addEventListener('click', () => markFollowup('snooze', 30));
 $('btnFuCalled').addEventListener('click', () => markFollowup('contacted'));
 $('scrim').addEventListener('click', closeSheet);
-$('syncPill').addEventListener('click', openSettings);
+$('syncPill').addEventListener('click', () => stuck.length ? openStuck() : openSettings());
 
 $('stockSearch').addEventListener('input', () => {
   renderStock();
@@ -5226,6 +5996,11 @@ $('ordFind').addEventListener('keydown', ev => {
   if (ev.key === 'Enter') { ev.preventDefault(); ordHeard(); }
 });
 $('ordFind').addEventListener('search', () => searchDone('ordFind'));
+$('scalePhoto').addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (f) scalePhotoTaken(f);
+});
 
 $('calcProduct').addEventListener('change', renderCalc);
 $('calcWeight').addEventListener('input', renderCalc);
@@ -5243,7 +6018,11 @@ $('btnCalcPhoto').addEventListener('click', () => $('calcPhoto').click());
 $('calcPhoto').addEventListener('change', e => { addPhotos(e.target.files, true); e.target.value = ''; });
 
 $('inProduct').addEventListener('change', renderInSizes);
-$('inBatch').addEventListener('change', renderSteerNumbers);
+$('inBatch').addEventListener('change', function () {
+  if (this.value === NEW_BATCH) { batchPicked(this); return; }
+  this.dataset.was = this.value;
+  renderSteerNumbers();
+});
 $('btnAddInLine').addEventListener('click', addIntakeLine);
 $('btnSubmitIntake').addEventListener('click', submitIntake);
 $('btnNewProduct').addEventListener('click', newProduct);
