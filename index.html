@@ -224,8 +224,14 @@
   .kbar{position:absolute;left:0;right:0;bottom:0;height:3px;overflow:hidden}
   .kbar>div{height:100%;width:0;background:var(--brand-2);
             transition:width .25s linear}
-  .kmic{width:44px;height:44px;flex:0 0 auto;padding:0;border-radius:50%;font-size:20px;
-        line-height:1;background:var(--brand-2);color:var(--on-brand)}
+  /* Said in words, because the app already has fourteen microphone buttons
+     and every one of them only dictates into a box. This is the one that
+     answers, so it says so. */
+  .kmic{flex:0 0 auto;width:auto;padding:9px 13px 9px 10px;border-radius:999px;
+        display:flex;align-items:center;gap:7px;line-height:1;
+        background:var(--brand-2);color:var(--on-brand)}
+  .kmicdot{font-size:17px;line-height:1}
+  .kmiclabel{font-size:14px;font-weight:700;white-space:nowrap}
   .kmic.on{background:var(--bad);color:#fff;animation:kpulse 1.1s ease-in-out infinite}
   .kmic.busy{opacity:.6}
   @keyframes kpulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
@@ -362,8 +368,9 @@
 <!-- Kenji sits above whatever tab you are on, so a question can be asked
      while looking at the thing you are asking about. -->
 <div class="kenji" id="kenjiBar">
-  <button class="kmic" id="kMic" onclick="kenjiListen()" aria-label="Ask Kenji">🎤</button>
-  <div class="ksay" id="kSay">Ask Kenji — “how many ribeye?”, “took out two, sold in person”</div>
+  <button class="kmic" id="kMic" onclick="kenjiListen()" aria-label="Ask Kenji">
+    <span class="kmicdot">🎤</span><span class="kmiclabel">Ask Kenji</span></button>
+  <div class="ksay" id="kSay">“How many ribeye?” · “Took out two, sold in person”</div>
   <button class="kx" id="kStop" onclick="kenjiReset()" title="Start again" hidden>✕</button>
   <div class="kbar"><div id="kBar"></div></div>
 </div>
@@ -823,7 +830,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-22 02:05 UTC';
+const APP_BUILD = '2026-10-22 03:40 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes' };
 const MAX_PHOTOS = 8;
@@ -998,10 +1005,16 @@ function kenjiListen() {
   r.lang = 'en-CA'; r.interimResults = false; r.maxAlternatives = 1;
   kenjiListen._on = r;
   btn.classList.add('on');
-  kSay('Listening…');
+  const label = btn.querySelector('.kmiclabel');
+  if (label) label.textContent = 'Listening…';
+  kSay('Go ahead.');
   r.onresult = e => kenjiAsk(e.results[0][0].transcript);
   r.onerror = () => kSay('Did not catch that — try again.', 'bad');
-  r.onend = () => { btn.classList.remove('on'); kenjiListen._on = null; };
+  r.onend = () => {
+    btn.classList.remove('on');
+    if (label) label.textContent = 'Ask Kenji';
+    kenjiListen._on = null;
+  };
   try { r.start(); } catch (e) { kSay('Could not start listening.', 'bad'); }
 }
 
