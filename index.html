@@ -459,7 +459,9 @@
      statement rather than something you can press. */
   .item.tapprice{cursor:pointer}
   .item.tapprice:active{background:var(--bg)}
-  .lmoney b.tapped{border-bottom:1.5px dotted var(--muted);padding-bottom:1px}
+  b.tapped{border-bottom:1.5px dotted var(--muted);padding-bottom:1px;cursor:pointer}
+  .oline .sum.tapsum{border-bottom:1.5px dotted var(--muted);cursor:pointer}
+  .ord .what b.tapped{padding:2px 0 3px}
 
   .toast.warn{background:#7a5c14}
 
@@ -1016,7 +1018,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-24 01:00 UTC';
+const APP_BUILD = '2026-10-24 03:30 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -1790,6 +1792,9 @@ function applyBoot(boot) {
     // What the price list used to say. Changing a price on the Price tab or
     // in the sheet writes a line here; a price agreed on one order does not.
     priceChanges: boot.priceChanges || [],
+    // The company's own sales book — every sale of the year, including the
+    // ones made at the door long before this app existed.
+    salesBook: boot.salesBook || [],
     steerCosts: boot.steerCosts || {},
     boxList: boot.boxList || [],
     // Cut SKU → the built boxes holding it, so the Cuts list can say that the
@@ -2273,9 +2278,19 @@ function orderRowHtml(o) {
       '<div class="when"><b>' + esc(d.label) + '</b>' + esc(o.deliveryDate || '') + '</div>' +
       (d.cls ? '<span class="tag ' + d.cls + '">' + (d.cls === 'due' ? 'due' : 'soon') + '</span>' : '') +
     '</div>' +
+    /* The figure on this row is where the hand goes when a price needs
+       changing — it is the first screen in the app and the only place the
+       money is visible without opening anything. Tapping it opens the same
+       box as tapping the total inside the order. */
     (items.length
       ? '<div class="what"><span>' + named + more + '</span>' +
-        (o.total ? '<b>' + plain(o.total) + '</b>' : '') + '</div>'
+        (o.total
+          ? (o.status === 'Delivered' || o.status === 'Cancelled'
+              ? '<b>' + plain(o.total) + '</b>'
+              : '<b class="tapped" onclick="event.stopPropagation();editOrderTotal(\'' +
+                esc(o.id) + '\')">' + plain(o.total) +
+                (o.totalManual ? ' <i>agreed</i>' : '') + '</b>')
+          : '') + '</div>'
       : '') +
     (buttons ? '<div class="acts">' + buttons + '</div>' : '') +
   '</div>';
@@ -2361,14 +2376,46 @@ function fiscalYearEndLabel(startISO) {
 }
 
 /* Delivered orders in the current year, newest first. */
+/**
+ * The year's sales.
+ *
+ * Two sources, because there are two. The company's sales sheet is the book
+ * everything has always been written in — website orders, whatever Hannah
+ * sells at the door, whole steers — and it is where the year's real figure
+ * lives. This app's own orders are the newer half of it; one marked paid
+ * here is written into that book carrying its order ID, so a sale that is in
+ * both is shown once, from the book.
+ */
 function salesRows() {
   const from = fiscalYearStart();
-  // Paid and delivered. An order that has gone out but not been settled is
-  // still on the Orders tab, where it is still somebody's job.
-  // effectiveOrders, not data.orders: a payment tapped ten seconds ago is
-  // still in the queue, and this screen has to show it anyway.
-  return effectiveOrders()
-    .filter(o => o.status === 'Delivered' && o.paid && String(o.deliveryDate || '') >= from)
+  const book = (data.salesBook || [])
+    .filter(r => r.date && r.date >= from)
+    .map(r => ({
+      id: r.orderId || ('book:' + r.row),
+      fromBook: true,
+      bookRow: r.row,
+      orderId: r.orderId || '',
+      customer: r.customer || '—',
+      deliveryDate: r.date,
+      total: Number(r.amount) || 0,
+      net: Number(r.net) || 0,
+      paid: !!r.paid,
+      paymentType: r.paymentType || '',
+      by: r.by || '',
+      what: r.what || '',
+      note: r.note || '',
+      channel: ''
+    }));
+  const inBook = new Set(book.map(r => r.orderId).filter(Boolean));
+
+  // An order settled here that has not reached the book yet — usually
+  // because it was tapped ten seconds ago and is still in the queue.
+  const mine = effectiveOrders()
+    .filter(o => o.status === 'Delivered' && o.paid &&
+                 String(o.deliveryDate || '') >= from && !inBook.has(o.id))
+    .map(o => Object.assign({}, o, { fromBook: false }));
+
+  return book.concat(mine)
     .sort((a, b) => String(b.deliveryDate).localeCompare(String(a.deliveryDate)));
 }
 
@@ -2381,17 +2428,35 @@ function renderSales() {
   // year's money and "sold" is not the same as "collected".
   const owing = effectiveOrders().filter(o => o.status === 'Delivered' && !o.paid);
 
+  /* The sales sheet records sales that have not been paid for yet, so
+     "sold" and "collected" are two different figures on this screen. */
+  const settled = rows.filter(r => r.paid);
+  const unpaidOnSheet = rows.filter(r => !r.paid);
+  const fees = Math.round(rows.reduce((t, r) =>
+    t + (r.net ? Number(r.total || 0) - Number(r.net) : 0), 0) * 100) / 100;
+  const fromBook = rows.filter(r => r.fromBook).length;
+
   $('salesTop').innerHTML =
     '<h2 style="margin:0 0 2px">' + esc(fiscalYearEndLabel(from)) + '</h2>' +
-    '<p class="muted" style="margin:0 0 10px">Paid for and delivered since ' + esc(from) + '</p>' +
-    '<div class="kv big"><span>Collected</span><b>' + plain(sum(rows)) + '</b></div>' +
-    '<div class="kv"><span>Orders</span><b>' + rows.length + '</b></div>' +
+    '<p class="muted" style="margin:0 0 10px">Everything sold since ' + esc(from) +
+      (fromBook ? ' — ' + fromBook + ' of them off the sales sheet' : '') + '</p>' +
+    '<div class="kv big"><span>Sold</span><b>' + plain(sum(rows)) + '</b></div>' +
+    '<div class="kv"><span>Collected</span><b>' + plain(sum(settled)) + '</b></div>' +
+    (fees
+      ? '<div class="kv sub"><span>less card fees</span><b>' + plain(fees) + '</b></div>'
+      : '') +
+    '<div class="kv"><span>Sales</span><b>' + rows.length + '</b></div>' +
+    (unpaidOnSheet.length
+      ? '<div class="kv want"><span>Not paid for yet</span><b>' + plain(sum(unpaidOnSheet)) +
+        ' · ' + unpaidOnSheet.length + (unpaidOnSheet.length === 1 ? ' sale' : ' sales') + '</b></div>'
+      : '') +
     (owing.length
-      ? '<div class="kv want"><span>Still owed</span><b>' + plain(sum(owing)) +
+      ? '<div class="kv want"><span>Delivered, still owed</span><b>' + plain(sum(owing)) +
         ' · ' + owing.length + (owing.length === 1 ? ' order' : ' orders') + '</b></div>'
       : '') +
     channelSplit(rows) +
-    paidTypeSplit(rows);
+    paidTypeSplit(settled) +
+    salesmanSplit(rows);
 
   $('salesOwing').innerHTML = owing.length
     ? '<h3>Still owed</h3><div class="card flush list">' +
@@ -2413,10 +2478,10 @@ function renderSales() {
     : '<p class="muted" style="margin:0">Nothing delivered yet this year.</p>';
 
   $('salesListHead').textContent = 'Sales — ' + rows.length +
-    (rows.length === 1 ? ' order' : ' orders');
+    (rows.length === 1 ? ' sale' : ' sales');
   $('salesList').innerHTML = rows.length
     ? rows.map(saleRowHtml).join('')
-    : '<div class="empty">Nothing paid for since ' + esc(from) + '.</div>';
+    : '<div class="empty">Nothing sold since ' + esc(from) + '.</div>';
 
   const badge = $('cOwing');
   if (badge) badge.textContent = owing.length ? String(owing.length) : '';
@@ -2430,7 +2495,12 @@ function monthLabel(k) {
 
 function channelSplit(rows) {
   const by = {};
-  rows.forEach(o => { by[o.channel || 'website'] = (by[o.channel || 'website'] || 0) + Number(o.total || 0); });
+  // A line written in the sales sheet does not say which price list it was
+  // on, and guessing "website" for all of them would be a made-up number.
+  rows.forEach(o => {
+    if (!o.channel) return;
+    by[o.channel] = (by[o.channel] || 0) + Number(o.total || 0);
+  });
   const keys = Object.keys(by).sort();
   if (keys.length < 2) return '';
   return keys.map(k => '<div class="kv"><span>' + esc(CHANNEL_NAME[k] || k) + '</span><b>' +
@@ -2439,6 +2509,22 @@ function channelSplit(rows) {
 
 /* How the year's money arrived. Worth a glance at tax time, and it is the
    one thing the sales sheet records that nothing else does. */
+/* Who made the sale. The sales sheet has always recorded it and nothing
+   else does, so it is worth a line now that the screen reads that sheet. */
+function salesmanSplit(rows) {
+  const by = {};
+  rows.forEach(r => {
+    const k = (r.by || '').trim();
+    if (!k) return;
+    by[k] = (by[k] || 0) + Number(r.total || 0);
+  });
+  const keys = Object.keys(by).sort((a, b) => by[b] - by[a]);
+  if (keys.length < 2) return '';
+  return '<div class="kv" style="border:0;padding-bottom:0"><span>Who sold it</span><b></b></div>' +
+    keys.map(k => '<div class="kv sub"><span>' + esc(k) + '</span><b>' +
+      plain(Math.round(by[k] * 100) / 100) + '</b></div>').join('');
+}
+
 function paidTypeSplit(rows) {
   const by = {};
   rows.forEach(o => {
@@ -2453,6 +2539,27 @@ function paidTypeSplit(rows) {
 }
 
 function saleRowHtml(o) {
+  /* A sale read out of the sales sheet is a line of somebody's handwriting,
+     not an order with packages on it. It is shown as it was written and
+     there is nothing here to press — the sheet is where it gets changed. */
+  if (o.fromBook) {
+    const openable = o.orderId && orderById(o.orderId);
+    return '<div class="ord"' +
+      (openable ? ' onclick="openOrder(\'' + esc(o.orderId) + '\')"' : '') + '>' +
+      '<div class="head">' +
+        '<div class="who"><b>' + esc(o.customer) +
+          (o.paid ? '' : '<span class="tag low">not paid</span>') + '</b>' +
+          '<span>' + esc(o.deliveryDate || '') +
+          (o.by ? ' · ' + esc(o.by) : '') +
+          (o.paid && o.paymentType ? ' · ' + esc(o.paymentType) : '') + '</span></div>' +
+        '<div class="when"><b>' + plain(o.total || 0) + '</b>' +
+          (o.net ? plain(o.net) + ' after fees' : (o.paid ? 'paid' : '')) + '</div>' +
+      '</div>' +
+      (o.what ? '<div class="what"><span>' + esc(o.what) + '</span></div>' : '') +
+      (o.note ? '<div class="what"><span class="muted">' + esc(o.note) + '</span></div>' : '') +
+    '</div>';
+  }
+
   const items = (o.items || []).slice(0, 3)
     .map(i => i.packages + ' × ' + esc(i.product || i.sku)).join(' · ');
   const more = (o.items || []).length > 3 ? ' · +' + ((o.items || []).length - 3) + ' more' : '';
@@ -5522,7 +5629,9 @@ function renderOrderCart() {
         : plain(m.total) + (m.manual ? ' <i>arranged</i>' : '');
     return '<div class="line oline' + (l.promo ? ' promo' : '') + '">' +
       '<div class="top"><b>' + esc(l.label) + '</b>' +
-      '<span class="sum">' + sum + '</span>' +
+      // Tapping what the line comes to puts the cursor in the price box for
+      // that line, rather than leaving it to be found among the three.
+      '<span class="sum tapsum" onclick="tapLineSum(' + i + ')">' + sum + '</span>' +
       '<button class="x" onclick="dropLine(\'order\',' + i + ')">✕</button></div>' +
       '<div class="bits">' +
         '<label>Packs<input type="number" inputmode="decimal" min="0" step="1" value="' +
@@ -5579,6 +5688,16 @@ function renderOrderCart() {
 }
 
 const CHANNEL_NAME = { wholesale: 'Wholesale', website: 'Website', market: 'Farmers market' };
+
+/** Tapping what a line comes to opens the box that decides it. */
+function tapLineSum(i) {
+  const box = document.querySelectorAll('#ordLines .oline')[i];
+  const inp = box && box.querySelector('.bits label:last-child input');
+  if (!inp) return;
+  inp.focus();
+  inp.select();
+  inp.scrollIntoView({ block:'center', behavior:'smooth' });
+}
 
 function setLineQty(i, v) {
   const l = orderCart[i]; if (!l) return;
