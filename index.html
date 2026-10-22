@@ -313,14 +313,40 @@
     height:env(safe-area-inset-bottom, 0px); background:#17230e;
     z-index:31; pointer-events:none;
   }
-  .boxrow .parts { margin:6px 0 0; padding:8px 10px; background:#f4f6ef;
-                   border-radius:8px; font-size:13px; line-height:1.6; color:#43503a; }
+  /* A sunken panel inside the box row. These colours were hardcoded light,
+     so on a dark phone the contents came up as a white card in the middle of
+     a dark screen. They follow the theme now. */
+  .boxrow .parts { margin:6px 0 0; padding:8px 10px; background:var(--bg);
+                   border:1px solid var(--line); border-radius:8px;
+                   font-size:13px; line-height:1.6; color:var(--ink); }
   .boxrow .parts .pline { display:flex; justify-content:space-between; gap:8px; }
-  .boxrow .parts .pline.short { color:#8c2f1f; font-weight:600; }
-  .boxrow .money { font-size:12px; color:#5d6652; }
-  .boxrow .money b { color:#20251c; }
-  .gap-bad { color:#8c2f1f; font-weight:700; }
-  .gap-ok { color:#2f6b35; font-weight:700; }
+  /* The contents are a list, so each line reads left to right and stops —
+     nothing pushed over to the right-hand edge to be matched up by eye. */
+  .boxrow .parts .pline.one { display:block; }
+  /* "+21 more in built boxes", under a cut in the Cuts list. Not a control:
+     nothing here can be added to or taken away, so it must not look like the
+     stepper beside it. */
+  .inbox{font-size:12px;color:var(--muted);margin:4px 0 0;white-space:nowrap;
+         display:flex;align-items:center;gap:4px;cursor:pointer}
+  .inbox b{font-weight:700;color:var(--ch-whole)}
+  .inbox .car{font-size:10px;opacity:.7;display:inline-block;transition:transform .15s}
+  .inbox.open .car{transform:rotate(90deg)}
+  .boxesof{margin:6px 0 2px;padding:7px 10px;background:var(--bg);
+           border:1px solid var(--line);border-radius:8px;
+           font-size:12px;line-height:1.65;color:var(--ink)}
+  .boxesof span{color:var(--muted)}
+  .boxesof .hint{margin-top:4px;color:var(--muted)}
+  /* Which order this screen is writing, so an edit is never mistaken for a
+     new order half way down the form. */
+  .editing{border-left:4px solid var(--warn);padding:10px 12px;margin-bottom:10px}
+  .editing b{display:block;font-size:14px}
+  .editing span{font-size:12px;color:var(--muted)}
+  .boxrow .parts .pline.short { color:var(--bad); font-weight:600; }
+  .boxrow .parts .pline i.muted { color:var(--muted); }
+  .boxrow .money { font-size:12px; color:var(--muted); }
+  .boxrow .money b { color:var(--ink); }
+  .gap-bad { color:var(--bad); font-weight:700; }
+  .gap-ok { color:var(--ch-whole); font-weight:700; }
   /* Anything the lot editor needs to say appears under the button that
      caused it, rather than floating over the whole screen. */
   .lotsay { margin:8px 0 0; font-size:13px; line-height:1.45; }
@@ -436,6 +462,7 @@
   </section>
 
   <section class="view" id="view-neworder">
+    <div id="neworderHead"></div>
     <div class="card">
       <label>Customer</label>
       <div class="withmic"><input id="ordCustomer" placeholder="J. Wiebe" autocomplete="off">
@@ -457,6 +484,14 @@
     <div class="lines" id="ordLines"></div>
     <div class="card">
       <label>Product</label>
+      <!-- Scrolling seventy-odd products with cold hands is the slow way.
+           Say it, or type two letters, and the list below follows. -->
+      <div class="withmic search" style="margin-bottom:0">
+        <input id="ordFind" type="search" placeholder="Say or type a product…"
+               autocomplete="off" enterkeyhint="search" inputmode="search">
+        <button class="mic" id="ordMic" onclick="dictate('ordFind',this,ordHeard)">🎤</button>
+      </div>
+      <div class="sugg" id="sugg-ordFind"></div>
       <select id="ordProduct"></select>
       <div class="muted" id="ordAvail" style="margin-top:5px"></div>
       <div class="row">
@@ -830,7 +865,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-22 19:30 UTC';
+const APP_BUILD = '2026-10-22 23:30 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes' };
 const MAX_PHOTOS = 8;
@@ -1034,7 +1069,7 @@ function kenjiListen() {
  * worse than no countdown.
  */
 const KENJI_FIRST_GUESS = 8;          // seconds, until it has seen a real one
-const KENJI_REMEMBER = 5;             // how many answers to judge by
+const KENJI_REMEMBER = 8;             // how many answers to judge by
 
 function kenjiTimes() {
   const t = load(LS.asktimes, []);
@@ -1044,11 +1079,28 @@ function kenjiRemember(secs) {
   const t = kenjiTimes().concat(Math.max(0.5, secs)).slice(-KENJI_REMEMBER);
   save(LS.asktimes, t);
 }
-/* The slowest of the recent ones, so it usually finishes early rather than
-   late — overshooting feels like a fault, finishing early feels quick. */
+/**
+ * How long this normally takes — the middle of the recent answers, not the
+ * worst of them.
+ *
+ * It used to be the slowest of the last five, on the theory that finishing
+ * early feels quick. In practice the FIRST question of the day is always the
+ * slow one — the script wakes up, the prompt cache is cold, sixteen seconds —
+ * and that one number then became the countdown for every quick question
+ * after it. Paul watched it start at fifteen every time and said, rightly,
+ * that fifteen was a default and not the truth.
+ *
+ * The middle one is the truth: half the answers come in under it. A second of
+ * cushion keeps the common case landing just inside, and one slow morning
+ * washes out of eight samples instead of ruling five.
+ */
 function kenjiEstimate() {
-  const t = kenjiTimes();
-  return t.length ? Math.ceil(Math.max.apply(null, t)) : KENJI_FIRST_GUESS;
+  const t = kenjiTimes().slice().sort((a, b) => a - b);
+  if (!t.length) return KENJI_FIRST_GUESS;
+  const mid = t.length % 2
+    ? t[(t.length - 1) / 2]
+    : (t[t.length / 2 - 1] + t[t.length / 2]) / 2;
+  return Math.max(3, Math.ceil(mid + 1));
 }
 
 let kenjiTick = null;
@@ -1065,8 +1117,11 @@ function kenjiWaiting(said) {
     if (left > 0.5) {
       kSay('“' + said + '” · ' + Math.ceil(left) + 's', 'said');
     } else {
-      kSay('“' + said + '” · nearly there…', 'said');
+      // Past the estimate, so stop pretending to know. Count the real
+      // seconds up instead: "still going · 11s" is true, and "nearly
+      // there…" sitting there for another eight seconds was not.
       if (bar) bar.style.width = '0%';
+      kSay('“' + said + '” · still going · ' + Math.floor(gone) + 's', 'said');
     }
   };
   show();
@@ -1497,6 +1552,9 @@ function applyBoot(boot) {
     sendAs: boot.sendAs || {},
     steerCosts: boot.steerCosts || {},
     boxList: boot.boxList || [],
+    // Cut SKU → the built boxes holding it, so the Cuts list can say that the
+    // last loose ribeye is not the last ribeye.
+    boxedBySku: boot.boxedBySku || {},
     scansPending: boot.scansPending || 0,
     // What this data was. Sent back on the next sync so the backend can
     // answer "nothing new" instead of rebuilding and resending all of it.
@@ -1883,8 +1941,9 @@ function renderOrderDetail() {
   if (o.status === 'Open') {
     actions = '<button id="btnPack">Mark packed — take it out of stock</button>' +
       '<div class="row" style="margin-top:9px">' +
-      '<button class="ghost" id="btnReschedule">Change date</button>' +
-      '<button class="ghost danger" id="btnCancelOrder">Cancel order</button></div>';
+      '<button class="ghost" id="btnEditOrder">Edit order</button>' +
+      '<button class="ghost" id="btnReschedule">Change date</button></div>' +
+      '<button class="ghost danger" style="margin-top:9px" id="btnCancelOrder">Cancel order</button>';
   } else if (o.status === 'Packed') {
     actions = '<button id="btnDelivered">Mark delivered</button>' +
       '<p class="muted" style="text-align:center">Stock came off when it was packed.</p>';
@@ -1895,6 +1954,7 @@ function renderOrderDetail() {
 
   const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
   on('btnPack', () => packOrder(o));
+  on('btnEditOrder', () => editOrder(o.id));
   on('btnReschedule', () => {
     const date = prompt('New date (YYYY-MM-DD)', o.deliveryDate || todayISO());
     if (!date) return;
@@ -1968,7 +2028,12 @@ function markupPct(key, fallback) {
   if (raw === '') return fallback;
   const n = Number(raw);
   if (!isFinite(n) || n <= 0) return fallback;
-  return (n > 0 && n < 2) ? Math.round((n - 1) * 1000) / 10 : n;
+  // "30"/"30%" a percentage, "1.3" a multiplier, "0.3" a fraction — all
+  // thirty per cent. Reading "0.3" as a multiplier made it minus seventy,
+  // which is how a $63 ribeye came to show $19 on the website.
+  if (n < 1) return Math.round(n * 1000) / 10;
+  if (n < 2) return Math.round((n - 1) * 1000) / 10;
+  return n;
 }
 
 function channelPrices(p) {
@@ -2133,6 +2198,52 @@ function boxSkus() {
   return set;
 }
 
+/**
+ * What is locked up inside the boxes that are already made up.
+ *
+ * Building a box takes its cuts off the shelf, so this list shows what is
+ * loose and nothing else. Standing at the freezer that is misleading: the
+ * last ribeye on the list may be the last one in the building, or there may
+ * be twenty more a metre away inside boxes. This is the line that says so.
+ *
+ * It is deliberately not a stepper. These packs are not part of the count and
+ * cannot be added to or taken from — breaking a box is what brings them back,
+ * and that is done on the box itself.
+ */
+function boxedLine(sku, name) {
+  const held = (data.boxedBySku || {})[sku] || [];
+  const total = held.reduce((t, b) => t + (b.packs || 0), 0);
+  if (!total) return { trigger: '', panel: '' };
+
+  const rows = held.map(b => {
+    const fz = (b.freezers || []).filter(f => f.id);
+    // One freezer needs no count beside it; several do, or you cannot tell
+    // which one to walk to.
+    const where = !fz.length ? ''
+      : fz.length === 1 ? freezerName(fz[0].id)
+      : fz.map(f => freezerName(f.id) + ' (' + f.n + ')').join(', ');
+    const tail = [where, b.each + ' each', b.packs + ' ' + name.toLowerCase()]
+      .filter(Boolean).join(' · ');
+    return '<div>' + b.built + ' × ' + esc(b.product) +
+           '<span> — ' + esc(tail) + '</span></div>';
+  }).join('');
+
+  // The panel is returned separately because it must hang BELOW the row, not
+  // inside the name: the name is one cell of a flex row with the photo and
+  // the stepper beside it, and a panel put in there comes out as a column
+  // four words wide.
+  return {
+    trigger: '<div class="inbox" id="trig-boxed-' + esc(sku) + '" ' +
+        'onclick="event.stopPropagation();toggleSub(\'boxed-' + esc(sku) + '\')">' +
+        '<span class="car">▸</span>+<b>' + (Math.round(total * 100) / 100) +
+        '</b> in boxes</div>',
+    panel: '<div id="sub-boxed-' + esc(sku) + '" style="display:none">' +
+        '<div class="boxesof">' + rows +
+          '<div class="hint">Break a box open to put these back on the shelf.</div>' +
+        '</div></div>'
+  };
+}
+
 function renderStock() {
   if (invKind === 'boxes') return renderBoxList();
   const q = $('stockSearch').value.trim().toLowerCase();
@@ -2198,13 +2309,15 @@ function renderStock() {
     if (lots.length <= 1) {
       const l = lots[0];
       const where = l && l.freezer ? freezerName(l.freezer) : '';
+      const inBoxes = boxedLine(r.sku, r.product);
       return '<div><div class="item">' +
         '<div class="name" onclick="openProduct(\'' + esc(r.sku) + '\')">' +
           '<b>' + esc(r.product) + tag + pend + '</b>' +
           '<span>' + [where, rate].filter(Boolean).join(' · ') + '</span>' +
+          inBoxes.trigger +
         '</div>' + thumb +
         step(l ? (l.key || '') : '', r.packages, r.committed ? r.available + ' free' : '') +
-      '</div></div>';
+      '</div>' + inBoxes.panel + '</div>';
     }
 
     // Same product in more than one freezer or batch: one line each, stacked,
@@ -2219,14 +2332,16 @@ function renderStock() {
         '</div>' + step(l.key || '', l.packages, '') +
       '</div>').join('');
 
+    const inBoxes = boxedLine(r.sku, r.product);
     return '<div class="multi"><div class="item head">' +
       '<div class="name" onclick="openProduct(\'' + esc(r.sku) + '\')">' +
         '<b>' + esc(r.product) + tag + pend + '</b>' +
         '<span>' + [rate, lots.length + ' places'].filter(Boolean).join(' · ') + '</span>' +
+        inBoxes.trigger +
       '</div>' + thumb +
       '<div class="qty"><b>' + (Math.round(r.packages * 100) / 100) + '</b>' +
         '<span>' + (r.committed ? r.available + ' free' : 'in total') + '</span></div>' +
-    '</div>' + lotRows + '</div>';
+    '</div>' + inBoxes.panel + lotRows + '</div>';
   }).join('');
 }
 
@@ -2259,20 +2374,27 @@ function renderBoxList() {
 
   $('boxList').innerHTML = rows.map(b => {
     const can = (build[b.sku] || {}).canBuild || 0;
-    const parts = (b.parts || []).map(c => {
-      const short = c.qty > 0 && c.free < c.qty;
-      // Two numbers that are easy to confuse: what one box holds, and how
-      // many of that cut are sitting inside the boxes already built.
-      const held = b.onHand > 0 ? c.qty * b.onHand : 0;
-      return '<div class="pline' + (short ? ' short' : '') + '">' +
-        '<span>' + c.qty + ' × ' + esc(c.product) +
-          (c.content ? ' <i>(' + esc(c.content) + ')</i>' : '') + '</span>' +
-        '<span>' + (held ? held + ' in the ' + b.onHand + ' built · ' : '') +
-          (short ? 'only ' + c.free + ' loose' : c.free + ' loose') + '</span></div>';
-    }).join('') || '<div class="pline"><span>No contents set yet.</span></div>';
+    // What is in the box, as a plain list: how many, what, and the average
+    // weight of one. It used to carry the loose count and the number sitting
+    // inside the built boxes on the right-hand side as well, which read as a
+    // wall of numbers when all anybody wants to know is what is in there.
+    const parts = (b.parts || []).map(c =>
+      '<div class="pline one"><span>' + c.qty + ' × ' + esc(c.product) +
+        (c.each
+          ? ' <i>(' + round2(c.each) + ' lb' + (c.qty > 1 ? ' each' : '') + ')</i>'
+          // Some lines are sold by total weight and nobody counted the
+          // pieces — the Rancher Feast is 4.2 lb of sirloin steaks.
+          : c.inBox
+            ? ' <i>(' + round2(c.inBox) + ' lb in the box)</i>'
+            // A cut sold by the pound with no weight at all cannot be priced,
+            // so the box's contents come to nothing. Say which one is missing
+            // rather than leaving a silent gap.
+            : ' <i class="muted">(weight not set)</i>') +
+      '</span></div>'
+    ).join('') || '<div class="pline one"><span>No contents set yet.</span></div>';
 
-    // Three prices side by side: the price-list base (what the cuts inside
-    // come to), and the two we actually charge. The gap against the base is
+    // Three prices: what the cuts inside come to at the wholesale rates on the
+    // price list, and the two we actually charge. The gap against the base is
     // the number worth seeing — a box selling under its own contents is easy
     // to create and hard to notice.
     const priceLine = (label, value, base) => {
@@ -2294,7 +2416,7 @@ function renderBoxList() {
 
     const base = b.listPrice || b.partsValue;
     let money = '<div class="parts" style="margin-top:6px">' +
-      priceLine('Price list (contents)', base, 0) +
+      priceLine('Contents at wholesale', base, 0) +
       priceLine('Website', b.price, base) +
       priceLine('Market', b.marketPrice, base);
     // A box of nothing but processed meat is meant to sit at list price, so
@@ -3290,6 +3412,8 @@ function toggleSub(sku) {
   if (!el) return;
   const opening = el.style.display === 'none';
   el.style.display = opening ? 'block' : 'none';
+  const trig = document.getElementById('trig-' + sku);
+  if (trig) trig.classList.toggle('open', opening);
   if (opening) {
     if (!openSubs.includes(sku)) { openSubs.push(sku); pushHist('open', sku); }
   } else {
@@ -3302,7 +3426,12 @@ function closeTopSub() {
   while (openSubs.length) {
     const sku = openSubs.pop();
     const el = document.getElementById('sub-' + sku);
-    if (el && el.style.display !== 'none') { el.style.display = 'none'; return true; }
+    const trig = document.getElementById('trig-' + sku);
+    if (el && el.style.display !== 'none') {
+      el.style.display = 'none';
+      if (trig) trig.classList.remove('open');
+      return true;
+    }
   }
   return false;
 }
@@ -4232,6 +4361,47 @@ function dropLine(which, i) {
 }
 
 /* ───────── new order ───────── */
+
+/**
+ * Picking the product by voice.
+ *
+ * The drop-down holds the whole catalogue, which is fine at a desk and no use
+ * at all standing at a freezer with an order to write. Say the cut and this
+ * takes it: one match and it is chosen outright, several and they are offered
+ * as a list to tap. The drop-down is still there underneath and still the
+ * thing that holds the answer — speech gets words wrong, so nothing is
+ * entered off the back of it without a name on the screen to read.
+ */
+function takeOrdSuggestion(sku) {
+  const p = (data.products || []).find(x => x.sku === sku);
+  $('ordProduct').value = sku;
+  $('ordFind').value = p ? (p.product || sku) : sku;
+  searchDone('ordFind');
+  renderOrdAvail();
+  // Straight to the number, which is the only thing left to say.
+  const qty = $('ordQty');
+  if (qty) { qty.focus(); qty.select(); }
+}
+
+function ordHeard() {
+  const said = $('ordFind').value.trim();
+  if (!said) return;
+  const hits = matchProducts(said, 8);
+  if (!hits.length) {
+    suggest('ordFind', 'takeOrdSuggestion');       // shows "nothing looks like that"
+    return;
+  }
+  // The whole name said outright wins, even where a longer product starts the
+  // same way — "Denver" is Denver, not a choice between it and Denver Strips.
+  // Half a word is a choice, and gets offered rather than guessed.
+  const name = h => String(h.product || '').toLowerCase();
+  const exact = hits.filter(h => name(h) === said.toLowerCase());
+  if (exact.length === 1) return takeOrdSuggestion(exact[0].sku);
+  if (hits.length === 1) return takeOrdSuggestion(hits[0].sku);
+  suggest('ordFind', 'takeOrdSuggestion');
+}
+
+
 function renderOrdAvail() {
   const sku = $('ordProduct').value;
   if (!sku) { $('ordAvail').textContent = ''; return; }
@@ -4262,25 +4432,90 @@ function addOrderLine() {
   renderOrdAvail();
 }
 
+/**
+ * Editing an order that has not gone out.
+ *
+ * The order is loaded back into the screen it was written on, so there is one
+ * place to learn rather than two, and what is sent back is the whole order as
+ * it now stands rather than a list of changes — far harder to get wrong, and
+ * it replays safely if it goes up twice.
+ *
+ * Only an Open order. Once it is packed the stock has come off against the
+ * lines as they were, and rewriting them would leave the ledger describing an
+ * order that never happened.
+ */
+let editingOrderId = null;
+
+function editOrder(id) {
+  const o = orderById(id);
+  if (!o) return;
+  if (o.status !== 'Open') {
+    return toast('That order is already ' + String(o.status).toLowerCase() +
+                 '. Its stock has moved, so it cannot be changed.', 'bad');
+  }
+  editingOrderId = id;
+  backTo = 'order';
+  $('ordCustomer').value = o.customer || '';
+  $('ordContact').value = o.contact || '';
+  $('ordDate').value = o.deliveryDate || '';
+  $('ordMethod').value = o.method || 'Pickup';
+  $('ordNotes').value = o.notes || '';
+  orderCart = (o.items || []).map(i => ({
+    sku: i.sku, product: i.product, content: i.content,
+    packages: Number(i.packages) || 0, note: i.note || '',
+    label: i.product || i.sku
+  }));
+  $('ordFind').value = ''; $('ordQty').value = ''; $('ordLineNote').value = '';
+  closeSuggest('ordFind');
+  renderCart('order');
+  renderOrdAvail();
+  showView('neworder');
+}
+
+/* Leaving the screen, however it is left, ends the edit — otherwise the next
+   new order would quietly overwrite the one just edited. */
+function clearOrderDraft() {
+  editingOrderId = null;
+  orderCart = [];
+  ['ordCustomer', 'ordContact', 'ordNotes', 'ordFind', 'ordQty', 'ordLineNote']
+    .forEach(id => { const el = $(id); if (el) el.value = ''; });
+  closeSuggest('ordFind');
+  renderCart('order');
+}
+
+/* Which order this screen is writing, said plainly at the top of it. */
+function paintOrderMode() {
+  const btn = $('btnSaveOrder');
+  if (btn) btn.textContent = editingOrderId ? 'Save changes' : 'Save order';
+  const h = $('neworderHead');
+  if (h) {
+    h.innerHTML = editingOrderId
+      ? '<div class="card editing"><b>Editing ' + esc(editingOrderId) + '</b>' +
+        '<span>Nothing moves in the freezer until it is packed.</span></div>' : '';
+  }
+}
+
 function saveOrder() {
   const customer = $('ordCustomer').value.trim();
   if (!customer) return toast('Who is the order for?', 'bad');
   if (!orderCart.length) return toast('Add at least one item.', 'bad');
   const date = $('ordDate').value;
   if (!date) return toast('When does it need to go out?', 'bad');
+  // Editing sends the order whole, under the ID it already has; a new one
+  // gets an ID made here so it can be written with no signal and replayed
+  // without doubling up.
+  const editing = editingOrderId;
   enqueue([{
-    type: 'ORDER_NEW',
-    orderId: 'ORD-' + todayISO().replace(/-/g, '') + '-' + uid().slice(1, 6).toUpperCase(),
+    type: editing ? 'ORDER_EDIT' : 'ORDER_NEW',
+    orderId: editing || ('ORD-' + todayISO().replace(/-/g, '') + '-' + uid().slice(1, 6).toUpperCase()),
     customer, contact: $('ordContact').value.trim(), deliveryDate: date,
     method: $('ordMethod').value, notes: $('ordNotes').value.trim(),
     lines: orderCart.map(l => ({ sku: l.sku, product: l.product, content: l.content,
                                  packages: l.packages, note: l.note }))
   }]);
-  orderCart = [];
-  ['ordCustomer', 'ordContact', 'ordNotes'].forEach(id => $(id).value = '');
-  renderCart('order');
-  toast('Order saved.', 'ok');
-  showView('orders');
+  clearOrderDraft();
+  toast(editing ? 'Order changed.' : 'Order saved.', 'ok');
+  showView(editing ? 'order' : 'orders');
 }
 
 /* ───────── catalogue ───────── */
@@ -4542,6 +4777,10 @@ const TITLES = { order:'Order', neworder:'New order', followup:'Follow up',
 function showView(name, opts) {
   const fromHistory = !!(opts && opts.fromHistory);
   if (name !== 'order') openOrderId = null;
+  // Walking away from the editing screen ends the edit; coming back to it
+  // fresh must not inherit the last one.
+  if (name !== 'neworder' && editingOrderId) clearOrderDraft();
+  if (name === 'neworder') paintOrderMode();
   if (name === 'calendar') loadSchedule(true);
   if (name === 'calnew' && !$('cnDate').value) $('cnDate').value = todayISO();
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('on', v.id === 'view-' + name));
@@ -4549,6 +4788,9 @@ function showView(name, opts) {
     b.classList.toggle('on', b.dataset.view === (SUBVIEWS[name] || name)));
   $('btnBack').classList.toggle('on', !!SUBVIEWS[name]);
   $('title').textContent = name === 'orders' ? 'Orders and Follow-Up'
+    // The same screen writes a new order and changes an old one; the bar has
+    // to say which, because the banner scrolls off the top.
+    : (name === 'neworder' && editingOrderId) ? 'Edit order'
     : (TITLES[name] || ((data.settings.BUSINESS || 'PCW') + ' Inventory'));
   closeSheet({ fromHistory: true });   // the view change owns the history entry
   if (!fromHistory) pushHist('view', name);
@@ -4596,10 +4838,25 @@ $('calcFind').addEventListener('search', () => searchDone('calcFind'));
 $('btnCnAdd').addEventListener('click', cnAddLine);
 $('btnCnSave').addEventListener('click', cnSave);
 
-$('btnNewOrder').addEventListener('click', () => { backTo = 'orders'; showView('neworder'); });
+$('btnNewOrder').addEventListener('click', () => {
+  // A fresh order, never the last one's leftovers.
+  clearOrderDraft();
+  backTo = 'orders';
+  showView('neworder');
+});
 $('btnAddOrdLine').addEventListener('click', addOrderLine);
 $('btnSaveOrder').addEventListener('click', saveOrder);
-$('ordProduct').addEventListener('change', renderOrdAvail);
+$('ordProduct').addEventListener('change', () => {
+  // Keep the spoken box in step with the list, whichever was used.
+  const p = (data.products || []).find(x => x.sku === $('ordProduct').value);
+  if (p) $('ordFind').value = p.product || p.sku;
+  renderOrdAvail();
+});
+$('ordFind').addEventListener('input', () => suggest('ordFind', 'takeOrdSuggestion'));
+$('ordFind').addEventListener('keydown', ev => {
+  if (ev.key === 'Enter') { ev.preventDefault(); ordHeard(); }
+});
+$('ordFind').addEventListener('search', () => searchDone('ordFind'));
 
 $('calcProduct').addEventListener('change', renderCalc);
 $('calcWeight').addEventListener('input', renderCalc);
