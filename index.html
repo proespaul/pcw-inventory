@@ -15,7 +15,9 @@
   /* Peace Country Wagyu brand board:
      17230E forest · 2D490B olive · 7B9763 sage · 7F8E7F stone · E8EAE0 bone */
   :root{
-    --bg:#eef0e8; --card:#ffffff; --ink:#17230e; --muted:#6c7a6c; --line:#d6dbc9;
+    /* --muted came out at 3.9:1 on the page background, which is under the
+       readable mark for small lettering. A shade darker clears it. */
+    --bg:#eef0e8; --card:#ffffff; --ink:#17230e; --muted:#5e6c5e; --line:#d6dbc9;
     --brand:#17230e; --brand-2:#2d490b; --accent:#2d490b; --ok:#2d490b; --warn:#a8721a;
     --bad:#9a2a2a; --on-brand:#ffffff; --radius:14px; --nav-h:62px;
     /* The three sales channels, as lettering. Website blue, farmers market
@@ -104,6 +106,15 @@
   .tag.low{background:#f6e7c8;color:#7e5a11}.tag.out{background:#f2d9d9;color:#8d2323}
   .tag.due{background:#f2d9d9;color:#8d2323}.tag.soon{background:#f6e7c8;color:#7e5a11}
   .tag.ok{background:#dde5d0;color:#2d490b}
+  /* Those five are pale pills meant for a white card. On the dark card they
+     read as five little flashbulbs, so in the dark they become a tint of the
+     same colour with light lettering — the same meaning at the same weight
+     as everything around them. */
+  @media (prefers-color-scheme: dark){
+    .tag.low,.tag.soon{background:#3a300f;color:#e6bc6b}
+    .tag.out,.tag.due{background:#3d1f1f;color:#e79a9a}
+    .tag.ok{background:#22331a;color:#9ad9ae}
+  }
   /* A product sitting in more than one freezer or batch: the product on top,
      then its lots indented under it, each with its own count. */
   .multi{border-bottom:1px solid var(--line);padding-bottom:4px}
@@ -279,12 +290,12 @@
   .signin[hidden] { display:none; }
   .signin-card { width:100%; max-width:360px; text-align:center; }
   .signin-mark { width:72px; height:72px; margin:0 auto 18px; border-radius:20px;
-                 background:#17230e; color:#eef0e8; font-weight:700; font-size:22px;
+                 background:var(--brand-2); color:var(--on-brand); font-weight:700; font-size:22px;
                  letter-spacing:.5px; display:flex; align-items:center; justify-content:center; }
   .signin-card h1 { margin:0 0 2px; font-size:21px; }
   .signin-btn { display:flex; justify-content:center; margin:26px 0 14px; min-height:44px; }
-  .signin-note { font-size:13px; line-height:1.5; color:#5d6652; margin:0; }
-  .signin-note.bad { color:#8c2f1f; font-weight:600; }
+  .signin-note { font-size:13px; line-height:1.5; color:var(--muted); margin:0; }
+  .signin-note.bad { color:var(--bad); font-weight:600; }
   /* The strip follows the phone's own light or dark, like everything else.
      It used to be white whatever the phone was set to, which in the dark put
      two of the three price lists on a white panel and made them look like
@@ -304,6 +315,13 @@
   #calcUnit    button[data-u="lb"]       { background:#2a5d8f; color:#fff; }
   #calcChannel button[data-c="market"],
   #calcUnit    button[data-u="kg"]       { background:#fff;    color:#20251c; }
+  /* White is one of the three deliberate colours, but a white block beside
+     two dark ones is a lamp in a dark room. Softened, still clearly the
+     odd one out of the three. */
+  @media (prefers-color-scheme: dark){
+    #calcChannel button[data-c="market"],
+    #calcUnit    button[data-u="kg"]     { background:#d9ddd0; color:#20251c; }
+  }
   #calcChannel button[data-c="wholesale"],
   #calcUnit    button[data-u="oz"]       { background:#2f5d3a; color:#fff; }
 
@@ -316,7 +334,7 @@
     box-shadow: inset 0 0 0 3px #20251c;
   }
   #calcChannel button { font-size:13.5px; padding:11px 4px; }
-  #calcChannel button + button, #calcUnit button + button { border-left:1.5px solid #cdd3c2; }
+  #calcChannel button + button, #calcUnit button + button { border-left:1.5px solid var(--line); }
 
   /* The strip the phone's own back / home buttons sit on. Left to itself it
      took the page's pale background and the buttons disappeared into it. */
@@ -423,34 +441,47 @@
   /* Anything the lot editor needs to say appears under the button that
      caused it, rather than floating over the whole screen. */
   .lotsay { margin:8px 0 0; font-size:13px; line-height:1.45; }
-  .lotsay.bad { color:#8c2f1f; font-weight:600; }
-  .lotsay.ok { color:#2f6b35; font-weight:600; }
+  .lotsay.bad { color:var(--bad); font-weight:600; }
+  .lotsay.ok { color:var(--ok); font-weight:600; }
   .join-box { margin:18px 0 0; text-align:left; }
   .join-label { display:block; font-size:12px; font-weight:700; letter-spacing:.04em;
-                text-transform:uppercase; color:#5d6652; margin:0 0 6px; }
+                text-transform:uppercase; color:var(--muted); margin:0 0 6px; }
   .join-input { width:100%; box-sizing:border-box; font-size:17px; padding:12px 14px;
-                border:1.5px solid #cdd3c2; border-radius:10px; background:#fff; color:#20251c; }
-  .join-input:focus { outline:none; border-color:#6b7a4f; }
+                border:1.5px solid var(--line); border-radius:10px;
+                background:var(--card); color:var(--ink); }
+  .join-input:focus { outline:none; border-color:var(--brand-2); }
   .join-go { width:100%; margin-top:10px; font-size:16px; font-weight:700; padding:13px;
-             border:0; border-radius:10px; background:#3f4a2c; color:#fff; }
-  .join-go:active { background:#2e3620; }
+             border:0; border-radius:10px; background:var(--brand-2); color:var(--on-brand); }
+  .join-go:active { filter:brightness(.9); }
+
+  /* A row whose price can be changed by tapping it. The dotted underline
+     under the figure is the affordance — without it the row looks like a
+     statement rather than something you can press. */
+  .item.tapprice{cursor:pointer}
+  .item.tapprice:active{background:var(--bg)}
+  .lmoney b.tapped{border-bottom:1.5px dotted var(--muted);padding-bottom:1px}
 
   .toast.warn{background:#7a5c14}
 
+  /* A link left to the browser comes out in that 1996 blue, which on the
+     dark background reads at about 2:1 — the one thing on the screen that
+     cannot be read. */
+  a { color:var(--accent); }
+
   /* the cut photo beside an inventory row */
   .cutpic{width:46px;height:46px;border-radius:9px;object-fit:cover;flex:0 0 auto;
-          margin:0 10px 0 0;background:#e4e7dc;border:1px solid #d5dac9}
+          margin:0 10px 0 0;background:var(--line);border:1px solid var(--line)}
   /* In the list it now follows the name, so the gap goes on the other side. */
   .item > .cutpic{margin:0 0 0 4px}
   /* On the product screen it leads, big enough to recognise a cut by. */
   .prodpic{display:block;width:100%;max-height:150px;object-fit:cover;border-radius:12px;
-           margin:0 0 12px;background:#e4e7dc;border:1px solid var(--line)}
+           margin:0 0 12px;background:var(--line);border:1px solid var(--line)}
 
   /* a link that reads as a button — Call and Email on a customer */
   .btnlike{display:block;width:100%;box-sizing:border-box;text-align:center;
            text-decoration:none;margin-top:9px;padding:12px 14px;border-radius:12px;
-           font:inherit;font-weight:700;background:#17230e;color:#eef0e8;border:0}
-  .btnlike.ghost{background:transparent;color:#17230e;border:1.5px solid #c8cfbb}
+           font:inherit;font-weight:700;background:var(--brand-2);color:var(--on-brand);border:0}
+  .btnlike.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line)}
 </style>
 </head>
 <body>
@@ -985,7 +1016,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-23 22:30 UTC';
+const APP_BUILD = '2026-10-24 01:00 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -1885,7 +1916,9 @@ function effectiveOrders() {
         id: op.orderId, customer: op.customer, contact: op.contact || '',
         deliveryDate: op.deliveryDate || '', method: op.method || 'Pickup',
         status: 'Open', notes: op.notes || '', pending: true,
-        channel: op.channel || 'website', total: money.total,
+        channel: op.channel || 'website',
+        totalManual: !!op.totalManual,
+        total: op.totalManual ? Math.round((Number(op.total) || 0) * 100) / 100 : money.total,
         paid: false, paymentType: '',
         items: (op.lines || []).map((l, i) => ({
           sku: l.sku, product: l.product || (prodIndex[l.sku] || {}).product || l.sku,
@@ -1933,7 +1966,10 @@ function effectiveOrders() {
         rate: (money.lines[i] || {}).rate || 0, total: (money.lines[i] || {}).total || 0,
         promo: !!l.promo, manual: !!(money.lines[i] || {}).manual
       }));
-      o.total = money.total;
+      // A figure agreed for the whole order stands; otherwise the lines.
+      o.totalManual = !!op.totalManual;
+      o.total = o.totalManual ? Math.round((Number(op.total) || 0) * 100) / 100
+                              : money.total;
       o.pending = true;
     }
   });
@@ -2515,8 +2551,14 @@ function renderOrderDetail() {
       ' onclick="setOrderChannelOn(\'' + esc(o.id) + '\',\'' + c + '\')">' +
       esc(CHANNEL_NAME[c]) + '</button>').join('') + '</div>';
 
+  /* Tapping the line opens its price. There was a small "change" button
+     before, which meant hitting a 60px target to do the commonest thing on
+     the screen; the row is the target now and the price is underlined so it
+     looks like what it is. */
   $('orderItems').innerHTML = o.items.map((i, n) =>
-    '<div class="item"><div class="name"><b>' + esc(i.product || i.sku) +
+    '<div class="item' + (settled ? '' : ' tapprice') + '"' +
+    (settled ? '' : ' onclick="editLinePrice(\'' + esc(o.id) + '\',' + n + ')"') +
+    '><div class="name"><b>' + esc(i.product || i.sku) +
     (!i.sku ? '<span class="tag">not from the freezer</span>' : '') +
     (i.sku && shorts[i.sku] ? '<span class="tag out">' + shorts[i.sku] + ' short</span>' : '') + '</b>' +
     '<span>' + esc(i.content || '') + (i.note ? ' · ' + esc(i.note) : '') +
@@ -2528,18 +2570,22 @@ function renderOrderDetail() {
     (o.status === 'Open' ? 'to pack' : 'packed ' + (i.packed || i.packages)) + '</span></div>' +
     '<div class="lmoney">' +
       (i.promo ? '<b class="muted">free</b>'
-               : '<b>' + plain(i.total || 0) +
+               : '<b' + (settled ? '' : ' class="tapped"') + '>' + plain(i.total || 0) +
                  (i.manual && !!i.sku ? ' <i>arranged</i>' : '') + '</b>') +
-      (settled ? '' :
-        '<button type="button" class="ghost small" onclick="editLinePrice(\'' +
-        esc(o.id) + '\',' + n + ')">change</button>') +
     '</div></div>'
   ).join('') || '<div class="empty">No items.</div>';
 
-  $('orderItems').innerHTML += '<div class="item ordtot"><div class="name"><b>Total</b>' +
+  // What the lines come to, which is only the same as the total until
+  // somebody agrees a figure for the lot.
+  const lineSum = round2(o.items.reduce((t, i) => t + Number(i.total || 0), 0));
+  $('orderItems').innerHTML += '<div class="item ordtot' + (settled ? '' : ' tapprice') + '"' +
+    (settled ? '' : ' onclick="editOrderTotal(\'' + esc(o.id) + '\')"') +
+    '><div class="name"><b>' + (o.totalManual ? 'Agreed total' : 'Total') + '</b>' +
     '<span>' + esc(CHANNEL_NAME[o.channel] || o.channel || '') +
+    (o.totalManual ? ' · the lines come to ' + plain(lineSum) : '') +
     (o.paid ? ' · paid' + (o.paymentType ? ' by ' + esc(o.paymentType) : '') : '') +
-    '</span></div><div class="lmoney"><b>' + plain(o.total || 0) + '</b></div></div>' +
+    '</span></div><div class="lmoney"><b' + (settled ? '' : ' class="tapped"') + '>' +
+    plain(o.total || 0) + '</b></div></div>' +
     (settled ? '' :
       '<div class="item"><div class="name"><b>Something not in the freezer</b>' +
       '<span>A jar of jam, a delivery charge, a cut not on the list yet</span></div>' +
@@ -4248,6 +4294,9 @@ function pushOrderEdit(o, changes, lines) {
     customer: o.customer, contact: o.contact || '',
     deliveryDate: o.deliveryDate || '', method: o.method || 'Pickup',
     notes: o.notes || '', channel: o.channel || 'website',
+    // An agreed total survives every other change to the order until it is
+    // deliberately cleared, so changing the date does not quietly restate it.
+    totalManual: !!o.totalManual, total: o.totalManual ? Number(o.total) || 0 : '',
     lines: lines || orderAsLines(o)
   }, changes || {})]);
 }
@@ -4281,6 +4330,45 @@ function editLinePrice(id, n) {
       (i.promo ? ' checked' : '') + '> Giving it away</label>' +
     '<button style="margin-top:12px" onclick="saveLinePrice(\'' + esc(id) + '\',' + n + ')">Save</button>' +
     '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Cancel</button>');
+}
+
+/**
+ * A figure for the whole order.
+ *
+ * "The lot for two hundred." The lines keep their own prices, so the freezer
+ * still comes off right and the margin on each cut is still true; this is
+ * only the number at the bottom, which is the one the customer was given.
+ */
+function editOrderTotal(id) {
+  const o = orderById(id);
+  if (!o) return;
+  const lineSum = round2((o.items || []).reduce((t, i) => t + Number(i.total || 0), 0));
+  openSheet('What the order comes to', esc(o.customer || ''),
+    '<label>Agreed total</label>' +
+    '<input id="otTotal" type="number" inputmode="decimal" min="0" step="0.01" value="' +
+      esc(o.totalManual ? String(round2(o.total)) : '') +
+      '" placeholder="' + round2(lineSum) + '">' +
+    '<p class="muted" style="margin:6px 0 0">The lines come to ' + plain(lineSum) +
+      '. Type a figure here to agree a different one for the whole order — the ' +
+      'lines are left as they are. Empty it to go back to the lines.</p>' +
+    '<button style="margin-top:12px" onclick="saveOrderTotal(\'' + esc(id) + '\')">Save</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Cancel</button>');
+  setTimeout(() => { const el = $('otTotal'); if (el) { el.focus(); el.select(); } }, 60);
+}
+
+function saveOrderTotal(id) {
+  const o = orderById(id);
+  if (!o) return closeSheet();
+  const raw = ($('otTotal').value || '').trim();
+  if (raw === '') {
+    if (!o.totalManual) { closeSheet(); return toast('Nothing changed.'); }
+    pushOrderEdit(o, { totalManual: false, total: '' });
+    closeSheet();
+    return toast('Back to the lines.', 'ok');
+  }
+  pushOrderEdit(o, { totalManual: true, total: Number(raw) || 0 });
+  closeSheet();
+  toast('Agreed at ' + plain(Number(raw) || 0) + '.', 'ok');
 }
 
 function saveLinePrice(id, n) {
@@ -4361,7 +4449,9 @@ function renderStatus() {
     '<div class="name"><b>' + esc(r.product) + (boxes.has(r.sku) ? ' <span class="tag">box</span>' : '') + '</b>' +
       '<span>' + esc(r.content || r.sku) +
       (r.committed ? ' · ' + r.committed + ' promised' : '') +
-      (r.reorder !== '' && r.reorder !== undefined ? ' · tell me below ' + r.reorder : '') +
+      // null is a third kind of nothing, and it printed as the word "null".
+      (r.reorder === '' || r.reorder === null || r.reorder === undefined
+        ? '' : ' · tell me below ' + r.reorder) +
       '</span></div>' +
     '<div class="qty"><b>' + (Math.round(r.packages * 100) / 100) + '</b>' +
       '<span>' + (r.committed ? r.available + ' free' : 'on hand') + '</span></div></div>';
@@ -5474,10 +5564,17 @@ function renderOrderCart() {
     const waiting = money.needsWeight
       ? '<div class="kv want"><span>Still to weigh</span><b>' + money.needsWeight +
         (money.needsWeight === 1 ? ' line' : ' lines') + '</b></div>' : '';
-    foot.innerHTML = '<div class="card ordsum">' + gb + waiting +
-      '<div class="kv big"><span>' + esc(CHANNEL_NAME[orderChannel] || orderChannel) +
-      (money.needsWeight ? ' so far' : ' total') + '</span><b>' +
-      plain(money.total) + '</b></div></div>';
+    const shown = orderTotalManual ? round2(Number(orderTotalAgreed) || 0) : money.total;
+    const agreed = orderTotalManual
+      ? '<div class="kv"><span>The lines come to</span><b>' + plain(money.total) + '</b></div>'
+      : '';
+    foot.innerHTML = '<div class="card ordsum tapprice" onclick="editCartTotal()">' +
+      gb + waiting + agreed +
+      '<div class="kv big"><span>' +
+      (orderTotalManual ? 'Agreed total'
+        : esc(CHANNEL_NAME[orderChannel] || orderChannel) +
+          (money.needsWeight ? ' so far' : ' total')) +
+      '</span><b class="tapped">' + plain(shown) + '</b></div></div>';
   }
 }
 
@@ -5580,6 +5677,36 @@ const GB_PACK = 'GROUND-BEEF-2-LB';          // ground beef is ordered in 2 lb p
 const GB_SKUS_FALLBACK = ['GROUND-BEEF-1-LB', 'GROUND-BEEF-2-LB', 'GROUND-BEEF-20-LB'];
 const GB_TIERS_FALLBACK = '0:13, 10:12.5, 20:12';
 let orderChannel = 'website';
+/* A figure agreed for the whole order while it is being written, the same
+   idea as on a saved order: the lines keep their prices, this is what the
+   customer was told. */
+let orderTotalManual = false;
+let orderTotalAgreed = '';
+
+function editCartTotal() {
+  const money = priceOrderCart();
+  openSheet('What the order comes to', 'Before it is saved',
+    '<label>Agreed total</label>' +
+    '<input id="ctTotal" type="number" inputmode="decimal" min="0" step="0.01" value="' +
+      esc(orderTotalManual ? String(round2(Number(orderTotalAgreed) || 0)) : '') +
+      '" placeholder="' + round2(money.total) + '">' +
+    '<p class="muted" style="margin:6px 0 0">The lines come to ' + plain(money.total) +
+      '. Type a figure here to agree a different one for the whole order — the ' +
+      'lines are left as they are. Empty it to go back to the lines.</p>' +
+    '<button style="margin-top:12px" onclick="saveCartTotal()">Save</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Cancel</button>');
+  setTimeout(() => { const el = $('ctTotal'); if (el) { el.focus(); el.select(); } }, 60);
+}
+
+function saveCartTotal() {
+  const raw = ($('ctTotal').value || '').trim();
+  orderTotalManual = raw !== '';
+  orderTotalAgreed = raw === '' ? '' : Number(raw) || 0;
+  closeSheet();
+  renderCart('order');
+  toast(orderTotalManual ? 'Agreed at ' + plain(orderTotalAgreed) + '.'
+                         : 'Back to the lines.', 'ok');
+}
 
 function gbSkus() {
   const raw = (data.settings || {}).GROUND_BEEF_SKUS;
@@ -5894,6 +6021,8 @@ function editOrder(id) {
   $('ordMethod').value = o.method || 'Pickup';
   $('ordNotes').value = o.notes || '';
   setOrderChannel(o.channel || 'website');
+  orderTotalManual = !!o.totalManual;
+  orderTotalAgreed = o.totalManual ? Number(o.total) || 0 : '';
   /* A price that does not match the rule was typed in by hand, and must stay
      typed in — otherwise opening an order to change the date quietly puts an
      agreed price back to list. The order says so itself now; anything with
@@ -5932,6 +6061,8 @@ function editOrder(id) {
 function clearOrderDraft() {
   editingOrderId = null;
   orderCart = [];
+  orderTotalManual = false;
+  orderTotalAgreed = '';
   setOrderChannel('website');
   ['ordCustomer', 'ordContact', 'ordNotes', 'ordFind', 'ordQty', 'ordLineNote']
     .forEach(id => { const el = $(id); if (el) el.value = ''; });
@@ -5973,6 +6104,8 @@ function saveOrder() {
     customer, contact: $('ordContact').value.trim(), deliveryDate: date,
     method: $('ordMethod').value, notes: $('ordNotes').value.trim(),
     channel: orderChannel,
+    totalManual: orderTotalManual,
+    total: orderTotalManual ? Number(orderTotalAgreed) || 0 : '',
     lines: orderCart.map(l => ({ sku: l.sku, product: l.product, content: l.content,
                                  packages: l.packages, note: l.note,
                                  weight: Number(l.weight) || 0,
