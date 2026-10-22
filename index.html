@@ -125,7 +125,16 @@
   .line .top{display:flex;align-items:center;gap:8px}
   .line .top b{flex:1;font-size:14px}
   .x{background:transparent;color:var(--muted);width:auto;padding:4px 8px;font-size:18px}
-  .ord{display:flex;align-items:center;gap:11px;padding:12px 2px;border-bottom:1px solid var(--line);
+  /* An order in the list: who and when on top, what is on it underneath with
+     the money, and the buttons for the things done most often. */
+  .ord .head{display:flex;align-items:center;gap:11px}
+  .ord .what{display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+             margin-top:6px;font-size:12px;color:var(--muted)}
+  .ord .what span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ord .what b{font-size:14px;color:var(--ink);white-space:nowrap}
+  .ord .acts{display:flex;gap:7px;margin-top:9px}
+  .ord .acts button{flex:1;padding:8px 6px;font-size:13px;border-radius:9px}
+  .ord{display:block;padding:12px 2px;border-bottom:1px solid var(--line);
        cursor:pointer}
   .ord:last-child{border-bottom:0}
   .ord .who{flex:1;min-width:0}
@@ -892,7 +901,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-23 02:00 UTC';
+const APP_BUILD = '2026-10-23 05:00 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes' };
 const MAX_PHOTOS = 8;
@@ -993,8 +1002,22 @@ function dayInfo(iso) {
 
 /* ───────── voice, where the phone has it ───────── */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+/**
+ * Dictation into a box — the search mics, the customer name, the notes.
+ *
+ * It needs a signal. The browser does not do the listening itself: it ships
+ * the audio to the vendor's servers and gets words back, so in the shed with
+ * no bars there is nothing to ship it to. Everything else in the app works
+ * offline and this one thing does not, which is worth saying plainly at the
+ * moment the button is tapped rather than leaving somebody talking at a
+ * phone that was never listening.
+ */
 function dictate(id, btn, after) {
   if (!SR) return toast('No voice input in this browser — use the microphone on your keyboard.', 'bad');
+  if (!navigator.onLine) {
+    return toast('The microphone needs a signal — it is the phone sending the words away, ' +
+                 'not the app. Type it instead.', 'bad');
+  }
   if (dictate._on) { dictate._on.stop(); return; }
   const r = new SR();
   r.lang = 'en-CA'; r.interimResults = false; r.maxAlternatives = 1;
@@ -1179,6 +1202,7 @@ async function kenjiAsk(said) {
     kenjiSpeak(res.reply || '');
     if (res.change) kenjiOffer(res.change);
     else if (res.newProduct) kenjiOfferProduct(res.newProduct);
+    else if (res.newOrder) kenjiOfferOrder(res.newOrder);
   } catch (e) {
     kenjiDoneWaiting();
     kSay(e.message, 'bad');
@@ -1224,6 +1248,45 @@ function kenjiOfferProduct(np) {
   }
   $('sheetTitle').textContent = 'New cut — check it over';
   $('sheetSub').textContent = 'Filled in from what Kenji heard. Nothing is added until you tap Add it.';
+}
+
+/**
+ * An order Kenji has put together, opened on the screen it would have been
+ * typed on.
+ *
+ * Deliberately not a summary card with a Save button. The order lands in the
+ * ordinary order screen with every line, weight and price filled in, so the
+ * last look before saving is at the real thing — and anything he heard wrong
+ * is changed the same way any other order is changed. Nothing is written
+ * until the Save button is tapped, as with every other thing he proposes.
+ */
+function kenjiOfferOrder(o) {
+  closeSheet();
+  clearOrderDraft();
+  backTo = 'orders';
+  $('ordCustomer').value = o.customer || '';
+  $('ordDate').value = o.when || '';
+  $('ordMethod').value = o.method || 'Pickup';
+  $('ordNotes').value = o.notes || '';
+  setOrderChannel(o.channel || 'website');
+  orderCart = (o.lines || []).map(l => ({
+    sku: l.sku, product: l.product, content: l.content,
+    packages: Number(l.packages) || 0,
+    weight: Number(l.weight) || 0,
+    promo: !!l.promo, manual: false, total: '',
+    note: l.note || '', label: l.product || l.sku
+  }));
+  renderCart('order');
+  renderOrdAvail();
+  showView('neworder');
+  const h = $('neworderHead');
+  if (h) {
+    h.innerHTML = '<div class="card editing"><b>From Kenji — check it over</b>' +
+      '<span>Nothing is saved until you tap Save order.' +
+      ((o.dropped || []).length
+        ? ' He could not place ' + esc(o.dropped.join(', ')) + '.' : '') +
+      '</span></div>';
+  }
 }
 
 function kenjiCancel() {
@@ -1903,18 +1966,94 @@ function renderBoard() {
   else badge.style.display = 'none';
 }
 
+/**
+ * One order in the list.
+ *
+ * What is on it and what it comes to, both on the row — so the list answers
+ * "what is going out on Friday and what is it worth" without opening
+ * anything. The three things done most often are buttons here; the row still
+ * opens the order for everything else.
+ */
 function orderRowHtml(o) {
   const d = dayInfo(o.deliveryDate);
   const short = o.status === 'Open' ? shortLines(o.id).length : 0;
+  const open = o.status === 'Open';
+  const packed = o.status === 'Packed';
+
+  // What is on it, in the order it was written, trimmed so a long order does
+  // not push the buttons off the bottom of the screen.
+  const items = (o.items || []);
+  const named = items.slice(0, 4)
+    .map(i => i.packages + ' × ' + esc(i.product || i.sku)).join(' · ');
+  const more = items.length > 4 ? ' · +' + (items.length - 4) + ' more' : '';
+
+  // A button on a row must not also open the row.
+  const act = (cls, label, fn) =>
+    '<button type="button" class="' + cls + '" onclick="event.stopPropagation();' + fn + '">' +
+      label + '</button>';
+  let buttons = '';
+  if (open) {
+    buttons = act('ghost', 'Edit', 'editOrder(\'' + esc(o.id) + '\')') +
+              act('', 'Assembled', 'assembleOrder(\'' + esc(o.id) + '\')') +
+              act('ghost danger', 'Cancel', 'cancelOrder(\'' + esc(o.id) + '\')');
+  } else if (packed) {
+    buttons = act('', 'Delivered', 'deliverOrder(\'' + esc(o.id) + '\')') +
+              act('ghost danger', 'Cancel', 'cancelOrder(\'' + esc(o.id) + '\')');
+  }
+
   return '<div class="ord" onclick="openOrder(\'' + esc(o.id) + '\')">' +
-    '<div class="who"><b>' + esc(o.customer) +
-      (o.pending ? '<span class="tag">not sent</span>' : '') +
-      (short ? '<span class="tag out">short ' + short + '</span>' : '') + '</b>' +
-    '<span>' + orderPackages(o) + ' pkg · ' + o.items.length + ' item' + (o.items.length === 1 ? '' : 's') +
-      ' · ' + esc(o.method || '') + '</span></div>' +
-    '<div class="when"><b>' + esc(d.label) + '</b>' + esc(o.deliveryDate || '') + '</div>' +
-    (d.cls ? '<span class="tag ' + d.cls + '">' + (d.cls === 'due' ? 'due' : 'soon') + '</span>' : '') +
-    '</div>';
+    '<div class="head">' +
+      '<div class="who"><b>' + esc(o.customer) +
+        (o.pending ? '<span class="tag">not sent</span>' : '') +
+        (short ? '<span class="tag out">short ' + short + '</span>' : '') + '</b>' +
+      '<span>' + orderPackages(o) + ' pkg · ' + items.length + ' item' + (items.length === 1 ? '' : 's') +
+        ' · ' + esc(o.method || '') + '</span></div>' +
+      '<div class="when"><b>' + esc(d.label) + '</b>' + esc(o.deliveryDate || '') + '</div>' +
+      (d.cls ? '<span class="tag ' + d.cls + '">' + (d.cls === 'due' ? 'due' : 'soon') + '</span>' : '') +
+    '</div>' +
+    (items.length
+      ? '<div class="what"><span>' + named + more + '</span>' +
+        (o.total ? '<b>' + plain(o.total) + '</b>' : '') + '</div>'
+      : '') +
+    (buttons ? '<div class="acts">' + buttons + '</div>' : '') +
+  '</div>';
+}
+
+/* The three things done to an order most often, from the list. Each one
+   confirms first: a tap on a list is easier to make by accident than a tap
+   on the order itself, and two of these move stock or end an order. */
+function assembleOrder(id) {
+  const o = orderById(id);
+  if (!o) return;
+  if (o.status !== 'Open') return toast('That order is already ' + String(o.status).toLowerCase() + '.', 'bad');
+  const short = (o.items || []).filter(i => physicalOnHand(i.sku) < Number(i.packages || 0));
+  const warn = short.length
+    ? '\n\nThe freezer is short on ' + short.map(i => i.product || i.sku).join(', ') + '.'
+    : '';
+  if (!confirm('Assembled for ' + o.customer + '? ' + orderPackages(o) +
+               ' packages come out of stock.' + warn)) return false;
+  enqueue([{ type: 'ORDER_PACK', orderId: o.id }]);
+  toast('Assembled — stock deducted.', 'ok');
+  return true;
+}
+
+function cancelOrder(id) {
+  const o = orderById(id);
+  if (!o) return;
+  if (!confirm('Cancel ' + o.customer + '\u2019s order?' +
+               (o.status === 'Packed' ? ' It was already assembled, so nothing goes back on the shelf by itself.'
+                                      : ' Nothing comes out of stock.'))) return false;
+  enqueue([{ type: 'ORDER_STATUS', orderId: o.id, status: 'Cancelled' }]);
+  toast('Order cancelled.');
+  return true;
+}
+
+function deliverOrder(id) {
+  const o = orderById(id);
+  if (!o) return false;
+  enqueue([{ type: 'ORDER_STATUS', orderId: o.id, status: 'Delivered' }]);
+  toast('Marked delivered.', 'ok');
+  return true;
 }
 
 function openAgeing() {
@@ -1966,7 +2105,7 @@ function renderOrderDetail() {
 
   let actions = '';
   if (o.status === 'Open') {
-    actions = '<button id="btnPack">Mark packed — take it out of stock</button>' +
+    actions = '<button id="btnPack">Assembled — take it out of stock</button>' +
       '<div class="row" style="margin-top:9px">' +
       '<button class="ghost" id="btnEditOrder">Edit order</button>' +
       '<button class="ghost" id="btnReschedule">Change date</button></div>' +
@@ -1980,7 +2119,7 @@ function renderOrderDetail() {
   $('orderActions').innerHTML = actions;
 
   const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
-  on('btnPack', () => packOrder(o));
+  on('btnPack', () => { if (assembleOrder(o.id)) showView(backTo || 'orders'); });
   on('btnEditOrder', () => editOrder(o.id));
   on('btnReschedule', () => {
     const date = prompt('New date (YYYY-MM-DD)', o.deliveryDate || todayISO());
@@ -1988,26 +2127,9 @@ function renderOrderDetail() {
     enqueue([{ type: 'ORDER_STATUS', orderId: o.id, deliveryDate: date }]);
     toast('Date changed.', 'ok');
   });
-  on('btnCancelOrder', () => {
-    if (!confirm('Cancel this order? Nothing comes out of stock.')) return;
-    enqueue([{ type: 'ORDER_STATUS', orderId: o.id, status: 'Cancelled' }]);
-    toast('Order cancelled.');
-    showView('orders');
-  });
-  on('btnDelivered', () => {
-    enqueue([{ type: 'ORDER_STATUS', orderId: o.id, status: 'Delivered' }]);
-    toast('Marked delivered.', 'ok');
-    showView(backTo || 'orders');
-  });
-}
-
-function packOrder(o) {
-  const short = o.items.filter(i => physicalOnHand(i.sku) < Number(i.packages || 0));
-  if (short.length && !confirm('The freezer is short on ' + short.map(i => i.product || i.sku).join(', ') +
-      '. Pack it anyway and sort the count out after?')) return;
-  enqueue([{ type: 'ORDER_PACK', orderId: o.id }]);
-  toast('Packed — stock deducted.', 'ok');
-  showView(backTo || 'orders');
+  // The same three the list offers, so they behave the same way in both places.
+  on('btnCancelOrder', () => { if (cancelOrder(o.id)) showView('orders'); });
+  on('btnDelivered', () => { if (deliverOrder(o.id)) showView(backTo || 'orders'); });
 }
 
 /* ─────────── what kind of thing is this ───────────
@@ -3771,13 +3893,15 @@ function fuRowHtml(f) {
       : f.status === 'Held' && f.holdUntil ? 'held to ' + f.holdUntil : '';
   return '<div class="ord" onclick="openFollowup(' + JSON.stringify(f.customer).replace(/"/g, '&quot;') +
       ',' + JSON.stringify(f.boughtOn).replace(/"/g, '&quot;') + ')">' +
+    // Same wrapper as an order row, so both sit on one line.
+    '<div class="head">' +
     '<div class="who"><b>' + esc(f.customer) +
       (cls ? '<span class="tag ' + cls + '">' + esc(f.status) + '</span>' : '') +
       (f.draft ? '<span class="tag ok">draft ready</span>' : '') + '</b>' +
     '<span>' + esc(f.share || 'Bulk') + ' on ' + esc(f.boughtOn || '?') +
       (f.email ? '' : ' · no email on file') +
       (f.flags ? '<br>' + esc(f.flags) : '') + '</span></div>' +
-    '<div class="when"><b>' + esc(f.due || '') + '</b>' + esc(late) + '</div></div>';
+    '<div class="when"><b>' + esc(f.due || '') + '</b>' + esc(late) + '</div></div></div>';
 }
 
 function renderFollowups() {
