@@ -901,7 +901,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-23 05:00 UTC';
+const APP_BUILD = '2026-10-23 06:30 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes' };
 const MAX_PHOTOS = 8;
@@ -1997,7 +1997,8 @@ function orderRowHtml(o) {
               act('', 'Assembled', 'assembleOrder(\'' + esc(o.id) + '\')') +
               act('ghost danger', 'Cancel', 'cancelOrder(\'' + esc(o.id) + '\')');
   } else if (packed) {
-    buttons = act('', 'Delivered', 'deliverOrder(\'' + esc(o.id) + '\')') +
+    buttons = act('ghost', 'Edit', 'editOrder(\'' + esc(o.id) + '\')') +
+              act('', 'Delivered', 'deliverOrder(\'' + esc(o.id) + '\')') +
               act('ghost danger', 'Cancel', 'cancelOrder(\'' + esc(o.id) + '\')');
   }
 
@@ -2041,8 +2042,9 @@ function cancelOrder(id) {
   const o = orderById(id);
   if (!o) return;
   if (!confirm('Cancel ' + o.customer + '\u2019s order?' +
-               (o.status === 'Packed' ? ' It was already assembled, so nothing goes back on the shelf by itself.'
-                                      : ' Nothing comes out of stock.'))) return false;
+               (o.status === 'Packed'
+                 ? ' It was assembled, so ' + orderPackages(o) + ' packages go back on the shelf.'
+                 : ' Nothing comes out of stock.'))) return false;
   enqueue([{ type: 'ORDER_STATUS', orderId: o.id, status: 'Cancelled' }]);
   toast('Order cancelled.');
   return true;
@@ -2112,7 +2114,11 @@ function renderOrderDetail() {
       '<button class="ghost danger" style="margin-top:9px" id="btnCancelOrder">Cancel order</button>';
   } else if (o.status === 'Packed') {
     actions = '<button id="btnDelivered">Mark delivered</button>' +
-      '<p class="muted" style="text-align:center">Stock came off when it was packed.</p>';
+      '<div class="row" style="margin-top:9px">' +
+      '<button class="ghost" id="btnEditOrder">Edit order</button>' +
+      '<button class="ghost danger" id="btnCancelOrder">Cancel order</button></div>' +
+      '<p class="muted" style="text-align:center">Stock came off when it was assembled. ' +
+      'Changing it moves the difference; cancelling puts it all back.</p>';
   } else {
     actions = '<p class="muted" style="text-align:center">' + esc(o.status) + '.</p>';
   }
@@ -4784,9 +4790,12 @@ let editingOrderId = null;
 function editOrder(id) {
   const o = orderById(id);
   if (!o) return;
-  if (o.status !== 'Open') {
-    return toast('That order is already ' + String(o.status).toLowerCase() +
-                 '. Its stock has moved, so it cannot be changed.', 'bad');
+  // An assembled order can still be changed — the freezer follows the change.
+  // A delivered or cancelled one is settled and is left alone.
+  if (o.status !== 'Open' && o.status !== 'Packed') {
+    return toast(o.status === 'Delivered'
+      ? 'That order has gone out. Fix it with a count rather than a rewrite.'
+      : 'That order was cancelled. Write a new one instead.', 'bad');
   }
   editingOrderId = id;
   backTo = 'order';
@@ -4800,10 +4809,20 @@ function editOrder(id) {
     sku: i.sku, product: i.product, content: i.content,
     packages: Number(i.packages) || 0, note: i.note || '',
     weight: Number(i.weight) || 0, promo: !!i.promo,
-    // A price that does not match the rule was typed in, and stays typed in.
     manual: false, total: '',
     label: i.product || i.sku
   }));
+  /* A price that does not match the rule was typed in by hand, and must stay
+     typed in — otherwise opening an order to change the date quietly puts an
+     agreed price back to list. The rule price is worked out first and the
+     stored one compared against it. */
+  const rule = priceOrderCart();
+  orderCart.forEach((l, n) => {
+    const stored = Number((o.items[n] || {}).total);
+    const says = (rule.lines[n] || {}).worth;
+    if (l.promo || !isFinite(stored) || says === undefined) return;
+    if (Math.abs(stored - says) > 0.005) { l.manual = true; l.total = stored; }
+  });
   $('ordFind').value = ''; $('ordQty').value = ''; $('ordLineNote').value = '';
   closeSuggest('ordFind');
   renderCart('order');
@@ -4828,11 +4847,17 @@ function paintOrderMode() {
   const btn = $('btnSaveOrder');
   if (btn) btn.textContent = editingOrderId ? 'Save changes' : 'Save order';
   const h = $('neworderHead');
-  if (h) {
-    h.innerHTML = editingOrderId
-      ? '<div class="card editing"><b>Editing ' + esc(editingOrderId) + '</b>' +
-        '<span>Nothing moves in the freezer until it is packed.</span></div>' : '';
-  }
+  if (!h) return;
+  if (!editingOrderId) { h.innerHTML = ''; return; }
+  const o = orderById(editingOrderId) || {};
+  // An assembled order has already taken its meat off the shelf, so a change
+  // here is a change to the freezer as well. Say so before, not after.
+  const note = o.status === 'Packed'
+    ? 'Already assembled. Anything you add comes off the shelf when you save, ' +
+      'and anything you take off goes back on it. Changing a weight or a price moves nothing.'
+    : 'Nothing moves in the freezer until it is assembled.';
+  h.innerHTML = '<div class="card editing"><b>Editing ' + esc(editingOrderId) +
+    (o.status === 'Packed' ? ' — assembled' : '') + '</b><span>' + note + '</span></div>';
 }
 
 function saveOrder() {
