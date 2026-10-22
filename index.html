@@ -338,6 +338,25 @@
   .boxesof .hint{margin-top:4px;color:var(--muted)}
   /* Which order this screen is writing, so an edit is never mistaken for a
      new order half way down the form. */
+  /* An order line with its money on it. Three small boxes rather than a form:
+     how many, how heavy, what it comes to — and the rate underneath saying
+     where that number came from. */
+  .oline .sum{font-weight:700;font-size:14px;white-space:nowrap}
+  .oline .sum s{opacity:.55;font-weight:400;margin-right:4px}
+  .oline .sum i{font-weight:400;font-size:11px;color:var(--muted);font-style:normal}
+  .oline .bits{display:flex;gap:8px;margin-top:8px}
+  .oline .bits label{flex:1;font-size:11px;color:var(--muted);display:block}
+  .oline .bits input{margin-top:3px;padding:8px;font-size:14px;text-align:right}
+  .oline .bits .ro{display:block;margin-top:3px;padding:8px 0;font-size:14px;color:var(--ink)}
+  .oline .why{display:flex;align-items:center;justify-content:space-between;
+              gap:8px;margin-top:7px;font-size:12px;color:var(--muted)}
+  .oline .giveaway{width:auto;padding:5px 10px;font-size:12px;border-radius:999px;
+                   background:transparent;border:1px solid var(--line);color:var(--muted)}
+  .oline .giveaway.on{background:var(--warn);border-color:var(--warn);color:var(--on-brand)}
+  .oline.promo{opacity:.85;border-style:dashed}
+  .ordsum{margin-top:10px;padding:10px 12px}
+  .ordsum .kv.big{font-size:16px;padding-top:4px}
+  .ordsum .kv.big b{font-size:19px}
   .editing{border-left:4px solid var(--warn);padding:10px 12px;margin-bottom:10px}
   .editing b{display:block;font-size:14px}
   .editing span{font-size:12px;color:var(--muted)}
@@ -481,7 +500,15 @@
     </div>
 
     <h3>What they ordered</h3>
+    <!-- Which price list this order is written against. One choice for the
+         whole order, because a customer is one kind of customer. -->
+    <div class="seg" id="ordChannel">
+      <button type="button" data-c="wholesale" onclick="setOrderChannel('wholesale')">Wholesale</button>
+      <button type="button" data-c="website" class="on" onclick="setOrderChannel('website')">Website</button>
+      <button type="button" data-c="market" onclick="setOrderChannel('market')">Market</button>
+    </div>
     <div class="lines" id="ordLines"></div>
+    <div id="ordTotal"></div>
     <div class="card">
       <label>Product</label>
       <!-- Scrolling seventy-odd products with cold hands is the slow way.
@@ -865,7 +892,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-22 23:30 UTC';
+const APP_BUILD = '2026-10-23 02:00 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes' };
 const MAX_PHOTOS = 8;
@@ -4348,6 +4375,7 @@ function submitIntake() {
 function renderCart(which) {
   const cart = which === 'intake' ? intakeCart : orderCart;
   const el = which === 'intake' ? $('inLines') : $('ordLines');
+  if (which === 'order') return renderOrderCart();
   if (!cart.length) { el.innerHTML = '<div class="muted" style="padding:2px 4px 8px">No lines yet.</div>'; return; }
   el.innerHTML = cart.map((l, i) =>
     '<div class="line"><div class="top"><b>' + esc(l.label) + '</b>' +
@@ -4355,9 +4383,183 @@ function renderCart(which) {
     '<button class="x" onclick="dropLine(\'' + which + '\',' + i + ')">✕</button></div></div>').join('');
 }
 
+/**
+ * The order, with its money.
+ *
+ * Every line says what it weighs, what the rate was and what it comes to.
+ * The weight and the price can both be typed over — a steak is whatever the
+ * scale says, and sometimes a price is just agreed — and a line can be given
+ * away, which keeps its rate on screen so the giveaway can be seen for what
+ * it was worth.
+ */
+function renderOrderCart() {
+  const el = $('ordLines'), foot = $('ordTotal');
+  if (!orderCart.length) {
+    el.innerHTML = '<div class="muted" style="padding:2px 4px 8px">No lines yet.</div>';
+    if (foot) foot.innerHTML = '';
+    return;
+  }
+  const money = priceOrderCart();
+
+  el.innerHTML = orderCart.map((l, i) => {
+    const m = money.lines[i];
+    const rate = m.basis === 'lb' ? plain(m.rate) + '/lb' : plain(m.rate) + '/pack';
+    const sum = l.promo
+      ? '<s>' + plain(m.worth) + '</s> free'
+      : plain(m.total) + (m.manual ? ' <i>typed in</i>' : '');
+    return '<div class="line oline' + (l.promo ? ' promo' : '') + '">' +
+      '<div class="top"><b>' + esc(l.label) + '</b>' +
+      '<span class="sum">' + sum + '</span>' +
+      '<button class="x" onclick="dropLine(\'order\',' + i + ')">✕</button></div>' +
+      '<div class="bits">' +
+        '<label>Packs<input type="number" inputmode="decimal" min="0" step="1" value="' +
+          esc(String(l.packages)) + '" onchange="setLineQty(' + i + ',this.value)"></label>' +
+        (m.basis === 'lb'
+          ? '<label>Weight lb<input type="number" inputmode="decimal" min="0" step="0.01" value="' +
+            esc(l.weight ? String(round2(l.weight)) : '') + '" placeholder="' + round2(m.weight) +
+            '" onchange="setLineWeight(' + i + ',this.value)"></label>'
+          : '<label>Rate<span class="ro">' + esc(rate) + '</span></label>') +
+        '<label>Price<input type="number" inputmode="decimal" min="0" step="0.01" value="' +
+          esc(m.manual ? String(m.total) : '') + '" placeholder="' + m.worth +
+          '" onchange="setLinePrice(' + i + ',this.value)"></label>' +
+      '</div>' +
+      // The rate goes underneath only when it is not already one of the three
+      // boxes above — a pack-priced line shows it twice otherwise.
+      '<div class="why"><span>' + (m.basis === 'lb' ? esc(rate) : '') + '</span>' +
+        '<button type="button" class="giveaway' + (l.promo ? ' on' : '') +
+          '" onclick="toggleLinePromo(' + i + ')">' +
+          (l.promo ? '✓ giving it away' : 'give it away') + '</button></div>' +
+    '</div>';
+  }).join('');
+
+  if (foot) {
+    const gb = money.gbLb
+      ? '<div class="kv"><span>Ground beef</span><b>' + round2(money.gbLb) + ' lb at ' +
+        plain(money.gbRate) + '/lb</b></div>' : '';
+    foot.innerHTML = '<div class="card ordsum">' + gb +
+      '<div class="kv big"><span>' + esc(CHANNEL_NAME[orderChannel] || orderChannel) +
+      ' total</span><b>' + plain(money.total) + '</b></div></div>';
+  }
+}
+
+const CHANNEL_NAME = { wholesale: 'Wholesale', website: 'Website', market: 'Farmers market' };
+
+function setLineQty(i, v) {
+  const l = orderCart[i]; if (!l) return;
+  const n = Number(String(v).trim());
+  if (!(n > 0)) return toast('How many packages?', 'bad');
+  l.packages = n;
+  renderCart('order');
+  renderOrdAvail();
+}
+
 function dropLine(which, i) {
   (which === 'intake' ? intakeCart : orderCart).splice(i, 1);
   renderCart(which);
+}
+
+/* ───────── what an order comes to ─────────
+ *
+ * The same arithmetic as the backend, kept here as well so the price on the
+ * screen is right the moment a line is added, with no signal and no wait.
+ * The backend re-prices on save and its answer is the one that is written
+ * down; these two must agree, and there are tests on both that say so.
+ */
+const GB_PACK = 'GROUND-BEEF-2-LB';          // ground beef is ordered in 2 lb packs
+const GB_SKUS_FALLBACK = ['GROUND-BEEF-1-LB', 'GROUND-BEEF-2-LB', 'GROUND-BEEF-20-LB'];
+const GB_TIERS_FALLBACK = '0:13, 10:12.5, 20:12';
+let orderChannel = 'website';
+
+function gbSkus() {
+  const raw = (data.settings || {}).GROUND_BEEF_SKUS;
+  if (raw === undefined) return GB_SKUS_FALLBACK.slice();
+  return String(raw).split(',').map(x => x.trim().toUpperCase()).filter(Boolean);
+}
+function isGroundBeef(sku) { return gbSkus().includes(String(sku || '').toUpperCase()); }
+
+/* "from this many pounds : this much a pound", cheapest band last. */
+function gbTiers() {
+  const raw = (data.settings || {}).GROUND_BEEF_TIERS;
+  const text = raw === undefined ? GB_TIERS_FALLBACK : String(raw);
+  const out = [];
+  text.split(',').forEach(bit => {
+    const parts = String(bit).split(':');
+    if (parts.length !== 2) return;
+    const from = Number(parts[0]), rate = Number(parts[1]);
+    if (rate > 0) out.push({ from: isFinite(from) ? from : 0, rate });
+  });
+  if (!out.length) return [{from:0,rate:13},{from:10,rate:12.5},{from:20,rate:12}];
+  return out.sort((a, b) => a.from - b.from);
+}
+function gbRate(totalLb) {
+  const t = gbTiers();
+  let rate = t[0].rate;
+  t.forEach(b => { if (Number(totalLb) >= b.from) rate = b.rate; });
+  return rate;
+}
+
+function priceOrderCart() {
+  const prods = Object.fromEntries((data.products || []).map(p => [p.sku, p]));
+  const ch = orderChannel;
+
+  // Ground beef is banded on the whole order, so count its pounds first.
+  let gbLb = 0;
+  orderCart.forEach(l => {
+    if (!isGroundBeef(l.sku)) return;
+    const p = prods[l.sku] || {};
+    gbLb += Number(l.weight) || (Number(l.packages) * Number(p.avgWeight || 0));
+  });
+  const gbPerLb = gbRate(gbLb);
+
+  let total = 0;
+  const lines = orderCart.map(l => {
+    const p = prods[l.sku] || {};
+    const packs = Number(l.packages) || 0;
+    const weight = Number(l.weight) || packs * Number(p.avgWeight || 0);
+    const cp = channelPrices(p);
+    let rate, basis;
+    if (isGroundBeef(l.sku)) { rate = gbPerLb; basis = 'lb'; }
+    else if (Number(cp[ch + 'PerLb']) && weight) { rate = Number(cp[ch + 'PerLb']); basis = 'lb'; }
+    else { rate = Number(cp[ch + 'PerPack']) || 0; basis = 'pack'; }
+    const worth = Math.round((basis === 'lb' ? rate * weight : rate * packs) * 100) / 100;
+    const manual = !l.promo && l.manual && l.total !== '' && l.total !== null && l.total !== undefined;
+    const lineTotal = l.promo ? 0 : (manual ? Math.round(Number(l.total) * 100) / 100 : worth);
+    total += lineTotal;
+    return { weight: Math.round(weight * 100) / 100, rate: Math.round(rate * 100) / 100,
+             basis, worth, total: lineTotal, manual: !!manual };
+  });
+  return { lines, total: Math.round(total * 100) / 100, gbLb: Math.round(gbLb * 100) / 100,
+           gbRate: gbPerLb };
+}
+
+function setOrderChannel(c) {
+  orderChannel = c;
+  document.querySelectorAll('#ordChannel button').forEach(b =>
+    b.classList.toggle('on', b.dataset.c === c));
+  renderCart('order');
+  renderOrdAvail();
+}
+
+/* The three editable things on a line: how heavy it was, whether it is being
+   given away, and a price typed over the top of the rule. */
+function setLineWeight(i, v) {
+  const l = orderCart[i]; if (!l) return;
+  const w = String(v).trim();
+  l.weight = w === '' ? 0 : Number(w);
+  if (!(l.weight >= 0)) l.weight = 0;
+  renderCart('order');
+}
+function toggleLinePromo(i) {
+  const l = orderCart[i]; if (!l) return;
+  l.promo = !l.promo;
+  renderCart('order');
+}
+function setLinePrice(i, v) {
+  const l = orderCart[i]; if (!l) return;
+  const t = String(v).trim();
+  if (t === '') { l.manual = false; l.total = ''; }
+  else { l.manual = true; l.total = Number(t) || 0; }
+  renderCart('order');
 }
 
 /* ───────── new order ───────── */
@@ -4416,16 +4618,25 @@ function renderOrdAvail() {
 }
 
 function addOrderLine() {
-  const sku = $('ordProduct').value;
+  let sku = $('ordProduct').value;
   const qty = Number($('ordQty').value);
   if (!sku) return toast('Pick a product.', 'bad');
   if (!qty || qty <= 0) return toast('Enter how many packages.', 'bad');
+  // Ground beef always goes on an order as individual 2 lb packs. The bundle
+  // SKUs are how it used to be sold, not how it is counted, and an order
+  // made of bundles cannot be banded by the pound sensibly.
+  if (isGroundBeef(sku) && sku !== GB_PACK &&
+      (data.products || []).some(x => x.sku === GB_PACK)) {
+    sku = GB_PACK;
+    toast('Ground beef goes on as 2 lb packs.', 'ok');
+  }
   const p = data.products.find(x => x.sku === sku) || {};
   const inCart = orderCart.filter(l => l.sku === sku).reduce((s, l) => s + l.packages, 0);
   const free = physicalOnHand(sku) - (committedBySku()[sku] || 0) - inCart;
   if (qty > free && !confirm('Only ' + Math.round(Math.max(free, 0) * 100) / 100 + ' of ' +
       (p.product || sku) + ' are free — the rest are promised to other orders. Promise ' + qty + ' anyway?')) return;
   orderCart.push({ sku, product: p.product, content: p.content, packages: qty,
+                   weight: 0, promo: false, manual: false, total: '',
                    note: $('ordLineNote').value.trim(), label: p.product || sku });
   $('ordQty').value = ''; $('ordLineNote').value = '';
   renderCart('order');
@@ -4460,9 +4671,13 @@ function editOrder(id) {
   $('ordDate').value = o.deliveryDate || '';
   $('ordMethod').value = o.method || 'Pickup';
   $('ordNotes').value = o.notes || '';
+  setOrderChannel(o.channel || 'website');
   orderCart = (o.items || []).map(i => ({
     sku: i.sku, product: i.product, content: i.content,
     packages: Number(i.packages) || 0, note: i.note || '',
+    weight: Number(i.weight) || 0, promo: !!i.promo,
+    // A price that does not match the rule was typed in, and stays typed in.
+    manual: false, total: '',
     label: i.product || i.sku
   }));
   $('ordFind').value = ''; $('ordQty').value = ''; $('ordLineNote').value = '';
@@ -4477,6 +4692,7 @@ function editOrder(id) {
 function clearOrderDraft() {
   editingOrderId = null;
   orderCart = [];
+  setOrderChannel('website');
   ['ordCustomer', 'ordContact', 'ordNotes', 'ordFind', 'ordQty', 'ordLineNote']
     .forEach(id => { const el = $(id); if (el) el.value = ''; });
   closeSuggest('ordFind');
@@ -4510,8 +4726,12 @@ function saveOrder() {
     orderId: editing || ('ORD-' + todayISO().replace(/-/g, '') + '-' + uid().slice(1, 6).toUpperCase()),
     customer, contact: $('ordContact').value.trim(), deliveryDate: date,
     method: $('ordMethod').value, notes: $('ordNotes').value.trim(),
+    channel: orderChannel,
     lines: orderCart.map(l => ({ sku: l.sku, product: l.product, content: l.content,
-                                 packages: l.packages, note: l.note }))
+                                 packages: l.packages, note: l.note,
+                                 weight: Number(l.weight) || 0,
+                                 promo: !!l.promo, manual: !!l.manual,
+                                 total: l.manual ? Number(l.total) || 0 : '' }))
   }]);
   clearOrderDraft();
   toast(editing ? 'Order changed.' : 'Order saved.', 'ok');
