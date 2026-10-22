@@ -285,11 +285,15 @@
   .signin-btn { display:flex; justify-content:center; margin:26px 0 14px; min-height:44px; }
   .signin-note { font-size:13px; line-height:1.5; color:#5d6652; margin:0; }
   .signin-note.bad { color:#8c2f1f; font-weight:600; }
-  .seg { display:flex; gap:0; margin:0 0 12px; border:1.5px solid #cdd3c2;
-         border-radius:10px; overflow:hidden; background:#fff; }
+  /* The strip follows the phone's own light or dark, like everything else.
+     It used to be white whatever the phone was set to, which in the dark put
+     two of the three price lists on a white panel and made them look like
+     the one that was chosen. */
+  .seg { display:flex; gap:0; margin:0 0 12px; border:1.5px solid var(--line);
+         border-radius:10px; overflow:hidden; background:var(--card); }
   .seg button { flex:1; border:0; background:transparent; font-size:15px; font-weight:700;
-                padding:11px 8px; color:#5d6652; }
-  .seg button.on { background:#3f4a2c; color:#fff; }
+                padding:11px 8px; color:var(--muted); }
+  .seg button.on { background:var(--brand-2); color:var(--on-brand); }
 
   /* The button itself is the colour -- blue, white, dark green -- not just
      its lettering. Colouring only the text left the three looking like one
@@ -332,6 +336,30 @@
   /* The contents are a list, so each line reads left to right and stops —
      nothing pushed over to the right-hand edge to be matched up by eye. */
   .boxrow .parts .pline.one { display:block; }
+  /* The three prices, read down. The totals share a column on the right so
+     the eye runs straight down them; the working sits in the middle, small,
+     because it is there to be checked rather than read. */
+  .money3 .m3{display:flex;align-items:baseline;gap:8px;padding:5px 0;
+              border-top:1px solid var(--line)}
+  .money3 .m3.top{border-top:0}
+  .money3 .lbl{flex:0 0 74px;font-size:14px;color:var(--ink)}
+  .money3 .how{flex:1;min-width:0;text-align:right;font-size:11px;color:var(--muted)}
+  .money3 .how i{font-style:normal}
+  .money3 b{flex:0 0 74px;text-align:right;font-size:16px;font-weight:700}
+  .money3 .warnrow .how i{color:var(--warn)}
+  /* Where the made-up boxes are, changeable without opening the box. */
+  .boxrow .fzline{margin-top:5px}
+  .boxrow .fzline select{padding:5px 8px;font-size:12px;height:auto;
+                         background:var(--bg);border-radius:8px}
+  /* "1 could be built" — a different fact from the count, so a different line. */
+  .boxrow .could{font-size:11px;color:var(--ch-whole);padding:0 2px 2px}
+  .boxrow .could.none{color:var(--muted)}
+  /* The money on an order line, and the button that changes it. */
+  .lmoney{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+  .lmoney b{font-size:15px;min-width:62px;text-align:right}
+  .lmoney button{width:auto;padding:5px 9px;font-size:12px}
+  .item.ordtot{border-top:2px solid var(--line)}
+  .item.ordtot b{font-size:17px}
   /* "+21 more in built boxes", under a cut in the Cuts list. Not a control:
      nothing here can be added to or taken away, so it must not look like the
      stepper beside it. */
@@ -508,7 +536,9 @@
   <section class="view" id="view-order">
     <div class="card" id="orderHead"></div>
     <h3>Items</h3>
+    <div id="orderChan"></div>
     <div class="card list" id="orderItems"></div>
+    <div class="card" id="orderNotes" style="margin-top:10px"></div>
     <div id="orderActions"></div>
   </section>
 
@@ -517,7 +547,9 @@
     <div class="card">
       <label>Customer</label>
       <div class="withmic"><input id="ordCustomer" placeholder="J. Wiebe" autocomplete="off">
-        <button class="mic" onclick="dictate('ordCustomer',this)">🎤</button></div>
+        <button class="mic" onclick="dictate('ordCustomer',this,ordCustomerTyped)">🎤</button></div>
+      <div class="sugg" id="sugg-ordCustomer"></div>
+      <div class="muted" id="ordKnown" style="margin-top:4px"></div>
       <label>Phone or email</label>
       <input id="ordContact" placeholder="optional" autocomplete="off">
       <div class="row">
@@ -704,6 +736,16 @@
     <div class="card flush list" id="salesList"></div>
   </section>
 
+  <section class="view" id="view-pricelog">
+    <div class="card">
+      <h2 style="margin:0 0 2px">Price changes</h2>
+      <p class="muted" style="margin:0">Every change to the price list itself — made on
+        the Price tab or typed into the sheet. A price agreed on one order is an
+        arrangement with that customer and is not here.</p>
+    </div>
+    <div class="card flush list" id="priceLogList"></div>
+  </section>
+
   <section class="view" id="view-menu">
     <div class="menu">
       <button onclick="showView('wholesale')"><span class="ic">🤝</span>
@@ -727,6 +769,9 @@
       <button onclick="showView('status')"><span class="ic">📉</span>
         <span class="grow">Inventory status<small>What is out, oversold or running low</small></span>
         <span class="count" id="cStatus"></span></button>
+      <button onclick="showView('pricelog')"><span class="ic">🏷️</span>
+        <span class="grow">Price changes<small>What the price list used to say, and who changed it</small></span>
+        <span class="count" id="cPriceLog"></span></button>
       <button onclick="openSettings()"><span class="ic">⚙️</span>
         <span class="grow">Sync &amp; settings<small>Connection, who's using this phone</small></span></button>
     </div>
@@ -940,7 +985,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-23 15:30 UTC';
+const APP_BUILD = '2026-10-23 22:30 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -1711,6 +1756,9 @@ function applyBoot(boot) {
     ageing: boot.ageing || [], boxes: boot.boxes || [],
     lists: boot.lists || {}, followups: boot.followups || [],
     sendAs: boot.sendAs || {},
+    // What the price list used to say. Changing a price on the Price tab or
+    // in the sheet writes a line here; a price agreed on one order does not.
+    priceChanges: boot.priceChanges || [],
     steerCosts: boot.steerCosts || {},
     boxList: boot.boxList || [],
     // Cut SKU → the built boxes holding it, so the Cuts list can say that the
@@ -1844,7 +1892,7 @@ function effectiveOrders() {
           content: l.content || '', packages: Number(l.packages || 0), packed: 0,
           note: l.note || '', weight: (money.lines[i] || {}).weight || 0,
           rate: (money.lines[i] || {}).rate || 0, total: (money.lines[i] || {}).total || 0,
-          promo: !!l.promo
+          promo: !!l.promo, manual: !!(money.lines[i] || {}).manual
         }))
       };
       out.push(o); byId[o.id] = o;
@@ -1883,7 +1931,7 @@ function effectiveOrders() {
         packed: o.status === 'Packed' ? Number(l.packages || 0) : 0,
         note: l.note || '', weight: (money.lines[i] || {}).weight || 0,
         rate: (money.lines[i] || {}).rate || 0, total: (money.lines[i] || {}).total || 0,
-        promo: !!l.promo
+        promo: !!l.promo, manual: !!(money.lines[i] || {}).manual
       }));
       o.total = money.total;
       o.pending = true;
@@ -1900,6 +1948,7 @@ function committedBySku() {
   effectiveOrders().forEach(o => {
     if (o.status !== 'Open') return;
     o.items.forEach(i => {
+      if (!i.sku) return;               // not from the freezer, not promised from it
       const owed = Number(i.packages || 0) - Number(i.packed || 0);
       if (owed > 0) out[i.sku] = (out[i.sku] || 0) + owed;
     });
@@ -1911,10 +1960,14 @@ function committedBySku() {
 function allocation() {
   const remaining = {}, shortBy = {};
   const open = effectiveOrders().filter(o => o.status === 'Open');
+  // A jar of jam is not short: nothing in the freezer was ever promised for
+  // it, so there is nothing to run out of.
   open.forEach(o => o.items.forEach(i => {
+    if (!i.sku) return;
     if (remaining[i.sku] === undefined) remaining[i.sku] = physicalOnHand(i.sku);
   }));
   open.forEach(o => o.items.forEach(i => {
+    if (!i.sku) return;
     const owed = Number(i.packages || 0) - Number(i.packed || 0);
     if (owed <= 0) return;
     const have = remaining[i.sku] || 0;
@@ -2019,7 +2072,7 @@ function renderAll() {
   renderMenuCounts();
   renderFollowups();
   renderWholesale(); renderWaitlist(); renderClients(); renderSchedule(); renderCnLines();
-  renderMarketGrid(); renderBoxes(); renderStatus();
+  renderMarketGrid(); renderBoxes(); renderStatus(); renderPriceLog();
   renderSales();
   renderSteerNumbers();
   if (openOrderId) renderOrderDetail();
@@ -2451,14 +2504,59 @@ function renderOrderDetail() {
     '<div class="kv"><span>Order</span><b>' + esc(o.id) + '</b></div>';
 
   const shorts = Object.fromEntries(shortLines(o.id).map(x => [x.sku, x.short]));
-  $('orderItems').innerHTML = o.items.map(i =>
+  const settled = o.status === 'Delivered' || o.status === 'Cancelled';
+
+  /* Which price list this order was written against. Changing it re-prices
+     every line that follows a rule and leaves alone every price that was
+     typed in by hand. */
+  $('orderChan').innerHTML = settled ? '' :
+    '<div class="seg">' + ['wholesale', 'website', 'market'].map(c =>
+      '<button type="button"' + (o.channel === c ? ' class="on"' : '') +
+      ' onclick="setOrderChannelOn(\'' + esc(o.id) + '\',\'' + c + '\')">' +
+      esc(CHANNEL_NAME[c]) + '</button>').join('') + '</div>';
+
+  $('orderItems').innerHTML = o.items.map((i, n) =>
     '<div class="item"><div class="name"><b>' + esc(i.product || i.sku) +
-    (shorts[i.sku] ? '<span class="tag out">' + shorts[i.sku] + ' short</span>' : '') + '</b>' +
+    (!i.sku ? '<span class="tag">not from the freezer</span>' : '') +
+    (i.sku && shorts[i.sku] ? '<span class="tag out">' + shorts[i.sku] + ' short</span>' : '') + '</b>' +
     '<span>' + esc(i.content || '') + (i.note ? ' · ' + esc(i.note) : '') +
-    (o.status === 'Open' ? ' · ' + physicalOnHand(i.sku) + ' in the freezer' : '') + '</span></div>' +
+    (i.weight ? ' · ' + round2(i.weight) + ' lb' : '') +
+    (i.rate && i.sku && !i.manual ? ' · ' + plain(i.rate) + '/lb' : '') +
+    (o.status === 'Open' && i.sku ? ' · ' + physicalOnHand(i.sku) + ' in the freezer' : '') +
+    '</span></div>' +
     '<div class="qty"><b>' + i.packages + '</b><span>' +
-    (o.status === 'Open' ? 'to pack' : 'packed ' + (i.packed || i.packages)) + '</span></div></div>'
+    (o.status === 'Open' ? 'to pack' : 'packed ' + (i.packed || i.packages)) + '</span></div>' +
+    '<div class="lmoney">' +
+      (i.promo ? '<b class="muted">free</b>'
+               : '<b>' + plain(i.total || 0) +
+                 (i.manual && !!i.sku ? ' <i>arranged</i>' : '') + '</b>') +
+      (settled ? '' :
+        '<button type="button" class="ghost small" onclick="editLinePrice(\'' +
+        esc(o.id) + '\',' + n + ')">change</button>') +
+    '</div></div>'
   ).join('') || '<div class="empty">No items.</div>';
+
+  $('orderItems').innerHTML += '<div class="item ordtot"><div class="name"><b>Total</b>' +
+    '<span>' + esc(CHANNEL_NAME[o.channel] || o.channel || '') +
+    (o.paid ? ' · paid' + (o.paymentType ? ' by ' + esc(o.paymentType) : '') : '') +
+    '</span></div><div class="lmoney"><b>' + plain(o.total || 0) + '</b></div></div>' +
+    (settled ? '' :
+      '<div class="item"><div class="name"><b>Something not in the freezer</b>' +
+      '<span>A jar of jam, a delivery charge, a cut not on the list yet</span></div>' +
+      '<div class="lmoney"><button type="button" class="ghost small" onclick="addOffLine(\'' +
+      esc(o.id) + '\')">+ Add</button></div></div>');
+
+  /* Comments. Every order gets somewhere to say what is not a line item —
+     where to leave it, who is picking it up, what was agreed on the phone. */
+  $('orderNotes').innerHTML =
+    '<label>Comments</label>' +
+    '<div class="withmic"><input id="odNotes" autocomplete="off" value="' +
+      esc(o.notes || '') + '" placeholder="e.g. leave in the porch cooler"' +
+      (settled ? ' disabled' : '') + '>' +
+      (settled ? '' : '<button class="mic" onclick="dictate(\'odNotes\',this)">🎤</button>') +
+    '</div>' +
+    (settled ? '' : '<button class="ghost small" style="margin-top:6px" onclick="saveOrderNotes(\'' +
+      esc(o.id) + '\')">Save the comment</button>');
 
   let actions = '';
   if (o.status === 'Open') {
@@ -3061,6 +3159,30 @@ function renderStock() {
  * box sells for. The last two side by side are the useful part — a box
  * selling under the value of its contents is worth knowing about.
  */
+/**
+ * Moving the made-up boxes of one kind to another freezer, from the list.
+ *
+ * Only when they are all in one place — if a box is spread across two
+ * freezers, which half was meant is a question, and the lot editor on the
+ * product screen is where that is answered.
+ */
+function moveBox(sku, toFreezer) {
+  if (!toFreezer) return;
+  const lots = (data.stock || []).filter(l => l.sku === sku && l.packages > 0);
+  if (!lots.length) return;
+  if (lots.length > 1) {
+    renderBoxList();
+    return toast('Those are in more than one freezer — open the box to move part of it.', 'bad');
+  }
+  const l = lots[0];
+  if (l.freezer === toFreezer) return;
+  enqueue([{ type: 'RELABEL', sku: l.sku, product: l.product, content: l.content,
+             size: l.size, grade: l.grade, batch: l.batch, freezer: l.freezer,
+             packages: l.packages, toFreezer, toBatch: l.batch,
+             toGrade: l.grade, toSize: l.size }]);
+  toast('Moved to ' + freezerName(toFreezer) + '.', 'ok');
+}
+
 function renderBoxList() {
   const q = $('stockSearch').value.trim().toLowerCase();
   const build = Object.fromEntries((data.boxes || []).map(b => [b.sku, b]));
@@ -3107,43 +3229,46 @@ function renderBoxList() {
     // price list, and the two we actually charge. The gap against the base is
     // the number worth seeing — a box selling under its own contents is easy
     // to create and hard to notice.
-    const priceLine = (label, value, base) => {
-      if (!value) return '<div class="pline"><span>' + label + '</span><span>not set</span></div>';
-      let tail = '';
-      if (base) {
-        const gap = Math.round((value - base) * 100) / 100;
-        const pct = Math.round((value / base - 1) * 100);
-        // Only below the base is bad. At the base is right for a processed
-        // box and merely thin for anything else, so it is not painted red.
-        const cls = gap < 0 ? 'gap-bad' : 'gap-ok';
-        tail = ' <span class="' + cls + '">' +
-               (gap < 0 ? '−' : '+') + plain(Math.abs(gap)) +
-               (isFinite(pct) ? ' · ' + (pct < 0 ? '' : '+') + pct + '%' : '') + '</span>';
-      }
-      return '<div class="pline"><span>' + label + '</span><span>' +
-             plain(value) + tail + '</span></div>';
+    /* The three prices, read down rather than across.
+         Wholesale                              $X
+         Market      $X + 15%                   $Y
+         Website     $X + 30%                   $Z
+       The totals line up on the right because that is the column the eye
+       goes to, and each retail line shows what it was built from so the
+       number is never just asserted. */
+    const base = b.listPrice || b.partsValue;
+    const money3 = (label, total, pct) => {
+      const how = (!base || !pct) ? ''
+        : '<i>' + plain(base) + ' + ' + pct + '%</i>';
+      return '<div class="m3"><span class="lbl">' + label + '</span>' +
+             '<span class="how">' + how + '</span>' +
+             '<b>' + (total ? plain(total) : '<span class="muted">not set</span>') + '</b></div>';
     };
 
-    const base = b.listPrice || b.partsValue;
-    let money = '<div class="parts" style="margin-top:6px">' +
-      priceLine('Contents at wholesale', base, 0) +
-      priceLine('Website', b.price, base) +
-      priceLine('Market', b.marketPrice, base);
-    // A box of nothing but processed meat is meant to sit at list price, so
-    // say so rather than leaving a row of zeros looking like a mistake.
+    let money = '<div class="parts money3" style="margin-top:6px">' +
+      '<div class="m3 top"><span class="lbl">Wholesale</span>' +
+        '<span class="how"></span>' +
+        '<b>' + (base ? plain(base) : '<span class="muted">not set</span>') + '</b></div>' +
+      money3('Market', b.marketPrice, b.mktPct || b.marketMarkupPct) +
+      money3('Website', b.price, b.webPct || b.webMarkupPct);
+
+    // What the wholesale figure is missing. A box whose contents come to a
+    // confident number that leaves three items out is worse than one that
+    // admits it: the Camping Pack read $56 of a $113 pack that way.
+    if ((b.unpriced || []).length) {
+      money += '<div class="m3 warnrow"><span class="lbl want">Not counted</span>' +
+        '<span class="how"><i>' + esc(b.unpriced.join(', ')) +
+        ' — no pack price and nothing to weigh</i></span><b></b></div>';
+    }
     if (b.allFlat) {
-      money += '<div class="pline"><span>All processed — sold at list, no markup</span>' +
-        '<span></span></div>';
+      money += '<div class="m3"><span class="lbl"></span><span class="how">' +
+        '<i>All processed — sold at list, no markup</i></span><b></b></div>';
     } else if (base && (!b.price || !b.marketPrice)) {
-      money += '<div class="pline"><span>Markup rule says</span><span>' +
-        (b.suggestedWeb ? plain(b.suggestedWeb) + ' web' : '') +
-        (b.suggestedWeb && b.suggestedMarket ? ' · ' : '') +
+      money += '<div class="m3"><span class="lbl">Rule says</span><span class="how"><i>' +
         (b.suggestedMarket ? plain(b.suggestedMarket) + ' market' : '') +
-        '</span></div>';
-      if (b.flatValue) {
-        money += '<div class="pline"><span>of which processed, at list</span><span>' +
-          plain(b.flatValue) + '</span></div>';
-      }
+        (b.suggestedWeb && b.suggestedMarket ? ' · ' : '') +
+        (b.suggestedWeb ? plain(b.suggestedWeb) + ' web' : '') +
+        '</i></span><b></b></div>';
     }
     money += '</div>';
 
@@ -3152,10 +3277,16 @@ function renderBoxList() {
     // — those had their cuts taken out when they were built. Flagging a box
     // that HAS stock as "can't build" was plain wrong, and read as though the
     // boxes on the shelf did not exist.
-    const spare = can > 0 ? ' · ' + can + ' more could be built'
-                          : (b.onHand > 0 ? '' : ' · none to build with');
     const tag = (b.onHand === 0 && can === 0)
       ? ' <span class="tag out">none in stock</span>' : '';
+
+    /* Where the made-up ones are, said on the row. A box is kept somewhere
+       like everything else, and having to open it to find out which freezer
+       is a wasted tap at a freezer door. */
+    const fz = (b.freezers || []).filter(f => f.id);
+    const where = !fz.length ? ''
+      : fz.length === 1 ? freezerName(fz[0].id)
+      : fz.map(f => freezerName(f.id) + ' (' + f.n + ')').join(', ');
 
     // Name first, picture second, and the picture opens the box — the same
     // as tapping its name, and the same as the loose cuts behave.
@@ -3166,19 +3297,38 @@ function renderBoxList() {
     const inside = (b.onHand > 0 && (b.parts || []).length)
       ? ' · holding ' + (b.parts || []).reduce((t, c) => t + c.qty * b.onHand, 0) + ' packs'
       : '';
+    /* "0 in the freezer" with "1 could be built" under it. The two are
+       different facts and were reading as one sentence. */
+    const couldBuild = can > 0
+      ? '<div class="could">' + can + ' could be built</div>'
+      : (b.onHand > 0 ? '' : '<div class="could none">nothing to build with</div>');
+
     return '<div class="boxrow"><div class="item">' +
       '<div class="name" onclick="' + open + '"><b>' + esc(b.product) +
         tag + '</b>' +
         '<span>' + (b.packs ? b.packs + ' pack' + (b.packs === 1 ? '' : 's') : 'no contents') +
-        (b.weight ? ' · ' + round2(b.weight) + ' lb' : '') +
-        inside + spare + '</span></div>' +
+        (b.weight ? ' · ' + round2(b.weight) + ' lb' : '') + inside + '</span>' +
+        (b.onHand > 0
+          ? '<div class="fzline">' +
+              '<select onclick="event.stopPropagation()" ' +
+                'onchange="event.stopPropagation();moveBox(\'' + esc(b.sku) + '\',this.value)">' +
+                (fz.length > 1
+                  ? '<option value="">' + esc(where) + '</option>'
+                  : '') +
+                freezerOptions(fz.length === 1 ? fz[0].id : '').map(f =>
+                  '<option value="' + esc(f.id) + '"' +
+                  (fz.length === 1 && f.id === fz[0].id ? ' selected' : '') + '>' +
+                  esc(f.name) + '</option>').join('') +
+              '</select></div>'
+          : '') +
+      '</div>' +
       (pic ? '<img class="cutpic" src="' + pic + '" alt="" loading="lazy" ' +
              'onclick="' + open + '">' : '') +
       '<div class="stepper">' +
         '<button onclick="quickAdjust(\'' + esc(b.sku) + '\',-1)">−</button>' +
         '<span class="n">' + b.onHand + '</span>' +
         '<button class="plus" onclick="quickAdjust(\'' + esc(b.sku) + '\',1)">+</button>' +
-      '</div></div>' +
+      '</div></div>' + couldBuild +
       '<div id="sub-box-' + esc(b.sku) + '" style="display:none">' +
         '<div class="parts">' + parts + money + '</div>' +
         '<div class="row" style="margin:8px 0 2px">' +
@@ -3608,6 +3758,8 @@ function freezerName(id) {
 }
 
 function openProduct(sku) {
+  // Anyone arriving here any other way came off the product screen.
+  if (!editingPriceFrom) editingPriceFrom = 'Product screen';
   const p = (data.products || []).find(x => x.sku === sku) || { sku: sku, product: sku };
   const lines = (data.stock || []).filter(l => l.sku === sku);
   const onHand = lines.reduce((t, l) => t + l.packages, 0);
@@ -3788,6 +3940,14 @@ function openProduct(sku) {
     batchRow +
 
     '<label style="margin-top:14px">Prices</label>' + prices +
+    /* Changing a price here changes it for everybody, so it goes on the
+       record with a reason if one is given. A price agreed with one customer
+       belongs on that customer's order instead, not up here. */
+    '<label>Why, if the price is changing</label>' +
+    '<input id="epWhy" type="text" placeholder="e.g. feed cost, new season — optional">' +
+    '<p class="muted" style="margin:4px 0 12px">A change here is the price for ' +
+      'everybody and is written down on the PRICE CHANGES tab. A price just for ' +
+      'one customer goes on their order instead.</p>' +
 
     '<label>Tell me when it drops below</label>' +
     '<input id="epReorder" type="number" inputmode="numeric" step="1" min="0" value="' +
@@ -3955,7 +4115,11 @@ async function saveProduct(sku) {
     webSetPerLb: override('pr_s_lb', 'websitePerLb'),
     marketPerLb: override('pr_m_lb', 'marketPerLb'),
     reorder: num('epReorder'),
-    notes: txt('epNotes')
+    notes: txt('epNotes'),
+    // For the record: who changed it, which way in, and why.
+    user: (me && (me.name || me.email)) || '',
+    where: editingPriceFrom || 'Product screen',
+    why: txt('epWhy') || ''
   });
   if (body.category === '__new') delete body.category;
   if (!body.product) return toast('It needs a name.', 'bad');
@@ -4060,6 +4224,123 @@ function commitRelabel(key) {
              packages: qty, toFreezer, toBatch, toGrade, toSize }]);
   closeSheet();
   toast('Corrected.', 'ok');
+}
+
+/* ─── changing an order from the order screen ───
+ *
+ * Everything here goes through the same ORDER_EDIT as the full editor, so
+ * there is one way an order changes and one place it is checked. The order
+ * is read, the one thing is altered, and the whole order goes back.
+ */
+function orderAsLines(o) {
+  return (o.items || []).map(i => ({
+    sku: i.sku || '', product: i.product, content: i.content,
+    packages: Number(i.packages) || 0, note: i.note || '',
+    weight: Number(i.weight) || 0, promo: !!i.promo,
+    // A price that does not match the rule was typed in and stays typed in.
+    manual: !i.sku || !!i.manual, total: Number(i.total) || 0
+  }));
+}
+
+function pushOrderEdit(o, changes, lines) {
+  enqueue([Object.assign({
+    type: 'ORDER_EDIT', orderId: o.id,
+    customer: o.customer, contact: o.contact || '',
+    deliveryDate: o.deliveryDate || '', method: o.method || 'Pickup',
+    notes: o.notes || '', channel: o.channel || 'website',
+    lines: lines || orderAsLines(o)
+  }, changes || {})]);
+}
+
+function setOrderChannelOn(id, channel) {
+  const o = orderById(id);
+  if (!o || o.channel === channel) return;
+  /* Only the lines that follow a rule move. A price somebody agreed stays
+     agreed whichever list the rest of the order is on. */
+  const lines = orderAsLines(o).map(l => (l.manual || !l.sku)
+    ? l : Object.assign({}, l, { manual: false, total: '' }));
+  pushOrderEdit(o, { channel }, lines);
+  toast('Priced at ' + (CHANNEL_NAME[channel] || channel) + '.', 'ok');
+}
+
+function editLinePrice(id, n) {
+  const o = orderById(id);
+  if (!o || !o.items[n]) return;
+  const i = o.items[n];
+  openSheet(i.product || i.sku, 'What this line comes to',
+    '<label>Price for the ' + (Number(i.packages) || 1) +
+      (Number(i.packages) === 1 ? ' pack' : ' packs') + '</label>' +
+    '<input id="olPrice" type="number" inputmode="decimal" min="0" step="0.01" value="' +
+      esc(String(Number(i.total) || '')) + '">' +
+    /* Paul's rule: this is an arrangement with this customer. It changes
+       nothing for anybody else, and the price list is only changed on the
+       Price tab or in the sheet. */
+    '<p class="muted" style="margin:6px 0 0">An arrangement with this customer only — ' +
+      'it does not change the price list. Empty it to go back to the list price.</p>' +
+    '<label style="margin-top:12px"><input type="checkbox" id="olPromo"' +
+      (i.promo ? ' checked' : '') + '> Giving it away</label>' +
+    '<button style="margin-top:12px" onclick="saveLinePrice(\'' + esc(id) + '\',' + n + ')">Save</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Cancel</button>');
+}
+
+function saveLinePrice(id, n) {
+  const o = orderById(id);
+  if (!o || !o.items[n]) return closeSheet();
+  const raw = ($('olPrice').value || '').trim();
+  const promo = !!($('olPromo') || {}).checked;
+  const lines = orderAsLines(o);
+  const off = !lines[n].sku;
+  lines[n].promo = promo;
+  if (raw === '' && !off) { lines[n].manual = false; lines[n].total = 0; }
+  else { lines[n].manual = true; lines[n].total = Number(raw) || 0; }
+  pushOrderEdit(o, {}, lines);
+  closeSheet();
+  toast('Price saved.', 'ok');
+}
+
+function saveOrderNotes(id) {
+  const o = orderById(id);
+  if (!o) return;
+  const notes = ($('odNotes').value || '').trim();
+  if (notes === (o.notes || '')) return toast('Nothing changed.');
+  pushOrderEdit(o, { notes });
+  toast('Comment saved.', 'ok');
+}
+
+/* Something that is not in the freezer: a jar of jam, a delivery charge, a
+   cut being trialled. It has a name and a price and it moves no stock,
+   because there is no stock of it to move. */
+function addOffLine(id) {
+  const o = orderById(id);
+  if (!o) return;
+  openSheet('Something not in the freezer', 'It will not come out of any count',
+    '<label>What is it?</label>' +
+    '<div class="withmic"><input id="offName" autocomplete="off" placeholder="e.g. Jar of jam">' +
+      '<button class="mic" onclick="dictate(\'offName\',this)">🎤</button></div>' +
+    '<div class="row"><div><label>How many</label>' +
+      '<input id="offQty" type="number" inputmode="numeric" min="1" step="1" value="1"></div>' +
+      '<div><label>Price in total</label>' +
+      '<input id="offPrice" type="number" inputmode="decimal" min="0" step="0.01" ' +
+        'placeholder="leave blank for nothing"></div></div>' +
+    '<label>Note</label><input id="offNote" autocomplete="off" placeholder="optional">' +
+    '<button style="margin-top:12px" onclick="saveOffLine(\'' + esc(id) + '\')">Add it</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Cancel</button>');
+  setTimeout(() => { const el = $('offName'); if (el) el.focus(); }, 60);
+}
+
+function saveOffLine(id) {
+  const o = orderById(id);
+  if (!o) return closeSheet();
+  const name = ($('offName').value || '').trim();
+  if (!name) return toast('It needs a name.', 'bad');
+  const qty = Number($('offQty').value) || 1;
+  const lines = orderAsLines(o);
+  lines.push({ sku: '', product: name, content: '', packages: qty,
+               note: ($('offNote').value || '').trim(), weight: 0, promo: false,
+               manual: true, total: Number($('offPrice').value) || 0 });
+  pushOrderEdit(o, {}, lines);
+  closeSheet();
+  toast('Added ' + name + '.', 'ok');
 }
 
 /* ─────────── Inventory status ───────────
@@ -4440,7 +4721,28 @@ function renderCalc() {
       (price - floor > 0 ? 'var(--ok)' : 'var(--bad)') + '">' + money(price - floor) + '</b></div>';
   }
   extra += '<div class="kv"><span>In the freezer</span><b>' + physicalOnHand(sku) + ' pkg</b></div>';
+  /* This is where a price gets changed for good. Changing it here or typing
+     it into the sheet is the official price; anything agreed on one order is
+     an arrangement with that customer and stays on the order. */
+  extra += '<button class="ghost" style="margin-top:12px" onclick="changePriceHere(\'' +
+    esc(sku) + '\')">Change this price</button>' +
+    '<p class="muted" style="margin:6px 0 0">Changes it for everybody, and goes ' +
+      'on the record. For one customer only, put the price on their order.</p>';
   $('calcExtra').innerHTML = extra;
+}
+
+/* Which way into the product editor somebody came, so the record can say.
+   Set just before the editor opens and cleared when it closes. */
+let editingPriceFrom = '';
+
+function changePriceHere(sku) {
+  editingPriceFrom = 'Price tab';
+  openProduct(sku);
+  // The prices are halfway down a long screen; take them there.
+  setTimeout(() => {
+    const el = $('epWhy');
+    if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, 220);
 }
 
 
@@ -4589,6 +4891,34 @@ function renderMenuCounts() {
   $('cWholesale').textContent = (L.wholesale || []).filter(x => x.status !== 'Done').length || '';
   $('cWaitlist').textContent = waiting(L.waitlist) || '';
   $('cClients').textContent = (L.customers || []).length || '';
+  // Only the recent ones are worth a badge; a tally of every change ever
+  // made would sit there as a number nobody acts on.
+  const since = Date.now() - 30 * 864e5;
+  $('cPriceLog').textContent =
+    (data.priceChanges || []).filter(c => Date.parse(c.when) >= since).length || '';
+}
+
+/* What the price list used to say.
+ *
+ * Paul's rule: a price is changed on the Price tab or typed into the sheet,
+ * and that is the price for everybody. A price agreed with one customer is an
+ * arrangement and lives on their order, so nothing from an order reaches this
+ * screen. */
+function renderPriceLog() {
+  const rows = data.priceChanges || [];
+  const money0 = v => v === '' || v === null || v === undefined ? '—' : plain(v);
+  $('priceLogList').innerHTML = rows.length ? rows.map(c => {
+    const up = c.was !== '' && c.now !== '' && Number(c.now) > Number(c.was);
+    const down = c.was !== '' && c.now !== '' && Number(c.now) < Number(c.was);
+    return '<div class="item"><div class="name"><b>' + esc(c.product || c.sku) + '</b>' +
+      '<span>' + esc(c.which) + ' · ' + esc(c.where || 'unknown') +
+      (c.by ? ' · ' + esc(c.by) : '') +
+      (c.when ? ' · ' + esc(String(c.when).slice(0, 10)) : '') +
+      (c.why ? ' · ' + esc(c.why) : '') + '</span></div>' +
+      '<div class="lmoney"><b>' + money0(c.was) + ' → ' +
+        '<span style="color:' + (up ? 'var(--bad)' : down ? 'var(--ok)' : 'inherit') + '">' +
+        money0(c.now) + '</span></b></div></div>';
+  }).join('') : '<div class="empty">No price changes recorded yet.</div>';
 }
 
 function renderWholesale() {
@@ -5099,7 +5429,7 @@ function renderOrderCart() {
       ? '<s>' + plain(m.worth) + '</s> free'
       : m.needsWeight
         ? '<span class="want">needs a weight</span>'
-        : plain(m.total) + (m.manual ? ' <i>typed in</i>' : '');
+        : plain(m.total) + (m.manual ? ' <i>arranged</i>' : '');
     return '<div class="line oline' + (l.promo ? ' promo' : '') + '">' +
       '<div class="top"><b>' + esc(l.label) + '</b>' +
       '<span class="sum">' + sum + '</span>' +
@@ -5165,6 +5495,78 @@ function setLineQty(i, v) {
 function dropLine(which, i) {
   (which === 'intake' ? intakeCart : orderCart).splice(i, 1);
   renderCart(which);
+}
+
+/* ─── who the order is for ───
+ *
+ * The phone number and the email are already on file for anybody who has
+ * ordered before, and typing them again is both a waste and a chance to get
+ * one of them wrong. Start typing the name and the rest offers itself.
+ */
+function knownCustomers() {
+  return ((data.lists || {}).customers || []).filter(c => c && c.customer);
+}
+
+function matchCustomers(q, limit) {
+  const t = String(q || '').trim().toLowerCase();
+  if (t.length < 2) return [];
+  const hits = knownCustomers().filter(c =>
+    String(c.customer).toLowerCase().includes(t));
+  hits.sort((a, b) => {
+    const an = String(a.customer).toLowerCase(), bn = String(b.customer).toLowerCase();
+    return (an.startsWith(t) ? 0 : 1) - (bn.startsWith(t) ? 0 : 1) || an.localeCompare(bn);
+  });
+  return hits.slice(0, limit || 6);
+}
+
+function ordCustomerTyped() {
+  const box = $('sugg-ordCustomer'), el = $('ordCustomer');
+  if (!box || !el) return;
+  const q = el.value.trim();
+  const hits = matchCustomers(q, 6);
+  // An exact name already typed needs no list, just its details.
+  const exact = knownCustomers().find(c =>
+    String(c.customer).toLowerCase() === q.toLowerCase());
+  if (exact) { box.innerHTML = ''; showKnownCustomer(exact, false); return; }
+  showKnownCustomer(null);
+  box.innerHTML = !hits.length ? '' : '<div class="card">' + hits.map(c =>
+    '<button type="button" onclick="takeCustomer(' +
+      JSON.stringify(c.customer).replace(/"/g, '&quot;') + ')">' +
+      markHit(c.customer, q) + '<span>' +
+      [c.phone, c.email, c.orders ? c.orders + ' order' + (c.orders === 1 ? '' : 's') : '']
+        .filter(Boolean).map(esc).join(' · ') + '</span></button>').join('') + '</div>';
+}
+
+function takeCustomer(name) {
+  const c = knownCustomers().find(x => x.customer === name);
+  $('ordCustomer').value = name;
+  closeSuggest('ordCustomer');
+  if (!c) return;
+  // Only fill a box that is empty: a number typed on purpose is not
+  // overwritten by one on file.
+  const contact = $('ordContact');
+  if (contact && !contact.value.trim()) contact.value = c.phone || c.email || '';
+  showKnownCustomer(c, true);
+}
+
+function showKnownCustomer(c, filled) {
+  const el = $('ordKnown');
+  if (!el) return;
+  if (!c) { el.innerHTML = ''; return; }
+  const bits = [c.phone, c.email].filter(Boolean).map(esc).join(' · ');
+  el.innerHTML = bits
+    ? '<b>On file:</b> ' + bits + (c.last ? ' · last ordered ' + esc(c.last) : '') +
+      (filled ? '' : ' <a href="#" onclick="event.preventDefault();useKnownContact(' +
+        JSON.stringify(c.customer).replace(/"/g, '&quot;') + ')">use it</a>')
+    : '<b>On file</b>, but no phone or email' +
+      (c.last ? ' · last ordered ' + esc(c.last) : '');
+}
+
+function useKnownContact(name) {
+  const c = knownCustomers().find(x => x.customer === name);
+  if (!c) return;
+  $('ordContact').value = c.phone || c.email || '';
+  showKnownCustomer(c, true);
 }
 
 /* ───────── what an order comes to ─────────
@@ -5492,26 +5894,34 @@ function editOrder(id) {
   $('ordMethod').value = o.method || 'Pickup';
   $('ordNotes').value = o.notes || '';
   setOrderChannel(o.channel || 'website');
-  orderCart = (o.items || []).map(i => ({
-    sku: i.sku, product: i.product, content: i.content,
-    packages: Number(i.packages) || 0, note: i.note || '',
-    weight: Number(i.weight) || 0, promo: !!i.promo,
-    manual: false, total: '',
-    label: i.product || i.sku
-  }));
   /* A price that does not match the rule was typed in by hand, and must stay
      typed in — otherwise opening an order to change the date quietly puts an
-     agreed price back to list. The rule price is worked out first and the
-     stored one compared against it. */
+     agreed price back to list. The order says so itself now; anything with
+     no SKU was never priced by a rule in the first place. */
+  orderCart = (o.items || []).map(i => {
+    const byHand = !i.sku || !!i.manual;
+    return {
+      sku: i.sku, product: i.product, content: i.content,
+      packages: Number(i.packages) || 0, note: i.note || '',
+      weight: Number(i.weight) || 0, promo: !!i.promo,
+      manual: byHand, total: byHand ? Number(i.total) || 0 : '',
+      label: i.product || i.sku
+    };
+  });
+  /* Orders written before the order carried that flag: the rule price is
+     worked out and the stored one compared against it, which is the only
+     evidence left that somebody typed over it. */
   const rule = priceOrderCart();
   orderCart.forEach((l, n) => {
+    if (l.manual || l.promo) return;
     const stored = Number((o.items[n] || {}).total);
     const says = (rule.lines[n] || {}).worth;
-    if (l.promo || !isFinite(stored) || says === undefined) return;
+    if (!isFinite(stored) || says === undefined) return;
     if (Math.abs(stored - says) > 0.005) { l.manual = true; l.total = stored; }
   });
   $('ordFind').value = ''; $('ordQty').value = ''; $('ordLineNote').value = '';
   closeSuggest('ordFind');
+  ordCustomerTyped();
   renderCart('order');
   renderOrdAvail();
   showView('neworder');
@@ -5717,6 +6127,7 @@ function pushHist(kind, name) {
 function closeSheet(opts) {
   const was = sheetIsOpen;
   sheetIsOpen = false;
+  editingPriceFrom = '';            // next time in, whichever way they come
   $('sheet').classList.remove('on');
   $('scrim').classList.remove('on');
   // Closing by button has to consume the history entry the sheet added, or
@@ -5903,13 +6314,13 @@ function discardQueue() {
 const SUBVIEWS = { order:'orders', neworder:'orders', followup:'orders',
                    wholesale:'menu', waitlist:'menu',
                    steer:'menu', clients:'menu', market:'menu', boxes:'menu', status:'menu',
-                   sales:'menu',
+                   sales:'menu', pricelog:'menu',
                    calnew:'calendar' };
 const TITLES = { order:'Order', neworder:'New order', followup:'Follow up',
                  wholesale:'Wholesale',
                  waitlist:'Cut waiting list', steer:'Meat coming in', clients:'Customers',
                  market:'Market day', boxes:'Boxes', status:'Inventory status',
-                 sales:'Sales, year to date',
+                 sales:'Sales, year to date', pricelog:'Price changes',
                  calendar:'Calendar', calnew:'Add to the calendar' };
 
 function showView(name, opts) {
@@ -5990,6 +6401,10 @@ $('ordProduct').addEventListener('change', () => {
   const p = (data.products || []).find(x => x.sku === $('ordProduct').value);
   if (p) $('ordFind').value = p.product || p.sku;
   renderOrdAvail();
+});
+$('ordCustomer').addEventListener('input', ordCustomerTyped);
+$('ordCustomer').addEventListener('keydown', ev => {
+  if (ev.key === 'Enter') { ev.preventDefault(); ev.target.blur(); closeSuggest('ordCustomer'); }
 });
 $('ordFind').addEventListener('input', () => suggest('ordFind', 'takeOrdSuggestion'));
 $('ordFind').addEventListener('keydown', ev => {
