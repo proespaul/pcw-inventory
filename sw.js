@@ -8,17 +8,31 @@
    one file is missing, so the worker never installed and offline mode died
    with it. v3 lists only files that exist, and the bump forces a clean
    re-install over the broken v2 state. v5 goes with the change below, so a
-   phone sitting on an old page gets a clean start rather than holding it. */
-const CACHE = 'pcw-inv-v5';
-const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
+   phone sitting on an old page gets a clean start rather than holding it.
+   v6 stops asking the browser's own cache for the page — see pageFirst. */
+const CACHE = 'pcw-inv-v9';
+const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png',
+               './icon-maskable-512.png', './apple-touch-icon.png'];
 
 /* How long to wait for the real page before falling back to the stored one.
    Long enough for a slow rural connection, short enough that nobody standing
    in the shed thinks the app has hung. */
 const PAGE_WAIT_MS = 2500;
 
+/* "Go and ask the server", not "whatever you have lying about". GitHub Pages
+   sends the page with max-age=600, so an ordinary fetch can be answered out
+   of the browser's own cache without the network being touched at all —
+   which quietly turned network-first back into cache-first for up to ten
+   minutes after every deploy. That is why a new version could sit published
+   and still not appear on the phone. */
+function fromServer(url) { return new Request(url, { cache: 'reload' }); }
+
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches.open(CACHE)
+      .then(c => Promise.all(SHELL.map(u => fetch(fromServer(u)).then(r => c.put(u, r)))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', e => {
@@ -66,7 +80,10 @@ function pageFirst(req) {
 
     const timer = setTimeout(() => { stored(req).then(done); }, PAGE_WAIT_MS);
 
-    fetch(req).then(res => {
+    // no-cache, not no-store: the browser still keeps the answer, it just has
+    // to check with the server before serving it. One conditional request,
+    // and a deploy is never more than that away.
+    fetch(new Request(req, { cache: 'no-cache' })).then(res => {
       clearTimeout(timer);
       done(keep(req, res));
     }).catch(() => {

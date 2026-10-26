@@ -8,28 +8,52 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>PCW Inventory</title>
 <link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap">
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   /* Peace Country Wagyu brand board:
-     17230E forest · 2D490B olive · 7B9763 sage · 7F8E7F stone · E8EAE0 bone */
+     17230E forest · 2D490B olive · 7B9763 sage · 7F8E7F stone · E8EAE0 bone
+
+     Where the brand goes, and where it does not.
+     --------------------------------------------
+     The brand greens used to be the whole screen: a green-tinted page, green
+     ink on it, green panels on that. Every pair technically passed its
+     contrast check and the thing still read like fog, because contrast is
+     only half of it — a page where everything is one hue gives the eye
+     nothing to sort by, and in a cold shed at arm's length that is what
+     costs you the reading.
+     So the canvas is neutral now: a warm paper grey, white panels, near-black
+     lettering. The brand is what gets put ON that canvas — the header, the
+     button you are meant to press, the thing that is switched on, the
+     figure that matters — and because it is now the only strong colour in
+     view, it carries further than it did when everything wore it. */
   :root{
-    /* --muted came out at 3.9:1 on the page background, which is under the
-       readable mark for small lettering. A shade darker clears it. */
-    --bg:#eef0e8; --card:#ffffff; --ink:#17230e; --muted:#5e6c5e; --line:#d6dbc9;
-    --brand:#17230e; --brand-2:#2d490b; --accent:#2d490b; --ok:#2d490b; --warn:#a8721a;
-    --bad:#9a2a2a; --on-brand:#ffffff; --radius:14px; --nav-h:62px;
+    /* Paper and ink first. --muted came out at 3.9:1 once before, which is
+       under the readable mark for small lettering; it is checked now. */
+    --bg:#f3f3f0; --card:#ffffff; --ink:#1b1f16; --muted:#5b6157; --line:#dcdcd4;
+    /* The brand, for the few places it earns. */
+    --brand:#17230e; --brand-2:#2f4a12; --accent:#3b5c16; --ok:#2f5d3a; --warn:#8a5a12;
+    --bad:#9a2a2a; --on-brand:#ffffff; --on-bad:#ffffff; --radius:14px; --nav-h:62px;
+    --lift:0 1px 2px rgba(23,35,14,.05);
     /* The three sales channels, as lettering. Website blue, farmers market
        amber, wholesale green — the same three everywhere they are named. */
     --ch-site:#2a5d8f; --ch-mkt:#8a5a12; --ch-whole:#2f5d3a;
   }
   @media (prefers-color-scheme: dark){
-    :root{ --bg:#10170b; --card:#1a2512; --ink:#e8eae0; --muted:#9aa892; --line:#2b3a20;
-           --brand:#0c1207; --brand-2:#7b9763; --accent:#9dba81; --ok:#7b9763;
-           --warn:#c99a3c; --bad:#cf6b6b;
-           /* sage is light, so what sits on it has to be dark */
-           --on-brand:#0f1609;
+    /* Same idea after dark: a near-neutral charcoal with only a breath of
+       green in it, panels one step up from the page so they read as panels,
+       and sage kept for the things that are on or that matter. */
+    :root{ --bg:#121410; --card:#1c1f18; --ink:#eceee6; --muted:#a0a79a; --line:#30362c;
+           --brand:#0e1209; --brand-2:#8fae72; --accent:#a8c98c; --ok:#8fae72;
+           --warn:#d2a44e; --bad:#e08585;
+           /* sage is light, so what sits on it has to be dark — and so is
+              the red after dark, which is why white lettering on it came out
+              at 2.7:1 on the unread badge and the cancel button. */
+           --on-brand:#10140c; --on-bad:#2b1210;
+           --lift:none;
            /* The daylight versions of these three are dark inks chosen to
               read on white. On the dark card they came out at about 2:1 —
               wholesale green on dark green especially. These are the same
@@ -51,17 +75,17 @@
   .pill{font-size:11px;padding:4px 9px;border-radius:999px;background:rgba(255,255,255,.16);
         white-space:nowrap;color:#fff;border:0;width:auto;font-weight:600}
   .pill.warn{background:var(--warn);color:var(--on-brand)}
-  .pill.bad{background:var(--bad);color:#fff}
+  .pill.bad{background:var(--bad);color:var(--on-bad)}
   .pill.ok{background:var(--ok);color:var(--on-brand)}
   main{padding:12px 12px 20px;max-width:640px;margin:0 auto}
   .view{display:none}.view.on{display:block}
   .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
-        padding:13px;margin-bottom:11px}
+        padding:13px;margin-bottom:11px;box-shadow:var(--lift)}
   .card.flush{padding:6px 13px}
-  h2{font-size:15px;margin:0 0 10px;font-weight:700}
-  h3{font-size:13px;margin:16px 0 7px;color:var(--muted);text-transform:uppercase;
-     letter-spacing:.6px;font-weight:700}
-  label{display:block;font-size:12px;color:var(--muted);margin:9px 0 4px;font-weight:600}
+  h2{font-size:16px;margin:0 0 10px;font-weight:700}
+  h3{font-size:12.5px;margin:16px 0 7px;color:var(--muted);text-transform:uppercase;
+     letter-spacing:.7px;font-weight:700}
+  label{display:block;font-size:13px;color:var(--muted);margin:9px 0 4px;font-weight:600}
   input,select,textarea,button{font:inherit;color:var(--ink)}
   input,select,textarea{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;
         background:var(--bg);-webkit-appearance:none;appearance:none}
@@ -73,25 +97,25 @@
   button{cursor:pointer;border:0;border-radius:11px;padding:13px;font-weight:700;
          background:var(--brand-2);color:var(--on-brand);width:100%}
   button.ghost{background:transparent;border:1px solid var(--line);color:var(--ink)}
-  button.danger{background:var(--bad);color:#fff}
+  button.danger{background:var(--bad);color:var(--on-bad)}
   button.small{padding:8px 11px;font-size:13px;width:auto;border-radius:9px}
   button:active{opacity:.85}
   .mic{width:44px;flex:0 0 44px;background:var(--bg);border:1px solid var(--line);
        color:var(--muted);font-size:17px;padding:11px 0}
-  .mic.on{background:var(--bad);color:#fff;border-color:var(--bad)}
+  .mic.on{background:var(--bad);color:var(--on-bad);border-color:var(--bad)}
   .withmic{display:flex;gap:8px;align-items:stretch}
   .withmic input{flex:1}
-  .muted{color:var(--muted);font-size:13px}
+  .muted{color:var(--muted);font-size:13.5px}
   .search{margin-bottom:10px}
   .item{display:flex;align-items:center;gap:10px;padding:11px 2px;border-bottom:1px solid var(--line)}
   .item:last-child{border-bottom:0}
   .list>div:last-child .item{border-bottom:0}
   .item .name{flex:1;min-width:0}
-  .item .name b{display:block;font-weight:600;font-size:15px}
-  .item .name span{font-size:12px;color:var(--muted)}
+  .item .name b{display:block;font-weight:600;font-size:15.5px}
+  .item .name span{font-size:13px;color:var(--muted)}
   .qty{text-align:right;white-space:nowrap}
   .qty b{font-size:17px;font-variant-numeric:tabular-nums}
-  .qty span{display:block;font-size:11px;color:var(--muted)}
+  .qty span{display:block;font-size:12px;color:var(--muted)}
   .stepper{display:flex;align-items:center;gap:7px}
   .stepper button{width:38px;height:38px;padding:0;border-radius:10px;font-size:20px;
                   line-height:1;background:var(--bg);color:var(--ink);border:1px solid var(--line)}
@@ -100,20 +124,20 @@
               font-variant-numeric:tabular-nums}
   .stepper .n i{display:block;font-size:10px;font-style:normal;font-weight:600;
                 color:var(--muted);letter-spacing:.2px}
-  .tag{display:inline-block;font-size:10px;padding:2px 6px;border-radius:5px;
+  .tag{display:inline-block;font-size:10.5px;padding:2.5px 6px;border-radius:5px;
        background:var(--line);color:var(--muted);margin-left:5px;vertical-align:middle;
        text-transform:uppercase;letter-spacing:.4px;font-weight:700}
-  .tag.low{background:#f6e7c8;color:#7e5a11}.tag.out{background:#f2d9d9;color:#8d2323}
-  .tag.due{background:#f2d9d9;color:#8d2323}.tag.soon{background:#f6e7c8;color:#7e5a11}
-  .tag.ok{background:#dde5d0;color:#2d490b}
+  .tag.low{background:#fbefd6;color:#7a570f}.tag.out{background:#f8dede;color:#8d2323}
+  .tag.due{background:#f8dede;color:#8d2323}.tag.soon{background:#fbefd6;color:#7a570f}
+  .tag.ok{background:#e3ecd9;color:#2f4a12}
   /* Those five are pale pills meant for a white card. On the dark card they
      read as five little flashbulbs, so in the dark they become a tint of the
      same colour with light lettering — the same meaning at the same weight
      as everything around them. */
   @media (prefers-color-scheme: dark){
-    .tag.low,.tag.soon{background:#3a300f;color:#e6bc6b}
-    .tag.out,.tag.due{background:#3d1f1f;color:#e79a9a}
-    .tag.ok{background:#22331a;color:#9ad9ae}
+    .tag.low,.tag.soon{background:#352b10;color:#e8c178}
+    .tag.out,.tag.due{background:#3a2020;color:#eda3a3}
+    .tag.ok{background:#24301d;color:#a8d48f}
   }
   /* A product sitting in more than one freezer or batch: the product on top,
      then its lots indented under it, each with its own count. */
@@ -140,7 +164,7 @@
      the money, and the buttons for the things done most often. */
   .ord .head{display:flex;align-items:center;gap:11px}
   .ord .what{display:flex;align-items:baseline;justify-content:space-between;gap:10px;
-             margin-top:6px;font-size:12px;color:var(--muted)}
+             margin-top:6px;font-size:13px;color:var(--muted)}
   .ord .what span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .ord .what b{font-size:14px;color:var(--ink);white-space:nowrap}
   .ord .acts{display:flex;gap:7px;margin-top:9px}
@@ -149,21 +173,21 @@
        cursor:pointer}
   .ord:last-child{border-bottom:0}
   .ord .who{flex:1;min-width:0}
-  .ord .who b{display:block;font-size:15px;font-weight:600}
-  .ord .who span{font-size:12px;color:var(--muted)}
-  .ord .when{text-align:right;white-space:nowrap;font-size:12px;color:var(--muted)}
+  .ord .who b{display:block;font-size:15.5px;font-weight:600}
+  .ord .who span{font-size:13px;color:var(--muted)}
+  .ord .when{text-align:right;white-space:nowrap;font-size:12.5px;color:var(--muted)}
   .ord .when b{display:block;font-size:14px;color:var(--ink)}
-  .alert{display:flex;align-items:center;gap:10px;background:#f6e7c8;color:#6d4f10;
-         border:1px solid #e4cfa4;border-radius:var(--radius);padding:12px 13px;margin-bottom:11px;
+  .alert{display:flex;align-items:center;gap:10px;background:#fcf3e0;color:#6d4f10;
+         border:1px solid #ecd9ae;border-radius:var(--radius);padding:12px 13px;margin-bottom:11px;
          cursor:pointer;font-size:14px}
   .alert b{font-weight:700}
   .alert .go{margin-left:auto;font-size:18px;opacity:.6}
-  @media (prefers-color-scheme: dark){ .alert{background:#3a300f;color:#f0dfb4;border-color:#55471a} }
+  @media (prefers-color-scheme: dark){ .alert{background:#32290f;color:#f3e3bb;border-color:#4e4119} }
   .menu button{display:flex;align-items:center;gap:12px;text-align:left;background:var(--card);
                border:1px solid var(--line);color:var(--ink);padding:15px 13px;margin-bottom:9px;
                border-radius:var(--radius);font-weight:600}
   .menu .ic{font-size:20px;width:26px;text-align:center}
-  .menu small{display:block;font-weight:400;color:var(--muted);font-size:12px;margin-top:2px}
+  .menu small{display:block;font-weight:400;color:var(--muted);font-size:13px;margin-top:2px}
   .menu .grow{flex:1}
   .menu .count{font-size:12px;color:var(--muted);font-weight:700}
   .big{font-size:34px;font-weight:700;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
@@ -176,23 +200,23 @@
   nav{position:fixed;bottom:0;left:0;right:0;height:calc(var(--nav-h) + env(safe-area-inset-bottom));
       padding-bottom:env(safe-area-inset-bottom);background:var(--card);
       border-top:1px solid var(--line);display:flex;z-index:30}
-  nav button{background:none;color:var(--muted);border-radius:0;padding:7px 2px;font-size:10.5px;
+  nav button{background:none;color:var(--muted);border-radius:0;padding:7px 2px;font-size:11px;
              font-weight:600;display:flex;flex-direction:column;align-items:center;gap:3px;
              position:relative}
   nav button .ic{font-size:19px;line-height:1}
   nav button.on{color:var(--accent)}
-  nav .badge{position:absolute;top:3px;right:calc(50% - 22px);background:var(--bad);color:#fff;
+  nav .badge{position:absolute;top:3px;right:calc(50% - 22px);background:var(--bad);color:var(--on-bad);
              font-size:9.5px;min-width:16px;height:16px;border-radius:9px;line-height:16px;
              padding:0 4px;font-weight:700}
   .toast{position:fixed;left:12px;right:12px;bottom:calc(var(--nav-h) + 14px);z-index:60;
          background:var(--brand);color:#fff;padding:12px 14px;border-radius:12px;font-size:14px;
          box-shadow:0 6px 24px rgba(0,0,0,.25);display:none}
   .toast.on{display:block}
-  .toast.bad{background:var(--bad);color:#fff}.toast.ok{background:var(--ok);color:var(--on-brand)}
+  .toast.bad{background:var(--bad);color:var(--on-bad)}.toast.ok{background:var(--ok);color:var(--on-brand)}
   .empty{text-align:center;color:var(--muted);padding:30px 10px;font-size:14px}
   details summary{cursor:pointer;font-size:13px;color:var(--muted);padding:6px 0}
-  .kv{display:flex;justify-content:space-between;gap:12px;padding:6px 0;
-      border-bottom:1px solid var(--line);font-size:13px}
+  .kv{display:flex;justify-content:space-between;gap:12px;padding:7px 0;
+      border-bottom:1px solid var(--line);font-size:13.5px}
   .kv:last-child{border-bottom:0}
   .kv b{text-align:right}
   .scrim{position:fixed;inset:0;background:rgba(10,16,6,.55);z-index:40;display:none}
@@ -252,7 +276,7 @@
         background:var(--brand-2);color:var(--on-brand)}
   .kmicdot{font-size:17px;line-height:1}
   .kmiclabel{font-size:14px;font-weight:700;white-space:nowrap}
-  .kmic.on{background:var(--bad);color:#fff;animation:kpulse 1.1s ease-in-out infinite}
+  .kmic.on{background:var(--bad);color:var(--on-bad);animation:kpulse 1.1s ease-in-out infinite}
   .kmic.busy{opacity:.6}
   @keyframes kpulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
   .ksay{flex:1;min-width:0;font-size:13px;line-height:1.35;color:var(--muted)}
@@ -286,12 +310,12 @@
 
   /* ── sign-in gate ── */
   .signin { position:fixed; inset:0; z-index:200; display:flex; align-items:center;
-            justify-content:center; padding:24px; background:var(--bg,#eef0e8); }
+            justify-content:center; padding:24px; background:var(--bg,#f3f3f0); }
   .signin[hidden] { display:none; }
   .signin-card { width:100%; max-width:360px; text-align:center; }
-  .signin-mark { width:72px; height:72px; margin:0 auto 18px; border-radius:20px;
-                 background:var(--brand-2); color:var(--on-brand); font-weight:700; font-size:22px;
-                 letter-spacing:.5px; display:flex; align-items:center; justify-content:center; }
+  /* The real mark, not three letters standing in for it. */
+  .signin-mark { width:88px; height:88px; margin:0 auto 18px; border-radius:22px;
+                 display:block; object-fit:cover; }
   .signin-card h1 { margin:0 0 2px; font-size:21px; }
   .signin-btn { display:flex; justify-content:center; margin:26px 0 14px; min-height:44px; }
   .signin-note { font-size:13px; line-height:1.5; color:var(--muted); margin:0; }
@@ -314,13 +338,13 @@
   #calcChannel button[data-c="website"],
   #calcUnit    button[data-u="lb"]       { background:#2a5d8f; color:#fff; }
   #calcChannel button[data-c="market"],
-  #calcUnit    button[data-u="kg"]       { background:#fff;    color:#20251c; }
+  #calcUnit    button[data-u="kg"]       { background:#fff;    color:#1b1f16; }
   /* White is one of the three deliberate colours, but a white block beside
      two dark ones is a lamp in a dark room. Softened, still clearly the
      odd one out of the three. */
   @media (prefers-color-scheme: dark){
     #calcChannel button[data-c="market"],
-    #calcUnit    button[data-u="kg"]     { background:#d9ddd0; color:#20251c; }
+    #calcUnit    button[data-u="kg"]     { background:#dcdfd6; color:#1b1f16; }
   }
   #calcChannel button[data-c="wholesale"],
   #calcUnit    button[data-u="oz"]       { background:#2f5d3a; color:#fff; }
@@ -328,10 +352,10 @@
   /* The one in use: a ring inside the button -- pale on the two dark fills,
      dark on the white one, so it shows on all three. */
   #calcChannel button.on, #calcUnit button.on {
-    box-shadow: inset 0 0 0 3px #f4f6ef, inset 0 0 0 4.5px rgba(0,0,0,.35);
+    box-shadow: inset 0 0 0 3px #f7f7f4, inset 0 0 0 4.5px rgba(0,0,0,.35);
   }
   #calcChannel button[data-c="market"].on, #calcUnit button[data-u="kg"].on {
-    box-shadow: inset 0 0 0 3px #20251c;
+    box-shadow: inset 0 0 0 3px #1b1f16;
   }
   #calcChannel button { font-size:13.5px; padding:11px 4px; }
   #calcChannel button + button, #calcUnit button + button { border-left:1.5px solid var(--line); }
@@ -703,7 +727,7 @@
       <p class="muted" id="calcFound" style="margin:6px 0 0"></p>
       <label>…or pick it from the list</label>
       <select id="calcProduct"></select>
-      <label>Selling it where?</label>
+      <label>Price according to</label>
       <div class="seg" id="calcChannel">
         <button data-c="wholesale" class="on">Wholesale</button>
         <button data-c="website">Website</button>
@@ -794,7 +818,8 @@
     <div class="card" id="freezerTop"></div>
     <div class="card flush list" id="freezerList"></div>
     <p class="muted" style="text-align:center;margin:10px 0 0">
-      Checked every morning. Tap a freezer for the fortnight behind it.</p>
+      Tap a freezer for the fortnight behind it.</p>
+    <div class="card" id="freezerRecord"></div>
   </section>
 
   <section class="view" id="view-pricelog">
@@ -1017,7 +1042,8 @@
 <!-- Shown until somebody signs in with Google. Nothing else is reachable. -->
 <div id="signin" class="signin" hidden>
   <div class="signin-card">
-    <div class="signin-mark">PCW</div>
+    <img class="signin-mark" src="icon-192.png" width="88" height="88"
+         alt="Peace Country Wagyu">
     <h1>Peace Country Wagyu</h1>
     <p class="muted">Freezer inventory</p>
     <div id="gbtn" class="signin-btn"></div>
@@ -1049,7 +1075,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-27 06:00 UTC';
+const APP_BUILD = '2026-10-27 22:40 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -1827,6 +1853,7 @@ function applyBoot(boot) {
     alerts: boot.alerts || [],
     freezersSeen: boot.freezers_seen || [],
     freezersHistory: boot.freezers_history || {},
+    freezerRecord: boot.freezer_record || null,
     freezerLimits: boot.freezer_limits || null,
     // The company's own sales book — every sale of the year, including the
     // ones made at the door long before this app existed.
@@ -5114,6 +5141,14 @@ function freezerReads(f) {
 
 const freezerIsBad = s => ['hot', 'offline', 'missing', 'noreading', 'stuck'].includes(s);
 
+/* Was this row the sweep's, or did somebody read it off the Govee app and
+   type it in? Rows from before this column existed were all the sweep's.
+   It matters on screen as much as in the record: a reading somebody took by
+   eye in March should not sit there looking like the machine wrote it. */
+const freezerByHand = r => !!r && r.auto === false;
+const freezerShotName = r => String((r && r.source) || '')
+  .replace(/^Govee app screenshot\s*/, '');
+
 /**
  * The fortnight behind a reading, as one small line.
  *
@@ -5198,6 +5233,7 @@ function renderFreezers() {
       '<div class="name"><b>' + esc(f.name || f.freezer) +
         (word ? '<span class="tag ' + (bad ? 'out' : 'low') + '">' + esc(word) + '</span>' : '') +
         '</b><span>' + esc(freezerWhen(f.when)) +
+        (freezerByHand(f) ? ' · read by hand' : '') +
         (f.humidity !== null && f.humidity !== undefined && f.humidity !== ''
           ? ' · ' + round2(f.humidity) + '% damp' : '') + '</span></div>' +
       freezerSpark(hist[f.freezer] || hist[f.name], f.status) +
@@ -5208,6 +5244,108 @@ function renderFreezers() {
 
   const badge = $('cFreezers');
   if (badge) badge.textContent = alerts.length ? String(alerts.length) : '';
+  renderFreezerRecord();
+}
+
+/* The record itself, rather than today's numbers.
+ *
+ * A log is only worth showing somebody if it can say whether it is complete.
+ * How far it goes back, how often it is taken and whether anything is
+ * missing are the three questions anybody checking it asks first, so they
+ * are answered here without having to open a spreadsheet. */
+function renderFreezerRecord() {
+  const box = $('freezerRecord');
+  if (!box) return;
+  const rec = data.freezerRecord;
+  if (!rec || !rec.readings) {
+    box.innerHTML = '<h2 style="margin:0 0 2px">The record</h2>' +
+      '<p class="muted" style="margin:0">Nothing recorded yet.</p>';
+    return;
+  }
+  const since = rec.since ? new Date(rec.since) : null;
+  const autoSince = rec.autoSince ? new Date(rec.autoSince) : null;
+  const day = d => esc(d.toLocaleDateString([],
+    { month:'short', day:'numeric', year:'numeric' }));
+  box.innerHTML = '<h2 style="margin:0 0 2px">The record</h2>' +
+    '<p class="muted" style="margin:0 0 10px">What you would hand somebody who asked.</p>' +
+    '<div class="kv"><span>Readings kept</span><b>' +
+      rec.readings.toLocaleString() + '</b></div>' +
+    (since ? '<div class="kv"><span>Going back to</span><b>' + day(since) +
+      '</b></div>' : '') +
+    /* The spot checks and the sweep are shown as two things because they are
+       two things. Added together they make the record look longer than the
+       part of it that is taken every hour, and that is the part anybody
+       checking it is really asking about. */
+    (rec.spotChecks ? '<div class="kv sub"><span>Spot checks by hand</span><b>' +
+      rec.spotChecks.toLocaleString() + '</b></div>' +
+      '<div class="kv sub"><span>Automatic since</span><b>' +
+      (autoSince ? day(autoSince) : 'not started') + '</b></div>' : '') +
+    '<div class="kv"><span>Taken every</span><b>' +
+      (rec.everyHours === 1 ? 'hour' : rec.everyHours + ' hours') + '</b></div>' +
+    '<div class="kv' + (rec.recentGaps ? ' want' : '') + '"><span>Gaps lately</span><b>' +
+      (rec.recentGaps ? rec.recentGaps : 'none') + '</b></div>' +
+    '<button class="ghost" style="margin-top:12px" onclick="openFreezerReport()">' +
+      'Make a record to hand over</button>';
+}
+
+/* A PDF of the whole period — every day's lowest, highest and average, every
+   warning and what was done about it, and every gap in it, stated. */
+function openFreezerReport() {
+  const today = todayISO();
+  const ago = n => { const d = new Date(); d.setDate(d.getDate() - n);
+                     return d.toISOString().slice(0, 10); };
+  openSheet('A record to hand over', 'Every reading, and every gap in them',
+    '<label>From</label><input id="frFrom" type="date" value="' + ago(30) + '">' +
+    '<label>To</label><input id="frTo" type="date" value="' + today + '">' +
+    '<div class="row" style="margin-top:8px">' +
+      '<button class="ghost small" onclick="frRange(30)">Last 30 days</button>' +
+      '<button class="ghost small" onclick="frRange(90)">Last 90</button>' +
+      '<button class="ghost small" onclick="frRange(365)">Last year</button>' +
+    '</div>' +
+    '<p class="muted" style="margin:10px 0 0">It says plainly how the readings ' +
+      'were taken, that the sensors are not calibrated to a traceable standard, ' +
+      'and where the record has holes in it. Better to hand over something ' +
+      'honest about its gaps than something that looks unbroken.</p>' +
+    '<button id="frGo" style="margin-top:12px" onclick="makeFreezerReport()">' +
+      'Make it</button>' +
+    '<p id="frSay" class="lotsay"></p>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Close</button>');
+}
+
+function frRange(days) {
+  const d = new Date(); d.setDate(d.getDate() - days);
+  $('frFrom').value = d.toISOString().slice(0, 10);
+  $('frTo').value = todayISO();
+}
+
+async function makeFreezerReport() {
+  const btn = $('frGo'), say = $('frSay');
+  if (!navigator.onLine) {
+    say.className = 'lotsay bad';
+    say.textContent = 'This one needs a signal — it is built on the sheet.';
+    return;
+  }
+  btn.disabled = true; btn.textContent = 'Making it…';
+  say.className = 'lotsay'; say.textContent = 'Reading the whole log…';
+  try {
+    const r = await api('freezerReport', { from: $('frFrom').value, to: $('frTo').value });
+    if (!r.ok) throw new Error(r.error || 'It could not be made.');
+    btn.textContent = 'Make another';
+    btn.disabled = false;
+    say.className = 'lotsay ok';
+    say.innerHTML = r.readings
+      ? esc(r.readings.toLocaleString()) + ' readings over ' + esc(r.days) +
+        ' freezer-days' +
+        (r.spotChecks ? ' (' + esc(r.spotChecks) + ' of them spot checks)' : '') +
+        (r.gaps ? ', <b>' + r.gaps + (r.gaps === 1 ? ' gap' : ' gaps') + '</b>' : ', no gaps') +
+        (r.alerts ? ', ' + r.alerts + ' flagged' : '') +
+        '.<br><a href="' + esc(r.url) + '" target="_blank" rel="noopener">Open the PDF</a>'
+      : 'There are no readings in those dates.';
+  } catch (e) {
+    btn.disabled = false; btn.textContent = 'Try again';
+    say.className = 'lotsay bad';
+    say.textContent = e.message;
+  }
 }
 
 /** One freezer, and the fortnight behind it. */
@@ -5222,6 +5360,9 @@ function openFreezer(which) {
   const history = rows.length
     ? rows.slice().reverse().map(r =>
         '<div class="kv"><span>' + esc(freezerWhen(r.when)) +
+        (freezerByHand(r)
+          ? ' · spot check' + (freezerShotName(r) ? ' ' + esc(freezerShotName(r)) : '')
+          : '') +
         (r.humidity !== null && r.humidity !== undefined && r.humidity !== ''
           ? ' · ' + round2(r.humidity) + '% damp' : '') + '</span><b>' +
         esc(freezerReads({ tempF: r.tempF })) + '</b></div>').join('')
