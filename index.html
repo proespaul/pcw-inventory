@@ -476,6 +476,9 @@
   /* A warning that was put away and has come back. Saying what was said last
      time turns "Freezer 3 again" into something you can act on. */
   .again{margin:0 0 8px;font-size:13px;font-weight:600;color:var(--warn)}
+  /* The fortnight behind a reading. No axis — the number beside it is the
+     value; this only answers "steady, or climbing?". */
+  .spark{flex:0 0 auto;margin:0 4px;opacity:.9}
 
   .toast.warn{background:#7a5c14}
 
@@ -787,6 +790,13 @@
     <div class="card flush list" id="salesList"></div>
   </section>
 
+  <section class="view" id="view-freezers">
+    <div class="card" id="freezerTop"></div>
+    <div class="card flush list" id="freezerList"></div>
+    <p class="muted" style="text-align:center;margin:10px 0 0">
+      Checked every morning. Tap a freezer for the fortnight behind it.</p>
+  </section>
+
   <section class="view" id="view-pricelog">
     <div class="card">
       <h2 style="margin:0 0 2px">Price changes</h2>
@@ -820,6 +830,9 @@
       <button onclick="showView('status')"><span class="ic">📉</span>
         <span class="grow">Inventory status<small>What is out, oversold or running low</small></span>
         <span class="count" id="cStatus"></span></button>
+      <button onclick="showView('freezers')"><span class="ic">🌡️</span>
+        <span class="grow">Freezer temps<small>What each freezer last read, and the days behind it</small></span>
+        <span class="count" id="cFreezers"></span></button>
       <button onclick="showView('pricelog')"><span class="ic">🏷️</span>
         <span class="grow">Price changes<small>What the price list used to say, and who changed it</small></span>
         <span class="count" id="cPriceLog"></span></button>
@@ -1036,7 +1049,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-27 04:00 UTC';
+const APP_BUILD = '2026-10-27 06:00 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -1813,6 +1826,8 @@ function applyBoot(boot) {
     // Anything wrong with a freezer, and what each one last read.
     alerts: boot.alerts || [],
     freezersSeen: boot.freezers_seen || [],
+    freezersHistory: boot.freezers_history || {},
+    freezerLimits: boot.freezer_limits || null,
     // The company's own sales book — every sale of the year, including the
     // ones made at the door long before this app existed.
     salesBook: boot.salesBook || [],
@@ -2135,6 +2150,7 @@ function renderAll() {
   renderFollowups();
   renderWholesale(); renderWaitlist(); renderClients(); renderSchedule(); renderCnLines();
   renderMarketGrid(); renderBoxes(); renderStatus(); renderPriceLog(); renderAlerts();
+  renderFreezers();
   renderSales();
   renderSteerNumbers();
   if (openOrderId) renderOrderDetail();
@@ -5026,6 +5042,8 @@ function openAlertList() {
     items +
     '<label style="margin-top:6px">Last read</label>' +
     '<div class="card list" style="margin:0">' + list + '</div>' +
+    '<button class="ghost small" style="margin-top:8px" ' +
+      'onclick="closeSheet();showView(\'freezers\')">See the fortnight behind them</button>' +
     (alerts.length
       ? '<p class="muted" style="margin:10px 0 0">Either one closes the banner. ' +
         'Neither of them settles it — if the problem is still there at the next ' +
@@ -5059,6 +5077,169 @@ function answerAllAlerts(answer) {
   enqueue(all.map(a => ({ type: 'ALERT_DISMISS', alertId: a.id, answer: answer })));
   closeSheet();
   toast('Banner cleared. It comes back if they are still wrong.', 'ok');
+}
+
+/* ─────────────── Freezer temps ───────────────
+ *
+ * What each freezer last read. One number on its own cannot tell you whether
+ * a freezer is steady or climbing, and a freezer climbing slowly is the one
+ * worth catching — so the fortnight behind it is drawn beside the number.
+ */
+const FREEZER_WORDS = {
+  ok: '', hot: 'too warm', warm: 'warm', offline: 'off the air',
+  missing: 'sensor gone', unwatched: 'no sensor', noreading: 'no reading',
+  stuck: 'not moving', battery: 'low battery'
+};
+
+function freezerUnit() {
+  return ((data.freezerLimits || {}).unit === 'F') ? 'F' : 'C';
+}
+
+/**
+ * A reading, written the way the app is set to show it.
+ *
+ * One decimal, the same as the backend writes into the sheet. Two decimals
+ * here and one there meant the same reading appeared as -10.89°C on one
+ * screen and -10.9°C on another, which reads as two different numbers.
+ */
+const freezer1dp = n => Math.round(Number(n) * 10) / 10;
+
+function freezerReads(f) {
+  if (f.reads) return f.reads;
+  if (f.tempF === null || f.tempF === undefined || f.tempF === '') return '—';
+  return freezerUnit() === 'F'
+    ? freezer1dp(f.tempF) + '°F'
+    : freezer1dp((Number(f.tempF) - 32) * 5 / 9) + '°C';
+}
+
+const freezerIsBad = s => ['hot', 'offline', 'missing', 'noreading', 'stuck'].includes(s);
+
+/**
+ * The fortnight behind a reading, as one small line.
+ *
+ * No axis and no labels — the number it sits beside is the value, and this
+ * is only here to answer "is it holding steady or going up". Drawn against
+ * the whole run's own range so a freezer that has barely moved shows a flat
+ * line rather than a magnified wobble.
+ */
+function freezerSpark(rows, status) {
+  const pts = (rows || []).map(r => Number(r.tempF)).filter(v => isFinite(v));
+  if (pts.length < 2) return '';
+  const lo = Math.min(...pts), hi = Math.max(...pts);
+  // A freezer that has not moved is a flat line down the middle, not noise.
+  const span = (hi - lo) < 1 ? 1 : (hi - lo);
+  const mid = (hi + lo) / 2;
+  const w = 66, h = 22, pad = 2;
+  const d = pts.map((v, i) => {
+    const x = pad + (i / (pts.length - 1)) * (w - pad * 2);
+    const y = h - pad - (((v - (mid - span / 2)) / span) * (h - pad * 2));
+    return (i ? 'L' : 'M') + round2(x) + ' ' + round2(Math.max(pad, Math.min(h - pad, y)));
+  }).join(' ');
+  const col = freezerIsBad(status) ? 'var(--bad)'
+            : status && status !== 'ok' ? 'var(--warn)' : 'var(--ok)';
+  return '<svg class="spark" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h +
+         '" aria-hidden="true"><path d="' + d + '" fill="none" stroke="' + col +
+         '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+
+function freezerWhen(iso) {
+  if (!iso) return 'never';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const days = Math.floor((Date.now() - d.getTime()) / 864e5);
+  const clock = d.toLocaleString([], { hour: 'numeric', minute: '2-digit' });
+  if (days <= 0) return 'today ' + clock;
+  if (days === 1) return 'yesterday ' + clock;
+  return d.toLocaleString([], { month: 'short', day: 'numeric' }) + ' ' + clock;
+}
+
+function renderFreezers() {
+  const list = $('freezerList'), top = $('freezerTop');
+  if (!list || !top) return;
+  const seen = data.freezersSeen || [];
+  const hist = data.freezersHistory || {};
+  const lim = data.freezerLimits || {};
+  const alerts = effectiveAlerts();
+
+  if (!seen.length) {
+    top.innerHTML = '<h2 style="margin:0 0 2px">Freezer temps</h2>' +
+      '<p class="muted" style="margin:0">Nothing has been read yet.</p>';
+    list.innerHTML = '<div class="empty">The freezers are read every morning ' +
+      'once a Govee key is on the SETTINGS tab and the daily check has been ' +
+      'switched on.</div>';
+    return;
+  }
+
+  const worry = seen.filter(f => f.status && f.status !== 'ok');
+  const temps = seen.map(f => Number(f.tempF)).filter(v => isFinite(v));
+  const warmest = temps.length ? Math.max(...temps) : null;
+  const last = seen.map(f => f.when).filter(Boolean).sort().pop();
+
+  top.innerHTML = '<h2 style="margin:0 0 2px">Freezer temps</h2>' +
+    '<p class="muted" style="margin:0 0 10px">Last read ' + esc(freezerWhen(last)) + '</p>' +
+    '<div class="kv big"><span>' + (worry.length ? worry.length + ' to look at' : 'All fine') +
+      '</span><b>' + seen.length + '</b></div>' +
+    (warmest !== null
+      ? '<div class="kv"><span>Warmest</span><b>' +
+        esc(freezerReads({ tempF: warmest })) + '</b></div>' : '') +
+    (lim.warmShown !== undefined
+      ? '<div class="kv sub"><span>Worth a look above</span><b>' +
+        esc(freezerReads({ tempF: lim.warm })) + '</b></div>' +
+        '<div class="kv sub"><span>Meat at risk above</span><b>' +
+        esc(freezerReads({ tempF: lim.hot })) + '</b></div>' : '');
+
+  list.innerHTML = seen.map(f => {
+    const bad = freezerIsBad(f.status);
+    const off = f.status && f.status !== 'ok';
+    const word = FREEZER_WORDS[f.status] !== undefined
+      ? FREEZER_WORDS[f.status] : f.status;
+    return '<div class="item" onclick="openFreezer(' +
+      JSON.stringify(f.freezer || f.name).replace(/"/g, '&quot;') + ')">' +
+      '<div class="name"><b>' + esc(f.name || f.freezer) +
+        (word ? '<span class="tag ' + (bad ? 'out' : 'low') + '">' + esc(word) + '</span>' : '') +
+        '</b><span>' + esc(freezerWhen(f.when)) +
+        (f.humidity !== null && f.humidity !== undefined && f.humidity !== ''
+          ? ' · ' + round2(f.humidity) + '% damp' : '') + '</span></div>' +
+      freezerSpark(hist[f.freezer] || hist[f.name], f.status) +
+      '<div class="qty"><b' + (bad ? ' style="color:var(--bad)"' : off ? ' style="color:var(--warn)"' : '') +
+        '>' + esc(freezerReads(f)) + '</b><span>' +
+        (off ? 'see it' : 'fine') + '</span></div></div>';
+  }).join('');
+
+  const badge = $('cFreezers');
+  if (badge) badge.textContent = alerts.length ? String(alerts.length) : '';
+}
+
+/** One freezer, and the fortnight behind it. */
+function openFreezer(which) {
+  const seen = (data.freezersSeen || []).filter(f =>
+    f.freezer === which || f.name === which)[0];
+  if (!seen) return;
+  const rows = (data.freezersHistory || {})[seen.freezer] ||
+               (data.freezersHistory || {})[seen.name] || [];
+  const mine = effectiveAlerts().filter(a => a.about === seen.freezer);
+
+  const history = rows.length
+    ? rows.slice().reverse().map(r =>
+        '<div class="kv"><span>' + esc(freezerWhen(r.when)) +
+        (r.humidity !== null && r.humidity !== undefined && r.humidity !== ''
+          ? ' · ' + round2(r.humidity) + '% damp' : '') + '</span><b>' +
+        esc(freezerReads({ tempF: r.tempF })) + '</b></div>').join('')
+    : '<p class="muted" style="margin:0">Nothing recorded yet.</p>';
+
+  openSheet(seen.name || seen.freezer,
+    esc(freezerReads(seen)) + ' · ' + esc(freezerWhen(seen.when)),
+    (mine.length
+      ? mine.map(a => '<div class="card" style="margin:0 0 10px">' +
+          '<div class="kv" style="border:0;padding:0 0 4px"><span>' +
+          (a.level === 'bad' ? '🔴' : '🟠') + ' <b>' + esc(a.what) + '</b></span><b></b></div>' +
+          '<p class="muted" style="margin:0">' + esc(a.detail) + '</p></div>').join('')
+      : '') +
+    (seen.sensor ? '<p class="muted" style="margin:0 0 10px">Sensor: ' +
+      esc(seen.sensor) + '</p>' : '') +
+    '<label>The last fortnight</label>' +
+    '<div class="card" style="margin:0">' + history + '</div>' +
+    '<button class="ghost" style="margin-top:12px" onclick="closeSheet()">Close</button>');
 }
 
 function renderAlerts() {
@@ -6701,13 +6882,14 @@ function discardQueue() {
 const SUBVIEWS = { order:'orders', neworder:'orders', followup:'orders',
                    wholesale:'menu', waitlist:'menu',
                    steer:'menu', clients:'menu', market:'menu', boxes:'menu', status:'menu',
-                   sales:'menu', pricelog:'menu',
+                   sales:'menu', pricelog:'menu', freezers:'menu',
                    calnew:'calendar' };
 const TITLES = { order:'Order', neworder:'New order', followup:'Follow up',
                  wholesale:'Wholesale',
                  waitlist:'Cut waiting list', steer:'Meat coming in', clients:'Customers',
                  market:'Market day', boxes:'Boxes', status:'Inventory status',
                  sales:'Sales, year to date', pricelog:'Price changes',
+                 freezers:'Freezer temps',
                  calendar:'Calendar', calnew:'Add to the calendar' };
 
 function showView(name, opts) {
