@@ -463,6 +463,20 @@
   .oline .sum.tapsum{border-bottom:1.5px dotted var(--muted);cursor:pointer}
   .ord .what b.tapped{padding:2px 0 3px}
 
+  /* The freezer banner. Sits under Kenji on every screen, so it is seen
+     whatever you were doing. Amber is worth a look; red is meat at risk. */
+  #alertBar{position:sticky;top:0;z-index:19}
+  .alertbar{display:flex;align-items:center;gap:10px;padding:11px 13px;
+            font-size:14px;line-height:1.35;cursor:pointer;
+            background:#7a5c14;color:#fff;border-bottom:1px solid rgba(0,0,0,.25)}
+  .alertbar.bad{background:#8d2323}
+  .alertbar b{font-weight:700}
+  .alertbar .go{margin-left:auto;opacity:.8;font-size:18px;flex:0 0 auto}
+  .alertbar .more{opacity:.85;font-weight:600;white-space:nowrap}
+  /* A warning that was put away and has come back. Saying what was said last
+     time turns "Freezer 3 again" into something you can act on. */
+  .again{margin:0 0 8px;font-size:13px;font-weight:600;color:var(--warn)}
+
   .toast.warn{background:#7a5c14}
 
   /* A link left to the browser comes out in that 1996 blue, which on the
@@ -506,6 +520,10 @@
   <button class="kx" id="kStop" onclick="kenjiReset()" title="Start again" hidden>✕</button>
   <div class="kbar"><div id="kBar"></div></div>
 </div>
+<!-- Anything wrong with a freezer shows here, on whichever tab you are on,
+     because a warm freezer does not wait for somebody to open the right
+     screen. Tap it for the detail and to put it away. -->
+<div id="alertBar"></div>
 </div>
 
 <main>
@@ -1018,7 +1036,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-24 03:30 UTC';
+const APP_BUILD = '2026-10-27 04:00 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -1792,6 +1810,9 @@ function applyBoot(boot) {
     // What the price list used to say. Changing a price on the Price tab or
     // in the sheet writes a line here; a price agreed on one order does not.
     priceChanges: boot.priceChanges || [],
+    // Anything wrong with a freezer, and what each one last read.
+    alerts: boot.alerts || [],
+    freezersSeen: boot.freezers_seen || [],
     // The company's own sales book — every sale of the year, including the
     // ones made at the door long before this app existed.
     salesBook: boot.salesBook || [],
@@ -2113,7 +2134,7 @@ function renderAll() {
   renderMenuCounts();
   renderFollowups();
   renderWholesale(); renderWaitlist(); renderClients(); renderSchedule(); renderCnLines();
-  renderMarketGrid(); renderBoxes(); renderStatus(); renderPriceLog();
+  renderMarketGrid(); renderBoxes(); renderStatus(); renderPriceLog(); renderAlerts();
   renderSales();
   renderSteerNumbers();
   if (openOrderId) renderOrderDetail();
@@ -4943,6 +4964,118 @@ function changePriceHere(sku) {
 }
 
 
+/* ─────────────── the freezer banner ───────────────
+ *
+ * A freezer going warm is the one thing in this app worth interrupting
+ * somebody for: everything else can wait until the right screen is opened,
+ * and a freezer full of Wagyu cannot. So it sits under Kenji on every tab
+ * until it is either put right or deliberately put away.
+ */
+function openAlertList() {
+  const alerts = effectiveAlerts();
+  const seen = data.freezersSeen || [];
+  const when = iso => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return isNaN(d) ? '' : d.toLocaleString([], { month:'short', day:'numeric',
+                                                  hour:'numeric', minute:'2-digit' });
+  };
+
+  /* Closing the banner asks which of the two it is. Neither settles the
+     matter — both close it now, and the next sweep that still finds the
+     problem puts it straight back up. Saying so under the buttons is what
+     makes "ignore for now" safe to tap. */
+  const items = alerts.length ? alerts.map(a =>
+    '<div class="card" style="margin:0 0 10px">' +
+      '<div class="kv" style="border:0;padding:0 0 4px"><span>' +
+        (a.level === 'bad' ? '🔴' : '🟠') + ' <b>' + esc(a.what) + '</b></span><b></b></div>' +
+      (a.saidBefore
+        ? '<p class="again">Back again — you said “' + esc(a.saidBefore) + '”' +
+          (a.saidWhen ? ' on ' + esc(a.saidWhen) : '') + '.</p>' : '') +
+      '<p class="muted" style="margin:0 0 8px">' + esc(a.detail) + '</p>' +
+      '<p class="muted" style="margin:0 0 8px">Noticed ' + esc(when(a.raised)) +
+        (a.seen && a.seen !== a.raised ? ' · still there ' + esc(when(a.seen)) : '') + '</p>' +
+      '<div class="row">' +
+        '<button class="ghost small" onclick="answerAlert(\'' + esc(a.id) +
+          '\',\'later\')">Ignore for now</button>' +
+        '<button class="ghost small" onclick="answerAlert(\'' + esc(a.id) +
+          '\',\'mine\')">I will investigate</button>' +
+      '</div>' +
+    '</div>').join('')
+    : '<p class="muted">Nothing wrong with any of them.</p>';
+
+  /* What every freezer last read, whether or not anything is wrong with it —
+     because the first question after "which one is warm" is "what are the
+     others doing". */
+  const list = seen.length ? seen.map(f =>
+    '<div class="item"><div class="name"><b>' + esc(f.name || f.freezer) + '</b>' +
+      '<span>' + esc(when(f.when)) +
+      (f.humidity !== null && f.humidity !== undefined && f.humidity !== ''
+        ? ' · ' + round2(f.humidity) + '% damp' : '') +
+      (f.battery !== null && f.battery !== undefined && f.battery !== ''
+        ? ' · battery ' + Math.round(f.battery) + '%' : '') +
+      (f.online ? '' : ' · off the air') + '</span></div>' +
+    '<div class="qty"><b>' + esc(f.reads || '—') + '</b><span>' +
+      esc(f.status === 'ok' ? 'fine' : f.status || '') + '</span></div></div>').join('')
+    : '<p class="muted">No readings yet. The freezers are checked each morning ' +
+      'once a Govee key is on the SETTINGS tab.</p>';
+
+  openSheet('The freezers', alerts.length
+      ? alerts.length + (alerts.length === 1 ? ' thing to look at' : ' things to look at')
+      : 'All quiet',
+    items +
+    '<label style="margin-top:6px">Last read</label>' +
+    '<div class="card list" style="margin:0">' + list + '</div>' +
+    (alerts.length
+      ? '<p class="muted" style="margin:10px 0 0">Either one closes the banner. ' +
+        'Neither of them settles it — if the problem is still there at the next ' +
+        'check, it goes straight back up.</p>' : '') +
+    (alerts.length > 1
+      ? '<button class="ghost" style="margin-top:12px" onclick="answerAllAlerts(\'later\')">' +
+        'Ignore all of them for now</button>' : '') +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Close</button>');
+}
+
+/* Dismissing takes effect on the phone the moment it is tapped, like every
+   other change, and goes up afterwards. */
+function effectiveAlerts() {
+  const gone = new Set();
+  queue.forEach(op => { if (op.type === 'ALERT_DISMISS') gone.add(op.alertId); });
+  return (data.alerts || []).filter(a => !gone.has(a.id));
+}
+
+const ALERT_SAID = { later: 'Left for now', mine: 'Noted — yours to look at' };
+
+function answerAlert(id, answer) {
+  enqueue([{ type: 'ALERT_DISMISS', alertId: id, answer: answer }]);
+  if (!effectiveAlerts().length) closeSheet();
+  else openAlertList();
+  toast(ALERT_SAID[answer] || 'Put away.', 'ok');
+}
+
+function answerAllAlerts(answer) {
+  const all = effectiveAlerts();
+  if (!all.length) return closeSheet();
+  enqueue(all.map(a => ({ type: 'ALERT_DISMISS', alertId: a.id, answer: answer })));
+  closeSheet();
+  toast('Banner cleared. It comes back if they are still wrong.', 'ok');
+}
+
+function renderAlerts() {
+  const bar = $('alertBar');
+  if (!bar) return;
+  const alerts = effectiveAlerts();
+  if (!alerts.length) { bar.innerHTML = ''; return; }
+  const worst = alerts[0];
+  const more = alerts.length - 1;
+  bar.innerHTML = '<div class="alertbar' + (worst.level === 'bad' ? ' bad' : '') +
+    '" onclick="openAlertList()">' +
+    '<span>' + (worst.level === 'bad' ? '🔴' : '🟠') + '</span>' +
+    '<span><b>' + esc(worst.what) + '</b></span>' +
+    (more ? '<span class="more">+' + more + '</span>' : '') +
+    '<span class="go">›</span></div>';
+}
+
 /* ───────── Follow-ups: who is likely running low ───────── */
 // The list comes from the sheet, where the weekly radar and the script both
 // write. The app never decides on its own who to chase.
@@ -6460,6 +6593,8 @@ function describeOp(op) {
     case 'ORDER_EDIT':   return 'Changes to ' + (op.customer || 'an order');
     case 'ORDER_PACK':   return 'Assembled ' + (op.orderId || 'an order');
     case 'ORDER_STATUS': return 'A change to ' + (op.orderId || 'an order');
+    case 'ALERT_DISMISS': return op.answer === 'mine'
+      ? 'Took on a freezer warning' : 'Left a freezer warning for now';
     default: return (op.type || 'A change') + (what ? ' — ' + what : '');
   }
 }
