@@ -394,8 +394,15 @@
   .boxrow .fzline select{padding:5px 8px;font-size:12px;height:auto;
                          background:var(--bg);border-radius:8px}
   /* "1 could be built" — a different fact from the count, so a different line. */
-  .boxrow .could{font-size:11px;color:var(--ch-whole);padding:0 2px 2px}
-  .boxrow .could.none{color:var(--muted)}
+  /* "3 could be built" is the most useful thing on a box row and was the
+     least reachable: a grey note you could read and not act on. It is a
+     button now, sitting inside the box's own cell. */
+  .boxrow .could{display:block;width:100%;text-align:left;font-size:12px;
+                 font-weight:600;color:var(--ch-whole);background:var(--bg);
+                 border:1px dashed var(--line);border-radius:9px;
+                 padding:7px 9px;margin:2px 0 8px}
+  .boxrow .could.none{color:var(--muted);font-weight:400;border-style:solid;
+                      background:none;cursor:default}
   /* The money on an order line, and the button that changes it. */
   .lmoney{display:flex;align-items:center;gap:8px;flex:0 0 auto}
   .lmoney b{font-size:15px;min-width:62px;text-align:right}
@@ -442,6 +449,25 @@
             color:var(--muted);padding:14px 2px 5px;border-bottom:1px solid var(--line);
             margin-bottom:2px}
   .list > .kindhead:first-child{padding-top:4px}
+  /* One thing, one cell.
+     The cuts and the boxes used to be rows inside a single panel, divided by
+     hairlines. That is fine until a row needs a second line of its own — the
+     box's "3 could be built" sat UNDER the dividing line, which reads as the
+     top of the next box rather than the bottom of this one. Nothing is wrong
+     with the words; the container was lying about what belonged to what. So
+     each product is now its own cell with its own edge, and everything about
+     it — the count, where it is, what could be built from it — is inside
+     that edge. */
+  .cells{background:none;border:0;padding:0}
+  .cells > .cell{background:var(--card);border:1px solid var(--line);
+                 border-radius:13px;padding:2px 11px;margin-bottom:8px;
+                 box-shadow:var(--lift)}
+  .cells > .cell > div > .item,
+  .cells > .cell > .item{border-bottom:0}
+  .cells > .cell .multi{border-bottom:0;padding-bottom:0}
+  .cells > .empty{background:var(--card);border:1px solid var(--line);
+                  border-radius:13px;box-shadow:var(--lift)}
+  .cells > .kindhead{border-bottom:0;padding:16px 4px 6px}
   .lotsay.bad{color:var(--bad)}
   .kv.sub{padding:3px 0 3px 12px;font-size:12px;border:0}
   .kv.sub b{font-size:12px;color:var(--muted)}
@@ -708,8 +734,8 @@
     </div>
 
     <div class="card" id="stockTotals"></div>
-    <div class="card list" id="stockList"></div>
-    <div class="card list" id="boxList" style="display:none"></div>
+    <div class="list cells" id="stockList"></div>
+    <div class="list cells" id="boxList" style="display:none"></div>
     <p class="muted" style="text-align:center" id="invHint">Tap − or + to change a count. Tap the product for sizes, batches and freezers.</p>
   </section>
 
@@ -1075,7 +1101,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-28 06:20 UTC';
+const APP_BUILD = '2026-10-28 16:00 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -3388,14 +3414,14 @@ function renderStock() {
       const l = lots[0];
       const where = l && l.freezer ? freezerName(l.freezer) : '';
       const inBoxes = boxedLine(r.sku, r.product);
-      return head + '<div><div class="item">' +
+      return head + '<div class="cell"><div><div class="item">' +
         '<div class="name" onclick="openProduct(\'' + esc(r.sku) + '\')">' +
           '<b>' + esc(r.product) + tag + pend + '</b>' +
           '<span>' + [where, rate].filter(Boolean).join(' · ') + '</span>' +
           inBoxes.trigger +
         '</div>' + thumb +
         step(l ? (l.key || '') : '', r.packages, r.committed ? r.available + ' free' : '') +
-      '</div>' + inBoxes.panel + '</div>';
+      '</div>' + inBoxes.panel + '</div></div>';
     }
 
     // Same product in more than one freezer or batch: one line each, stacked,
@@ -3411,7 +3437,7 @@ function renderStock() {
       '</div>').join('');
 
     const inBoxes = boxedLine(r.sku, r.product);
-    return head + '<div class="multi"><div class="item head">' +
+    return head + '<div class="cell"><div class="multi"><div class="item head">' +
       '<div class="name" onclick="openProduct(\'' + esc(r.sku) + '\')">' +
         '<b>' + esc(r.product) + tag + pend + '</b>' +
         '<span>' + [rate, lots.length + ' places'].filter(Boolean).join(' · ') + '</span>' +
@@ -3419,7 +3445,7 @@ function renderStock() {
       '</div>' + thumb +
       '<div class="qty"><b>' + (Math.round(r.packages * 100) / 100) + '</b>' +
         '<span>' + (r.committed ? r.available + ' free' : 'in total') + '</span></div>' +
-    '</div>' + inBoxes.panel + lotRows + '</div>';
+    '</div>' + inBoxes.panel + lotRows + '</div></div>';
   }).join('');
 }
 
@@ -3451,6 +3477,134 @@ function moveBox(sku, toFreezer) {
              packages: l.packages, toFreezer, toBatch: l.batch,
              toGrade: l.grade, toSize: l.size }]);
   toast('Moved to ' + freezerName(toFreezer) + '.', 'ok');
+}
+
+/* Building boxes from the cuts on the shelf.
+ *
+ * The backend does the actual work in one movement — every cut in the recipe
+ * out, the box in — so the two halves can never disagree, and taking a box
+ * apart later puts exactly those cuts back. All this does is ask how many
+ * and from which freezer, and show what it is about to take out, because
+ * "build 3" quietly removing thirty packages is not something to find out
+ * afterwards.
+ */
+function openBuildBox(sku) {
+  const b = (data.boxList || []).find(x => x.sku === sku);
+  if (!b) return;
+  const can = ((data.boxes || []).find(x => x.sku === sku) || {}).canBuild || 0;
+  if (can < 1) return toast('Not enough loose cuts for one.', 'bad');
+
+  /* Default to where the cuts actually are. The recipe comes out of one
+     freezer, and offering the wrong one by default is how a count goes
+     negative in a freezer that never held the meat. */
+  const parts = (b.parts || []);
+  const where = {};
+  (data.stock || []).forEach(l => {
+    if (!parts.some(c => c.sku === l.sku) || l.packages <= 0) return;
+    where[l.freezer] = (where[l.freezer] || 0) + l.packages;
+  });
+  const best = Object.keys(where).sort((a, c) => where[c] - where[a])[0] ||
+               $('stockFreezer').value || (data.freezers[0] || {}).id || '';
+  const fs = (data.freezers || []).filter(f => f.active !== false);
+
+  buildBoxMax = can;
+  openSheet('Build ' + (b.product || sku),
+    can + (can === 1 ? ' can be built' : ' can be built') + ' from what is loose',
+    '<label>How many</label>' +
+    '<div class="chips" id="bbChips">' +
+      [1, 2, 3, 5, can].filter((n, i, a) => n >= 1 && n <= can && a.indexOf(n) === i)
+        .map(n => '<button data-n="' + n + '" class="' + (n === 1 ? 'on' : '') + '" ' +
+          'onclick="setBuildQty(' + n + ')">' + n + '</button>').join('') +
+    '</div>' +
+    '<input type="number" inputmode="numeric" id="bbQty" min="1" step="1" max="' + can +
+      '" value="1" oninput="setBuildQty(Number(this.value), true)">' +
+    '<label>Taking the cuts out of</label>' +
+    '<select id="bbFreezer" onchange="renderBuildParts()">' + fs.map(f =>
+      '<option value="' + esc(f.id) + '"' + (f.id === best ? ' selected' : '') + '>' +
+      esc(f.name || f.id) + '</option>').join('') + '</select>' +
+    '<label>What that takes out</label>' +
+    '<div class="card" id="bbParts" style="margin:0"></div>' +
+    '<p id="bbSay" class="lotsay"></p>' +
+    '<button id="bbGo" style="margin-top:12px" onclick="commitBuildBox(\'' + esc(sku) + '\')">' +
+      'Build</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Cancel</button>');
+  renderBuildParts(sku);
+  // So the button reads "Build 1" from the off rather than a bare "Build".
+  setBuildQty(1);
+}
+
+let buildBoxMax = 0;
+
+function setBuildQty(n, typed) {
+  n = Math.max(1, Math.min(buildBoxMax, Math.round(Number(n) || 1)));
+  if (!typed && $('bbQty')) $('bbQty').value = n;
+  document.querySelectorAll('#bbChips button').forEach(b =>
+    b.classList.toggle('on', Number(b.dataset.n) === n));
+  const go = $('bbGo');
+  if (go) go.textContent = 'Build ' + n;
+  renderBuildParts();
+}
+
+/** How many loose packs of a cut are in one freezer. */
+function looseIn(sku, freezer) {
+  return (data.stock || []).reduce((t, l) =>
+    t + ((l.sku === sku && l.freezer === freezer && l.packages > 0) ? l.packages : 0), 0);
+}
+
+/* What this many boxes costs the shelf, line by line.
+ *
+ * Counted in the chosen freezer, not across all of them, because that is
+ * where the cuts are actually taken from. "3 could be built" is worked out
+ * over everything you own; if two of the ribeye are in Freezer 3 and you
+ * build out of Freezer 1, Freezer 1 goes negative and Freezer 3 still shows
+ * meat that has been used. Saying it here is the difference between picking
+ * the other freezer and spending an evening working out what happened. */
+function renderBuildParts(sku) {
+  const box = $('bbParts');
+  if (!box) return;
+  renderBuildParts.sku = sku || renderBuildParts.sku;
+  const b = (data.boxList || []).find(x => x.sku === renderBuildParts.sku);
+  if (!b) return;
+  const n = Math.max(1, Number(($('bbQty') || {}).value) || 1);
+  const fz = ($('bbFreezer') || {}).value || '';
+  let short = 0;
+  const lines = (b.parts || []).map(c => {
+    const need = c.qty * n;
+    const here = looseIn(c.sku, fz);
+    const thin = need > here;
+    if (thin) short++;
+    return '<div class="kv"><span>' + esc(c.product) +
+      (thin ? ' <span class="tag out">only ' + round2(here) + ' here</span>' : '') +
+      '</span><b' + (thin ? ' style="color:var(--bad)"' : '') + '>−' +
+      round2(need) + '</b></div>';
+  }).join('');
+  box.innerHTML = lines +
+    '<div class="kv"><span><b>' + esc(b.product) + '</b></span><b>+' + n + '</b></div>';
+  const say = $('bbSay');
+  if (say) {
+    say.className = short ? 'lotsay bad' : 'lotsay';
+    say.textContent = short
+      ? 'Not all of that is in ' + freezerName(fz) +
+        '. Pick the freezer the cuts are in, or build fewer.'
+      : '';
+  }
+  const go = $('bbGo');
+  if (go) go.disabled = short > 0;
+}
+
+function commitBuildBox(sku) {
+  const n = Math.max(1, Math.min(buildBoxMax, Number($('bbQty').value) || 1));
+  const freezer = $('bbFreezer').value || '';
+  const b = (data.boxList || []).find(x => x.sku === sku) || {};
+  // Belt and braces: the button is disabled when a line is short, but a
+  // stale screen must not be able to drive a freezer negative.
+  const thin = (b.parts || []).filter(c => c.qty * n > looseIn(c.sku, freezer));
+  if (thin.length) {
+    return toast('Not enough ' + thin[0].product + ' in ' + freezerName(freezer) + '.', 'bad');
+  }
+  enqueue([{ type: 'BUILD_BOX', boxSku: sku, count: n, freezer }]);
+  closeSheet();
+  toast('Built ' + n + ' × ' + (b.product || sku) + ' — the cuts are out.', 'ok');
 }
 
 function renderBoxList() {
@@ -3569,11 +3723,14 @@ function renderBoxList() {
       : '';
     /* "0 in the freezer" with "1 could be built" under it. The two are
        different facts and were reading as one sentence. */
+    /* Tapping it builds them. Knowing three could be built and then having
+       to go somewhere else to build them is most of the work left undone. */
     const couldBuild = can > 0
-      ? '<div class="could">' + can + ' could be built</div>'
+      ? '<button class="could" onclick="openBuildBox(\'' + esc(b.sku) + '\')">' +
+        can + ' could be built from loose cuts · tap to build</button>'
       : (b.onHand > 0 ? '' : '<div class="could none">nothing to build with</div>');
 
-    return '<div class="boxrow"><div class="item">' +
+    return '<div class="cell boxrow"><div class="item">' +
       '<div class="name" onclick="' + open + '"><b>' + esc(b.product) +
         tag + '</b>' +
         '<span>' + (b.packs ? b.packs + ' pack' + (b.packs === 1 ? '' : 's') : 'no contents') +
