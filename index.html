@@ -172,6 +172,13 @@
   .ord{display:block;padding:12px 2px;border-bottom:1px solid var(--line);
        cursor:pointer}
   .ord:last-child{border-bottom:0}
+  /* In a cells list an order carries its own edge, so the dividing line
+     between rows goes: it was drawing a line under the customer and leaving
+     that order's own buttons sitting below it. */
+  .cells > .ord{background:var(--card);border:1px solid var(--line);
+                border-radius:13px;padding:12px 12px;margin-bottom:8px;
+                box-shadow:var(--lift)}
+  .cells > .ord:last-child{border-bottom:1px solid var(--line)}
   .ord .who{flex:1;min-width:0}
   .ord .who b{display:block;font-size:15.5px;font-weight:600}
   .ord .who span{font-size:13px;color:var(--muted)}
@@ -394,6 +401,18 @@
   .boxrow .fzline select{padding:5px 8px;font-size:12px;height:auto;
                          background:var(--bg);border-radius:8px}
   /* "1 could be built" — a different fact from the count, so a different line. */
+  /* A line of the build sheet: what is coming out, where it is coming from,
+     and how many. The freezer belongs on the line rather than only at the
+     top of the screen — "take 4 ribeye out" and "take 4 ribeye out of
+     Freezer 1" are different instructions, and only one of them can be
+     carried out at a freezer door without thinking. */
+  .bbline{display:flex;justify-content:space-between;align-items:flex-start;
+          gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+  .bbline:last-child{border-bottom:0}
+  .bbline.total{border-top:1px solid var(--line);margin-top:2px}
+  .bbline i{display:block;font-style:normal;font-size:12px;color:var(--muted);
+            margin-top:2px}
+  .bbline > b{font-size:16px;font-variant-numeric:tabular-nums;white-space:nowrap}
   /* "3 could be built" is the most useful thing on a box row and was the
      least reachable: a grey note you could read and not act on. It is a
      button now, sitting inside the box's own cell. */
@@ -589,17 +608,17 @@
     <div class="card" id="boardSummary"></div>
 
     <h3>Needs assembling</h3>
-    <div class="card flush list" id="boardToPack"></div>
+    <div class="list cells" id="boardToPack"></div>
 
     <h3>Packed — waiting to go out</h3>
-    <div class="card flush list" id="boardPacked"></div>
+    <div class="list cells" id="boardPacked"></div>
 
     <h3 id="boardOwedHead">Delivered — waiting to be paid</h3>
-    <div class="card flush list" id="boardOwed"></div>
+    <div class="list cells" id="boardOwed"></div>
 
     <button style="margin-top:12px" id="btnNewOrder">+ New order</button>
     <details style="margin-top:10px"><summary>Cancelled</summary>
-      <div class="card flush list" id="boardDone" style="margin-top:8px"></div>
+      <div class="list cells" id="boardDone" style="margin-top:8px"></div>
     </details>
     <p class="muted" style="margin-top:10px;text-align:center">
       Once an order is paid it moves to <a href="#"
@@ -607,7 +626,7 @@
 
     <h3 id="fuHead">Follow-ups</h3>
     <p class="muted" id="fuNote" style="margin:-4px 0 8px"></p>
-    <div class="card flush list" id="fuList"></div>
+    <div class="list cells" id="fuList"></div>
     <details style="margin-top:10px" id="fuLaterWrap"><summary id="fuLaterLabel">Coming up later</summary>
       <div class="card flush list" id="fuLater" style="margin-top:8px"></div>
     </details>
@@ -1101,7 +1120,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-28 16:00 UTC';
+const APP_BUILD = '2026-10-28 18:45 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -3573,13 +3592,25 @@ function renderBuildParts(sku) {
     const here = looseIn(c.sku, fz);
     const thin = need > here;
     if (thin) short++;
-    return '<div class="kv"><span>' + esc(c.product) +
-      (thin ? ' <span class="tag out">only ' + round2(here) + ' here</span>' : '') +
-      '</span><b' + (thin ? ' style="color:var(--bad)"' : '') + '>−' +
-      round2(need) + '</b></div>';
+    /* Where else that cut is kept. When the chosen freezer cannot cover the
+       line this is the answer to "so where is the rest of it", which is
+       otherwise a trip to the Cuts list and back. */
+    const elsewhere = (data.stock || [])
+      .filter(l => l.sku === c.sku && l.freezer !== fz && l.packages > 0)
+      .reduce((m, l) => { m[l.freezer] = (m[l.freezer] || 0) + l.packages; return m; }, {});
+    const others = Object.keys(elsewhere)
+      .map(f => freezerName(f) + ' has ' + round2(elsewhere[f])).join(' · ');
+    return '<div class="bbline">' +
+      '<span><b>' + esc(c.product) + '</b>' +
+        (thin ? ' <span class="tag out">only ' + round2(here) + ' here</span>' : '') +
+        '<i>' + esc(freezerName(fz)) + ' · ' + round2(here) + ' loose' +
+        (thin && others ? ' — ' + esc(others) : '') + '</i>' +
+      '</span>' +
+      '<b' + (thin ? ' style="color:var(--bad)"' : '') + '>−' + round2(need) + '</b></div>';
   }).join('');
   box.innerHTML = lines +
-    '<div class="kv"><span><b>' + esc(b.product) + '</b></span><b>+' + n + '</b></div>';
+    '<div class="bbline total"><span><b>' + esc(b.product) + '</b>' +
+      '<i>into ' + esc(freezerName(fz)) + '</i></span><b>+' + n + '</b></div>';
   const say = $('bbSay');
   if (say) {
     say.className = short ? 'lotsay bad' : 'lotsay';
