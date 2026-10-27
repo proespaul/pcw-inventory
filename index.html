@@ -1075,7 +1075,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-28 05:00 UTC';
+const APP_BUILD = '2026-10-28 06:20 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -7032,15 +7032,15 @@ function describeOp(op) {
  * press. This lists what is actually in the queue, how long it has been
  * there, and the reason the last attempt did not get through. */
 function openWaiting() {
+  if (!queue.length) return openSettings();
   const when = t => { const d = new Date(t); return isNaN(d) ? '' : freezerWhen(t); };
   openSheet(queue.length + (queue.length === 1 ? ' change waiting' : ' changes waiting'),
     'Entered on the phone, not yet on the sheet',
-    '<div class="card" style="margin:0">' +
-      queue.map(o => '<div class="kv"><span>' +
-        esc(String(o.type || 'change').toLowerCase().replace(/_/g, ' ')) +
-        (o.product ? ' · ' + esc(o.product) : o.orderId ? ' · ' + esc(o.orderId) : '') +
-        '</span><b>' + esc(when(o.timestamp)) + '</b></div>').join('') +
-    '</div>' +
+    queue.map((o, i) =>
+      '<div class="line"><div class="top"><b>' + esc(describeOp(o)) + '</b>' +
+      '<button class="x" onclick="dropWaiting(' + i + ')">✕</button></div>' +
+      '<p class="muted" style="margin:3px 0 0;font-size:11px">' +
+        esc(when(o.timestamp)) + '</p></div>').join('') +
     (syncTrouble
       ? '<p class="lotsay bad" style="margin-top:10px">Last try: ' +
         esc(syncTrouble.why) + '</p>'
@@ -7048,7 +7048,31 @@ function openWaiting() {
         'they are on their way up.</p>') +
     '<button style="margin-top:12px" onclick="closeSheet(); sync(false, true)">' +
       'Try now</button>' +
+    '<p class="muted" style="margin:10px 0 0">The ✕ throws a change away ' +
+      'without saving it. Only worth doing when the sheet already shows what ' +
+      'you wanted — otherwise leave it and it will go up on signal.</p>' +
     '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Close</button>');
+}
+
+/* Throw away something that is never going to go up.
+ *
+ * There was no way out of the queue except the sheet accepting it. A change
+ * whose answer was lost on the way back — the sheet took it, the phone never
+ * heard — sits there for ever, retried on every sync, with the corner
+ * reading "Saving…" and nothing to press. It is the owner's call, not the
+ * app's: it is their change, and they are the one who can look at the sheet
+ * and see whether it is already there. */
+function dropWaiting(i) {
+  const o = queue[i];
+  if (!o) return;
+  if (!confirm('Throw away "' + describeOp(o) + '"?\n\n' +
+               'It will not be saved. Only do this if the sheet already ' +
+               'shows what you wanted.')) return;
+  queue.splice(i, 1);
+  save(LS.queue, queue);
+  setPill();
+  renderAll();
+  if (queue.length) openWaiting(); else { closeSheet(); toast('Let go.'); }
 }
 
 function openStuck() {
