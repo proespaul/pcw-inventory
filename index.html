@@ -1075,7 +1075,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-28 00:30 UTC';
+const APP_BUILD = '2026-10-28 05:00 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -1095,6 +1095,9 @@ let stockNotes = load(LS.notes, []);
    re-sent, but they are not thrown away — the phone says what could not be
    saved and why, and lets it be tried again or let go. */
 let stuck = load(LS.stuck, []);
+/* Why the last sync did not get through, if it did not. In memory only — it
+   is about this moment, not something to carry across a restart. */
+let syncTrouble = null;
 let intakeCart = [], orderCart = [], marketCart = {};
 let openOrderId = null, backTo = null, boxIdeas = [];
 // Wholesale opens first because it is the price list — the number already
@@ -1701,6 +1704,11 @@ function signOut() {
 }
 
 /* ───────────────────────── API ───────────────────────── */
+/* How long to wait on the sheet before calling it a failure. A let rather
+   than a const so a test can wind it down and prove the corner recovers
+   from a request that never answers. */
+let API_WAIT_MS = 45000;
+
 async function api(action, payload = {}) {
   if (!signedIn()) {
     // No signal is a different problem from being signed out, and showing a
@@ -1709,12 +1717,35 @@ async function api(action, payload = {}) {
     showSignIn('Your sign-in has run out. Please sign in again.');
     throw new Error('Please sign in.');
   }
-  const res = await fetch(CONFIG.APPS_SCRIPT_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },   // avoids a CORS preflight
-    body: JSON.stringify(Object.assign({ action, sessionToken: session.token }, payload)),
-    redirect: 'follow'
-  });
+  /* Give up on a request that is never going to answer.
+     There was no time limit on this. On a weak signal — which is the normal
+     condition in a shed — a fetch can sit open for minutes and nothing above
+     it can tell the difference between "working on it" and "gone". The sync
+     marks itself busy before the call and clears it after, so one hung
+     request left the corner reading "Saving…" for ever, every later attempt
+     turning straight back at the busy flag. Forty-five seconds is longer
+     than any call here legitimately takes; after that we hand back a plain
+     error, the flag clears, and the minute timer tries again. */
+  const giveUp = new AbortController();
+  const timer = setTimeout(() => giveUp.abort(), API_WAIT_MS);
+  let res;
+  try {
+    res = await fetch(CONFIG.APPS_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },   // avoids a CORS preflight
+      body: JSON.stringify(Object.assign({ action, sessionToken: session.token }, payload)),
+      redirect: 'follow',
+      signal: giveUp.signal
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    if (err && err.name === 'AbortError') {
+      throw new Error('The sheet did not answer in time. Nothing is lost — ' +
+                      'it will go up on the next try.');
+    }
+    throw err;
+  }
+  clearTimeout(timer);
   const text = await res.text();
   let json;
   try { json = JSON.parse(text); }
@@ -1866,7 +1897,21 @@ function applyBoot(boot) {
     scansPending: boot.scansPending || 0,
     // What this data was. Sent back on the next sync so the backend can
     // answer "nothing new" instead of rebuilding and resending all of it.
-    stamp: boot.stamp || ''
+    stamp: boot.stamp || '',
+    /* Which build of the app stored it.
+       The stamp says whether the SHEET has changed. It says nothing about
+       whether this app knows what to do with what is in the blob, and those
+       came apart the first time a new field was added: a phone updated to a
+       build that reads the freezer readings still held a blob saved by the
+       build before, which had no freezer readings in it. The sheet had not
+       changed, so the backend rightly answered "nothing new", so the blob
+       was never replaced, so the new screen sat there saying nothing had
+       ever been read — with six readings sitting on the sheet. It would
+       have fixed itself the next time anybody touched any tab, which is
+       the worst kind of bug: it comes right on its own before you can look
+       at it. Noting the build closes it: a build that did not write this
+       blob asks for the whole thing once, and then goes back to stamps. */
+    builtBy: APP_BUILD
   };
   save(LS.data, data);
   save(LS.sync, new Date().toISOString());
@@ -1914,7 +1959,10 @@ async function sync(quiet, force) {
     // Send the stamp we already hold. If nothing has changed the backend
     // answers in a few bytes instead of resending the whole catalogue,
     // stock, orders and customer lists.
-    const boot = await api('bootstrap', force ? {} : { since: data.stamp || '' });
+    /* A blob this build did not write is asked for in full, stamp or no
+       stamp — see builtBy in applyBoot. Once per phone per deploy. */
+    const fresh = force || data.builtBy !== APP_BUILD;
+    const boot = await api('bootstrap', fresh ? {} : { since: data.stamp || '' });
     if (!boot.unchanged) {
       applyBoot(boot);
       renderAll();
@@ -1924,7 +1972,12 @@ async function sync(quiet, force) {
     }
     sync._lastAt = Date.now();
     sendPhotos();
+    syncTrouble = null;
   } catch (err) {
+    /* Kept so the corner can answer "why has this said Saving for ten
+       minutes". Without it the only place the reason appeared was a toast
+       that may have gone by while the phone was in a pocket. */
+    syncTrouble = { why: err.message, at: new Date().toISOString() };
     if (!quiet) toast(err.message, 'bad');
   } finally {
     sync._busy = false;
@@ -6972,6 +7025,32 @@ function describeOp(op) {
   }
 }
 
+/* What the corner is waiting on.
+ *
+ * "Saving…" with nothing else to go on is the worst thing this app can say:
+ * it is doing something, it will not say what, and there is nothing to
+ * press. This lists what is actually in the queue, how long it has been
+ * there, and the reason the last attempt did not get through. */
+function openWaiting() {
+  const when = t => { const d = new Date(t); return isNaN(d) ? '' : freezerWhen(t); };
+  openSheet(queue.length + (queue.length === 1 ? ' change waiting' : ' changes waiting'),
+    'Entered on the phone, not yet on the sheet',
+    '<div class="card" style="margin:0">' +
+      queue.map(o => '<div class="kv"><span>' +
+        esc(String(o.type || 'change').toLowerCase().replace(/_/g, ' ')) +
+        (o.product ? ' · ' + esc(o.product) : o.orderId ? ' · ' + esc(o.orderId) : '') +
+        '</span><b>' + esc(when(o.timestamp)) + '</b></div>').join('') +
+    '</div>' +
+    (syncTrouble
+      ? '<p class="lotsay bad" style="margin-top:10px">Last try: ' +
+        esc(syncTrouble.why) + '</p>'
+      : '<p class="muted" style="margin-top:10px">Nothing has gone wrong — ' +
+        'they are on their way up.</p>') +
+    '<button style="margin-top:12px" onclick="closeSheet(); sync(false, true)">' +
+      'Try now</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Close</button>');
+}
+
 function openStuck() {
   if (!stuck.length) return openSettings();
   openSheet(stuck.length + (stuck.length === 1 ? ' change was not saved' : ' changes were not saved'),
@@ -7121,7 +7200,8 @@ $('btnFuRewrite').addEventListener('click', () => openFu &&
 $('btnFuSnooze').addEventListener('click', () => markFollowup('snooze', 30));
 $('btnFuCalled').addEventListener('click', () => markFollowup('contacted'));
 $('scrim').addEventListener('click', closeSheet);
-$('syncPill').addEventListener('click', () => stuck.length ? openStuck() : openSettings());
+$('syncPill').addEventListener('click', () =>
+  stuck.length ? openStuck() : queue.length ? openWaiting() : openSettings());
 
 $('stockSearch').addEventListener('input', () => {
   renderStock();
