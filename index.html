@@ -184,6 +184,11 @@
   .ord .who span{font-size:13px;color:var(--muted)}
   .ord .when{text-align:right;white-space:nowrap;font-size:12.5px;color:var(--muted)}
   .ord .when b{display:block;font-size:14px;color:var(--ink)}
+  /* The day is a control, like the money on the same row: dotted underline,
+     because a date you can change is worth finding without being told. */
+  .ord .when.tapped{cursor:pointer;border-bottom:1px dotted var(--accent);
+                    padding-bottom:1px}
+  .ord .when.tapped b{color:var(--accent)}
   .alert{display:flex;align-items:center;gap:10px;background:#fcf3e0;color:#6d4f10;
          border:1px solid #ecd9ae;border-radius:var(--radius);padding:12px 13px;margin-bottom:11px;
          cursor:pointer;font-size:14px}
@@ -413,6 +418,18 @@
   .bbline i{display:block;font-style:normal;font-size:12px;color:var(--muted);
             margin-top:2px}
   .bbline > b{font-size:16px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .bbline .bbtake{width:68px;flex:0 0 68px;padding:7px 8px;text-align:center;
+                  font-size:16px;font-variant-numeric:tabular-nums}
+  /* One cut and everywhere it is kept, as one block. */
+  .bbpart{margin:0 0 9px;padding:9px 11px}
+  .bbpart.want{border-color:var(--warn)}
+  .bbhead{display:flex;justify-content:space-between;align-items:baseline;
+          gap:10px;padding:0 0 4px}
+  .bbhead b{font-size:15px}
+  .bbhead span{font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
+  .bbhead .ok{color:var(--ok)}
+  .bbhead .short{color:var(--warn)}
+  .bbhead .over{color:var(--bad)}
   /* "3 could be built" is the most useful thing on a box row and was the
      least reachable: a grey note you could read and not act on. It is a
      button now, sitting inside the box's own cell. */
@@ -1120,7 +1137,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-28 18:45 UTC';
+const APP_BUILD = '2026-10-29 16:20 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -2437,7 +2454,17 @@ function orderRowHtml(o) {
         (short ? '<span class="tag out">short ' + short + '</span>' : '') + '</b>' +
       '<span>' + orderPackages(o) + ' pkg · ' + items.length + ' item' + (items.length === 1 ? '' : 's') +
         ' · ' + esc(o.method || '') + '</span></div>' +
-      '<div class="when"><b>' + esc(d.label) + '</b>' + esc(o.deliveryDate || '') + '</div>' +
+      /* The date is the way in to scheduling, the same as the money is the
+         way in to pricing. An order with no date says so rather than
+         leaving a blank corner nobody would think to press. */
+      (o.status === 'Delivered' || o.status === 'Cancelled'
+        ? '<div class="when"><b>' + esc(d.label) + '</b>' + esc(o.deliveryDate || '') + '</div>'
+        : '<div class="when tapped" onclick="event.stopPropagation();openSchedule(\'' +
+          esc(o.id) + '\')">' +
+          (o.deliveryDate
+            ? '<b>' + esc(d.label) + '</b>' + esc(o.deliveryDate) +
+              (o.time ? ' · ' + esc(o.time) : '')
+            : '<b>no date</b>tap to set') + '</div>') +
       (d.cls ? '<span class="tag ' + d.cls + '">' + (d.cls === 'due' ? 'due' : 'soon') + '</span>' : '') +
     '</div>' +
     /* The figure on this row is where the hand goes when a price needs
@@ -2878,13 +2905,15 @@ function renderOrderDetail() {
     actions = '<button id="btnPack">Assembled — take it out of stock</button>' +
       '<div class="row" style="margin-top:9px">' +
       '<button class="ghost" id="btnEditOrder">Edit order</button>' +
-      '<button class="ghost" id="btnReschedule">Change date</button></div>' +
+      '<button class="ghost" id="btnReschedule">Schedule</button></div>' +
       '<button class="ghost danger" style="margin-top:9px" id="btnCancelOrder">Cancel order</button>';
   } else if (o.status === 'Packed') {
     actions = '<button id="btnDelivered">Mark delivered</button>' +
       '<div class="row" style="margin-top:9px">' +
       '<button class="ghost" id="btnEditOrder">Edit order</button>' +
-      '<button class="ghost danger" id="btnCancelOrder">Cancel order</button></div>' +
+      '<button class="ghost" id="btnReschedule">Schedule</button></div>' +
+      '<button class="ghost danger" style="margin-top:9px" id="btnCancelOrder">' +
+        'Cancel order</button>' +
       '<p class="muted" style="text-align:center">Stock came off when it was assembled. ' +
       'Changing it moves the difference; cancelling puts it all back.</p>';
   } else {
@@ -2895,15 +2924,77 @@ function renderOrderDetail() {
   const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
   on('btnPack', () => { if (assembleOrder(o.id)) showView(backTo || 'orders'); });
   on('btnEditOrder', () => editOrder(o.id));
-  on('btnReschedule', () => {
-    const date = prompt('New date (YYYY-MM-DD)', o.deliveryDate || todayISO());
-    if (!date) return;
-    enqueue([{ type: 'ORDER_STATUS', orderId: o.id, deliveryDate: date }]);
-    toast('Date changed.', 'ok');
-  });
+  on('btnReschedule', () => openSchedule(o.id));
   // The same three the list offers, so they behave the same way in both places.
   on('btnCancelOrder', () => { if (cancelOrder(o.id)) showView('orders'); });
   on('btnDelivered', () => { if (deliverOrder(o.id)) showView(backTo || 'orders'); });
+}
+
+/* Putting a day on an order.
+ *
+ * An order does not have to be assembled to have a day: most of them are
+ * promised on the phone before a single pack is pulled, and the day is the
+ * thing that has to be agreed first. This used to be a prompt box asking
+ * for YYYY-MM-DD, which is not a thing to ask of somebody holding a phone
+ * in a cold shed, and it could only set the date — not the time, not
+ * whether they are collecting, not where.
+ *
+ * Saving it writes the day onto the order and, when a calendar has been
+ * connected on the SETTINGS tab, puts it in the calendar with the
+ * customer's phone and what they are getting on the entry. Moving the day
+ * later moves that entry rather than leaving a second one behind. */
+function openSchedule(id) {
+  const o = (data.orders || []).find(x => x.id === id);
+  if (!o) return;
+  const method = /deliver|drop/i.test(o.method || '') ? 'Delivery' : 'Pickup';
+  const onCal = !!String((data.settings || {}).CALENDAR_ID || '').trim();
+  openSheet('Schedule ' + (o.customer || 'this order'),
+    (o.status === 'Open' ? 'Not assembled yet — the day can still be set'
+                         : 'Assembled and waiting to go out'),
+    '<label>Day</label>' +
+    '<input type="date" id="scDate" value="' + esc(o.deliveryDate || todayISO()) + '">' +
+    '<label>Time</label>' +
+    '<input type="time" id="scTime" value="' + esc(o.time || '') + '">' +
+    '<p class="muted" style="margin:4px 0 0">Leave the time blank for ' +
+      '“some time that day”.</p>' +
+    '<label>Collecting or dropping off</label>' +
+    '<div class="seg" id="scMethod">' +
+      ['Pickup', 'Delivery'].map(m =>
+        '<button type="button" data-m="' + m + '" class="' + (m === method ? 'on' : '') +
+        '" onclick="scPick(this)">' + m + '</button>').join('') +
+    '</div>' +
+    '<label>Where</label>' +
+    '<input id="scVenue" value="' + esc(o.venue || '') + '" ' +
+      'placeholder="the farm, their place, the market…">' +
+    '<p class="muted" style="margin:10px 0 0">' +
+      (onCal
+        ? 'This goes on the calendar with their number and what they are ' +
+          'getting. Changing the day moves it.'
+        : 'No calendar is connected yet, so this is kept on the sheet and ' +
+          'shown on the Calendar screen. Put a calendar ID in CALENDAR_ID ' +
+          'on the SETTINGS tab to have it appear in Google Calendar too.') +
+    '</p>' +
+    '<button style="margin-top:12px" onclick="saveSchedule(\'' + esc(id) + '\')">' +
+      'Save the day</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Cancel</button>');
+}
+
+function scPick(btn) {
+  document.querySelectorAll('#scMethod button').forEach(b =>
+    b.classList.toggle('on', b === btn));
+}
+
+function saveSchedule(id) {
+  const date = $('scDate').value;
+  if (!date) return toast('Which day?', 'bad');
+  const time = $('scTime').value || '';
+  const picked = document.querySelector('#scMethod button.on');
+  const method = picked ? picked.dataset.m : '';
+  const venue = $('scVenue').value.trim();
+  enqueue([{ type: 'ORDER_STATUS', orderId: id, deliveryDate: date,
+             time, venue, method }]);
+  closeSheet();
+  toast('Set for ' + dayInfo(date).label + (time ? ' at ' + time : '') + '.', 'ok');
 }
 
 /* ─────────── what kind of thing is this ───────────
@@ -3513,22 +3604,12 @@ function openBuildBox(sku) {
   const can = ((data.boxes || []).find(x => x.sku === sku) || {}).canBuild || 0;
   if (can < 1) return toast('Not enough loose cuts for one.', 'bad');
 
-  /* Default to where the cuts actually are. The recipe comes out of one
-     freezer, and offering the wrong one by default is how a count goes
-     negative in a freezer that never held the meat. */
-  const parts = (b.parts || []);
-  const where = {};
-  (data.stock || []).forEach(l => {
-    if (!parts.some(c => c.sku === l.sku) || l.packages <= 0) return;
-    where[l.freezer] = (where[l.freezer] || 0) + l.packages;
-  });
-  const best = Object.keys(where).sort((a, c) => where[c] - where[a])[0] ||
-               $('stockFreezer').value || (data.freezers[0] || {}).id || '';
-  const fs = (data.freezers || []).filter(f => f.active !== false);
-
+  buildBoxSku = sku;
   buildBoxMax = can;
+  buildPicks = {};
+  buildBoxQty = 1;
   openSheet('Build ' + (b.product || sku),
-    can + (can === 1 ? ' can be built' : ' can be built') + ' from what is loose',
+    can + ' can be built from what is loose',
     '<label>How many</label>' +
     '<div class="chips" id="bbChips">' +
       [1, 2, 3, 5, can].filter((n, i, a) => n >= 1 && n <= can && a.indexOf(n) === i)
@@ -3537,105 +3618,231 @@ function openBuildBox(sku) {
     '</div>' +
     '<input type="number" inputmode="numeric" id="bbQty" min="1" step="1" max="' + can +
       '" value="1" oninput="setBuildQty(Number(this.value), true)">' +
-    '<label>Taking the cuts out of</label>' +
-    '<select id="bbFreezer" onchange="renderBuildParts()">' + fs.map(f =>
-      '<option value="' + esc(f.id) + '"' + (f.id === best ? ' selected' : '') + '>' +
-      esc(f.name || f.id) + '</option>').join('') + '</select>' +
-    '<label>What that takes out</label>' +
-    '<div class="card" id="bbParts" style="margin:0"></div>' +
+    '<label>Which packs to use</label>' +
+    '<div id="bbParts"></div>' +
     '<p id="bbSay" class="lotsay"></p>' +
-    '<button id="bbGo" style="margin-top:12px" onclick="commitBuildBox(\'' + esc(sku) + '\')">' +
-      'Build</button>' +
+    '<button id="bbGo" style="margin-top:12px" onclick="commitBuildBox()">Build</button>' +
     '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Cancel</button>');
-  renderBuildParts(sku);
-  // So the button reads "Build 1" from the off rather than a bare "Build".
   setBuildQty(1);
 }
 
+let buildBoxSku = '';
 let buildBoxMax = 0;
+/* How many are being built, as a number rather than as whatever is in the
+   box on screen. The two came apart: typing 10 when only 9 can be built
+   left "10" in the field, so the allocation was worked out for ten and the
+   build sent nine — the screen and the movement disagreeing about the same
+   action, which is the kind of thing that is only ever found later, in a
+   count that will not reconcile. One value, clamped once, read everywhere. */
+let buildBoxQty = 1;
+/* What is going into the boxes, by lot: { sku: { lotKey: packs } }.
+   A lot, not a freezer — two batches of ribeye in the same freezer are two
+   different lots, and a movement written against the wrong one leaves a
+   phantom line on the Cuts list that nobody can account for later. */
+let buildPicks = {};
+
+/** The loose lots of one cut, fullest first. */
+function buildLots(sku) {
+  return (data.stock || [])
+    .filter(l => l.sku === sku && l.packages > 0)
+    .map(l => Object.assign({}, l,
+      { key: l.key || [l.sku, l.size, l.grade, l.batch, l.freezer].join('|') }))
+    .sort((a, b) => b.packages - a.packages);
+}
+
+function buildNeed(n) {
+  const b = (data.boxList || []).find(x => x.sku === buildBoxSku) || {};
+  const need = {};
+  (b.parts || []).forEach(c => { need[c.sku] = (need[c.sku] || 0) + c.qty * n; });
+  return need;
+}
+
+function buildTaken(sku) {
+  const mine = buildPicks[sku] || {};
+  return Object.keys(mine).reduce((t, k) => t + (Number(mine[k]) || 0), 0);
+}
+
+/* Fill it in the obvious way and let it be corrected.
+   Fullest lot first, which is what anybody does standing at the freezers,
+   and it means the common case — everything in one place — needs no
+   decisions at all. */
+function autoFillBuild(n) {
+  const need = buildNeed(n);
+  buildPicks = {};
+  Object.keys(need).forEach(sku => {
+    let left = need[sku];
+    buildPicks[sku] = {};
+    buildLots(sku).forEach(l => {
+      if (left <= 0) return;
+      const take = Math.min(left, l.packages);
+      if (take > 0) { buildPicks[sku][l.key] = take; left -= take; }
+    });
+  });
+}
 
 function setBuildQty(n, typed) {
   n = Math.max(1, Math.min(buildBoxMax, Math.round(Number(n) || 1)));
-  if (!typed && $('bbQty')) $('bbQty').value = n;
+  buildBoxQty = n;
+  // Written back even when it was typed, so the field can never show a
+  // number that is not the one about to be built.
+  if ($('bbQty') && Number($('bbQty').value) !== n) $('bbQty').value = n;
   document.querySelectorAll('#bbChips button').forEach(b =>
     b.classList.toggle('on', Number(b.dataset.n) === n));
-  const go = $('bbGo');
-  if (go) go.textContent = 'Build ' + n;
+  autoFillBuild(n);
   renderBuildParts();
 }
 
-/** How many loose packs of a cut are in one freezer. */
-function looseIn(sku, freezer) {
-  return (data.stock || []).reduce((t, l) =>
-    t + ((l.sku === sku && l.freezer === freezer && l.packages > 0) ? l.packages : 0), 0);
+/** One cut, one lot: where it is kept and how many of it to take. */
+function buildLotRow(c, l, n) {
+  const got = (buildPicks[c.sku] || {})[l.key] || 0;
+  const label = [freezerName(l.freezer) || 'nowhere', l.batch || 'no batch',
+                 l.size, l.grade].filter(Boolean).join(' · ');
+  return '<div class="bbline">' +
+    '<span><b>' + esc(label) + '</b><i>' + round2(l.packages) + ' loose</i></span>' +
+    '<input type="number" inputmode="numeric" class="bbtake" min="0" step="1" ' +
+      'max="' + l.packages + '" value="' + got + '" ' +
+      'oninput="setBuildPick(\'' + esc(c.sku) + '\',\'' + esc(l.key) + '\',this.value)">' +
+    '</div>';
 }
 
-/* What this many boxes costs the shelf, line by line.
+/* What is going into the boxes, cut by cut and lot by lot.
  *
- * Counted in the chosen freezer, not across all of them, because that is
- * where the cuts are actually taken from. "3 could be built" is worked out
- * over everything you own; if two of the ribeye are in Freezer 3 and you
- * build out of Freezer 1, Freezer 1 goes negative and Freezer 3 still shows
- * meat that has been used. Saying it here is the difference between picking
- * the other freezer and spending an evening working out what happened. */
-function renderBuildParts(sku) {
+ * The freezer is on every line because that is the instruction somebody
+ * carries out at a freezer door: not "take four ribeye" but "take three out
+ * of Freezer 1 and one out of Freezer 3". A cut kept in two places shows up
+ * as two lines, each with its own number, and the build is not allowed
+ * until every cut adds up. */
+function renderBuildParts() {
   const box = $('bbParts');
   if (!box) return;
-  renderBuildParts.sku = sku || renderBuildParts.sku;
-  const b = (data.boxList || []).find(x => x.sku === renderBuildParts.sku);
+  const b = (data.boxList || []).find(x => x.sku === buildBoxSku);
   if (!b) return;
-  const n = Math.max(1, Number(($('bbQty') || {}).value) || 1);
-  const fz = ($('bbFreezer') || {}).value || '';
-  let short = 0;
-  const lines = (b.parts || []).map(c => {
-    const need = c.qty * n;
-    const here = looseIn(c.sku, fz);
-    const thin = need > here;
-    if (thin) short++;
-    /* Where else that cut is kept. When the chosen freezer cannot cover the
-       line this is the answer to "so where is the rest of it", which is
-       otherwise a trip to the Cuts list and back. */
-    const elsewhere = (data.stock || [])
-      .filter(l => l.sku === c.sku && l.freezer !== fz && l.packages > 0)
-      .reduce((m, l) => { m[l.freezer] = (m[l.freezer] || 0) + l.packages; return m; }, {});
-    const others = Object.keys(elsewhere)
-      .map(f => freezerName(f) + ' has ' + round2(elsewhere[f])).join(' · ');
-    return '<div class="bbline">' +
-      '<span><b>' + esc(c.product) + '</b>' +
-        (thin ? ' <span class="tag out">only ' + round2(here) + ' here</span>' : '') +
-        '<i>' + esc(freezerName(fz)) + ' · ' + round2(here) + ' loose' +
-        (thin && others ? ' — ' + esc(others) : '') + '</i>' +
-      '</span>' +
-      '<b' + (thin ? ' style="color:var(--bad)"' : '') + '>−' + round2(need) + '</b></div>';
+  const n = buildBoxQty;
+  const need = buildNeed(n);
+
+  box.innerHTML = (b.parts || []).map(c => {
+    const lots = buildLots(c.sku);
+    const want = need[c.sku] || 0;
+    const got = buildTaken(c.sku);
+    const state = got === want ? 'ok' : got > want ? 'over' : 'short';
+    return '<div class="card bbpart' + (state === 'ok' ? '' : ' want') + '">' +
+      '<div class="bbhead"><b>' + esc(c.product) + '</b>' +
+        '<span class="' + state + '">' + round2(got) + ' of ' + round2(want) + '</span></div>' +
+      (lots.length
+        ? lots.map(l => buildLotRow(c, l, n)).join('')
+        : '<div class="bbline"><span><i>none loose anywhere</i></span></div>') +
+      '</div>';
   }).join('');
-  box.innerHTML = lines +
-    '<div class="bbline total"><span><b>' + esc(b.product) + '</b>' +
-      '<i>into ' + esc(freezerName(fz)) + '</i></span><b>+' + n + '</b></div>';
+
+  // Where the made-up boxes end up: wherever most of the meat came from.
+  const by = {};
+  Object.keys(buildPicks).forEach(sku =>
+    Object.keys(buildPicks[sku]).forEach(k => {
+      const l = (data.stock || []).find(x => (x.key ||
+        [x.sku, x.size, x.grade, x.batch, x.freezer].join('|')) === k);
+      if (l) by[l.freezer] = (by[l.freezer] || 0) + (Number(buildPicks[sku][k]) || 0);
+    }));
+  const into = Object.keys(by).sort((a, c) => by[c] - by[a])[0] || '';
+
+  const wrong = Object.keys(need).filter(sku => buildTaken(sku) !== need[sku]);
   const say = $('bbSay');
   if (say) {
-    say.className = short ? 'lotsay bad' : 'lotsay';
-    say.textContent = short
-      ? 'Not all of that is in ' + freezerName(fz) +
-        '. Pick the freezer the cuts are in, or build fewer.'
-      : '';
+    if (wrong.length) {
+      const sku = wrong[0];
+      const p = (b.parts || []).find(c => c.sku === sku) || {};
+      const diff = buildTaken(sku) - need[sku];
+      say.className = 'lotsay bad';
+      say.textContent = diff < 0
+        ? 'Still ' + round2(-diff) + ' ' + (p.product || sku) + ' to pick.'
+        : round2(diff) + ' too many ' + (p.product || sku) + ' picked.';
+    } else {
+      say.className = 'lotsay';
+      say.textContent = into
+        ? n + ' × ' + (b.product || buildBoxSku) + ' into ' + freezerName(into) + '.'
+        : '';
+    }
   }
   const go = $('bbGo');
-  if (go) go.disabled = short > 0;
+  if (go) {
+    go.disabled = wrong.length > 0;
+    go.textContent = 'Build ' + n;
+  }
 }
 
-function commitBuildBox(sku) {
-  const n = Math.max(1, Math.min(buildBoxMax, Number($('bbQty').value) || 1));
-  const freezer = $('bbFreezer').value || '';
-  const b = (data.boxList || []).find(x => x.sku === sku) || {};
-  // Belt and braces: the button is disabled when a line is short, but a
-  // stale screen must not be able to drive a freezer negative.
-  const thin = (b.parts || []).filter(c => c.qty * n > looseIn(c.sku, freezer));
-  if (thin.length) {
-    return toast('Not enough ' + thin[0].product + ' in ' + freezerName(freezer) + '.', 'bad');
+function setBuildPick(sku, key, value) {
+  const lots = buildLots(sku);
+  const lot = lots.find(l => l.key === key);
+  let v = Math.max(0, Math.round(Number(value) || 0));
+  if (lot) v = Math.min(v, lot.packages);
+  buildPicks[sku] = buildPicks[sku] || {};
+  if (v) buildPicks[sku][key] = v; else delete buildPicks[sku][key];
+  /* Only the running totals are redrawn. Rebuilding the inputs while
+     somebody is typing in one of them takes the keyboard away mid-number. */
+  buildTotalsOnly();
+}
+
+function buildTotalsOnly() {
+  const b = (data.boxList || []).find(x => x.sku === buildBoxSku);
+  if (!b) return;
+  const n = buildBoxQty;
+  const need = buildNeed(n);
+  document.querySelectorAll('#bbParts .bbpart').forEach((el, i) => {
+    const c = (b.parts || [])[i];
+    if (!c) return;
+    const want = need[c.sku] || 0, got = buildTaken(c.sku);
+    const tag = el.querySelector('.bbhead span');
+    if (tag) {
+      tag.textContent = round2(got) + ' of ' + round2(want);
+      tag.className = got === want ? 'ok' : got > want ? 'over' : 'short';
+    }
+    el.classList.toggle('want', got !== want);
+  });
+  const wrong = Object.keys(need).filter(sku => buildTaken(sku) !== need[sku]);
+  const say = $('bbSay');
+  if (say) {
+    if (wrong.length) {
+      const sku = wrong[0];
+      const p = (b.parts || []).find(c => c.sku === sku) || {};
+      const diff = buildTaken(sku) - need[sku];
+      say.className = 'lotsay bad';
+      say.textContent = diff < 0
+        ? 'Still ' + round2(-diff) + ' ' + (p.product || sku) + ' to pick.'
+        : round2(diff) + ' too many ' + (p.product || sku) + ' picked.';
+    } else {
+      say.className = 'lotsay';
+      say.textContent = '';
+    }
   }
-  enqueue([{ type: 'BUILD_BOX', boxSku: sku, count: n, freezer }]);
+  const go = $('bbGo');
+  if (go) go.disabled = wrong.length > 0;
+}
+
+function commitBuildBox() {
+  const sku = buildBoxSku;
+  const b = (data.boxList || []).find(x => x.sku === sku) || {};
+  const n = buildBoxQty;
+  const need = buildNeed(n);
+  const wrong = Object.keys(need).filter(s => buildTaken(s) !== need[s]);
+  if (wrong.length) return toast('Say where every pack comes from first.', 'bad');
+
+  const picks = [];
+  Object.keys(buildPicks).forEach(s => {
+    Object.keys(buildPicks[s]).forEach(k => {
+      const l = buildLots(s).find(x => x.key === k);
+      if (!l) return;
+      picks.push({ sku: s, product: l.product, size: l.size, grade: l.grade,
+                   batch: l.batch, freezer: l.freezer,
+                   packages: Number(buildPicks[s][k]) || 0 });
+    });
+  });
+  const by = {};
+  picks.forEach(p => { by[p.freezer] = (by[p.freezer] || 0) + p.packages; });
+  const into = Object.keys(by).sort((a, c) => by[c] - by[a])[0] || '';
+
+  enqueue([{ type: 'BUILD_BOX', boxSku: sku, count: n, freezer: into, picks }]);
   closeSheet();
-  toast('Built ' + n + ' × ' + (b.product || sku) + ' — the cuts are out.', 'ok');
+  toast('Built ' + n + ' × ' + (b.product || sku) +
+        (into ? ' in ' + freezerName(into) : '') + '.', 'ok');
 }
 
 function renderBoxList() {
