@@ -10,7 +10,7 @@
    re-install over the broken v2 state. v5 goes with the change below, so a
    phone sitting on an old page gets a clean start rather than holding it.
    v6 stops asking the browser's own cache for the page — see pageFirst. */
-const CACHE = 'pcw-inv-v9';
+const CACHE = 'pcw-inv-v10';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png',
                './icon-maskable-512.png', './apple-touch-icon.png'];
 
