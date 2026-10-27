@@ -1075,7 +1075,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-27 22:40 UTC';
+const APP_BUILD = '2026-10-28 00:30 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -5202,6 +5202,9 @@ function renderFreezers() {
     list.innerHTML = '<div class="empty">The freezers are read every morning ' +
       'once a Govee key is on the SETTINGS tab and the daily check has been ' +
       'switched on.</div>';
+    top.innerHTML += '<button class="ghost" id="freezerNowBtn" ' +
+      'style="margin-top:12px" onclick="freezerReadNow()">Read them now</button>' +
+      '<p id="freezerNowSay" class="lotsay"></p>';
     return;
   }
 
@@ -5221,7 +5224,13 @@ function renderFreezers() {
       ? '<div class="kv sub"><span>Worth a look above</span><b>' +
         esc(freezerReads({ tempF: lim.warm })) + '</b></div>' +
         '<div class="kv sub"><span>Meat at risk above</span><b>' +
-        esc(freezerReads({ tempF: lim.hot })) + '</b></div>' : '');
+        esc(freezerReads({ tempF: lim.hot })) + '</b></div>' : '') +
+    /* The round runs once a day, which is the right cadence for a record
+       and the wrong one for somebody standing in the shed wondering about
+       Freezer 3 this minute. This asks the sensors directly. */
+    '<button class="ghost" id="freezerNowBtn" style="margin-top:12px" ' +
+      'onclick="freezerReadNow()">Read them now</button>' +
+    '<p id="freezerNowSay" class="lotsay"></p>';
 
   list.innerHTML = seen.map(f => {
     const bad = freezerIsBad(f.status);
@@ -5245,6 +5254,46 @@ function renderFreezers() {
   const badge = $('cFreezers');
   if (badge) badge.textContent = alerts.length ? String(alerts.length) : '';
   renderFreezerRecord();
+}
+
+/* What the freezers are reading this minute.
+ *
+ * The daily round is what the record is built from. This is the other
+ * question — what is it doing right now — and it is answered by asking the
+ * sensors rather than by showing this morning's number and hoping. The
+ * reading it takes is kept like any other, marked as one somebody asked
+ * for, so the log says why a reading exists at half past three. */
+async function freezerReadNow() {
+  const btn = $('freezerNowBtn'), say = $('freezerNowSay');
+  if (!navigator.onLine) {
+    say.className = 'lotsay bad';
+    say.textContent = 'This one needs a signal — it asks the sensors.';
+    return;
+  }
+  btn.disabled = true; btn.textContent = 'Asking the sensors…';
+  say.className = 'lotsay'; say.textContent = '';
+  try {
+    const r = await api('freezerNow', {});
+    if (!r.ok) throw new Error(r.why || r.error || 'They could not be read.');
+    if (r.seen) data.freezersSeen = r.seen;
+    if (r.history) data.freezersHistory = r.history;
+    if (r.alerts) data.alerts = r.alerts;
+    if (r.record) data.freezerRecord = r.record;
+    save(LS.data, data);
+    renderFreezers(); renderAlerts();
+    const btn2 = $('freezerNowBtn'), say2 = $('freezerNowSay');
+    if (btn2) { btn2.disabled = false; btn2.textContent = 'Read them again'; }
+    if (say2) {
+      say2.className = 'lotsay ok';
+      say2.textContent = 'Read just now' +
+        (r.raised ? ' — ' + r.raised + (r.raised === 1 ? ' thing' : ' things') +
+                    ' flagged' : '') + '.';
+    }
+  } catch (e) {
+    btn.disabled = false; btn.textContent = 'Try again';
+    say.className = 'lotsay bad';
+    say.textContent = e.message;
+  }
 }
 
 /* The record itself, rather than today's numbers.
@@ -5280,8 +5329,10 @@ function renderFreezerRecord() {
       rec.spotChecks.toLocaleString() + '</b></div>' +
       '<div class="kv sub"><span>Automatic since</span><b>' +
       (autoSince ? day(autoSince) : 'not started') + '</b></div>' : '') +
-    '<div class="kv"><span>Taken every</span><b>' +
-      (rec.everyHours === 1 ? 'hour' : rec.everyHours + ' hours') + '</b></div>' +
+    '<div class="kv"><span>Taken</span><b>' +
+      (rec.everyHours >= 24 ? 'once a day'
+        : rec.everyHours === 1 ? 'every hour' : 'every ' + rec.everyHours + ' hours') +
+      '</b></div>' +
     '<div class="kv' + (rec.recentGaps ? ' want' : '') + '"><span>Gaps lately</span><b>' +
       (rec.recentGaps ? rec.recentGaps : 'none') + '</b></div>' +
     '<button class="ghost" style="margin-top:12px" onclick="openFreezerReport()">' +
