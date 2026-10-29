@@ -189,6 +189,8 @@
   .ord .when.tapped{cursor:pointer;border-bottom:1px dotted var(--accent);
                     padding-bottom:1px}
   .ord .when.tapped b{color:var(--accent)}
+  .ord .when i{display:block;font-style:normal;font-size:10.5px;
+               letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
   .alert{display:flex;align-items:center;gap:10px;background:#fcf3e0;color:#6d4f10;
          border:1px solid #ecd9ae;border-radius:var(--radius);padding:12px 13px;margin-bottom:11px;
          cursor:pointer;font-size:14px}
@@ -1137,7 +1139,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-29 16:20 UTC';
+const APP_BUILD = '2026-10-30 03:30 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -1206,13 +1208,30 @@ function photoFor(sku) { return CUTPICS[PHOTOS[sku]] || ''; }
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const round2 = n => Math.round(Number(n || 0) * 100) / 100;
-// Paul's pricing rule, the same one the backend applies: up to the next $5,
-// and if that lands on a 0 take a dollar off, so prices end in 5 or 9.
+/* Paul's pricing rule, the same one the backend applies.
+   Over the step line: up to the next $5, and if that lands on a 0 take a
+   dollar off, so retail prices end in 5 or 9. At or under it: up to the
+   whole dollar and nothing more. The $5 step is right for a $229 box and
+   wrong for a price per pound — it turned $4 soup bones into $9. */
 const round59 = n => {
   n = Number(n || 0);
   if (n <= 0) return 0;
   const p = Math.ceil(n / 5) * 5;
   return p % 10 === 0 ? p - 1 : p;
+};
+const upToDollar = n => {
+  n = Number(n || 0);
+  return n <= 0 ? 0 : Math.ceil(n - 1e-9);
+};
+const priceStepOver = () => {
+  const v = Number((data.settings || {}).PRICE_ROUND_OVER);
+  return v > 0 ? v : 100;
+};
+const markedUp = (base, pct) => {
+  if (!base) return 0;
+  if (!pct) return Math.round(base * 100) / 100;
+  const v = base * (1 + pct / 100);
+  return v > priceStepOver() ? round59(v) : upToDollar(v);
 };
 const money = n => '$' + (Math.round(Number(n || 0) * 100) / 100)
   .toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1231,6 +1250,24 @@ function toast(msg, kind) {
   t.className = 'toast on' + (kind ? ' ' + kind : '');
   clearTimeout(toast._t);
   toast._t = setTimeout(() => t.className = 'toast', 3400);
+}
+
+/* A date written the short way — "22 Oct", or "22 Oct 25" if it was not
+   this year. Used for the day an order was taken, which is a fact about the
+   past and wants no "Tomorrow" or "2 days late" about it. */
+function plainDay(iso) {
+  const raw = String(iso || '').trim();
+  if (!raw) return '';
+  /* The Created column is not one shape. Rows written by the app are
+     "2026-10-22 11:06"; rows that came in from the website are
+     "10/24/2026 13:00:11". Both have to read as a date, and anything that
+     is neither is shown as it was rather than as "Invalid Date". */
+  let d = new Date(raw.slice(0, 10) + 'T12:00');
+  if (isNaN(d)) d = new Date(raw);
+  if (isNaN(d)) return raw.slice(0, 10);
+  const opts = { month: 'short', day: 'numeric' };
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = '2-digit';
+  return d.toLocaleDateString([], opts);
 }
 
 function dayInfo(iso) {
@@ -2452,19 +2489,27 @@ function orderRowHtml(o) {
       '<div class="who"><b>' + esc(o.customer) +
         (o.pending ? '<span class="tag">not sent</span>' : '') +
         (short ? '<span class="tag out">short ' + short + '</span>' : '') + '</b>' +
+      /* Two dates, and they are not the same question. "Ordered 22 Oct" is
+         when they asked; the corner is when it goes out. Showing only the
+         second one made the row look like the order was placed on the day
+         it is due. */
       '<span>' + orderPackages(o) + ' pkg · ' + items.length + ' item' + (items.length === 1 ? '' : 's') +
-        ' · ' + esc(o.method || '') + '</span></div>' +
+        ' · ' + esc(o.method || '') +
+        (o.created ? ' · ordered ' + esc(plainDay(o.created)) : '') + '</span></div>' +
       /* The date is the way in to scheduling, the same as the money is the
          way in to pricing. An order with no date says so rather than
          leaving a blank corner nobody would think to press. */
       (o.status === 'Delivered' || o.status === 'Cancelled'
-        ? '<div class="when"><b>' + esc(d.label) + '</b>' + esc(o.deliveryDate || '') + '</div>'
+        ? '<div class="when"><b>' + esc(d.label) + '</b>' +
+          (o.status === 'Delivered' && o.deliveredAt
+            ? 'went out ' + esc(plainDay(o.deliveredAt))
+            : esc(o.deliveryDate || '')) + '</div>'
         : '<div class="when tapped" onclick="event.stopPropagation();openSchedule(\'' +
           esc(o.id) + '\')">' +
           (o.deliveryDate
-            ? '<b>' + esc(d.label) + '</b>' + esc(o.deliveryDate) +
+            ? '<i>going out</i><b>' + esc(d.label) + '</b>' + esc(o.deliveryDate) +
               (o.time ? ' · ' + esc(o.time) : '')
-            : '<b>no date</b>tap to set') + '</div>') +
+            : '<i>going out</i><b>no date</b>tap to set') + '</div>') +
       (d.cls ? '<span class="tag ' + d.cls + '">' + (d.cls === 'due' ? 'due' : 'soon') + '</span>' : '') +
     '</div>' +
     /* The figure on this row is where the hand goes when a price needs
@@ -2828,8 +2873,13 @@ function renderOrderDetail() {
 
   $('orderHead').innerHTML =
     '<h2>' + esc(o.customer) + '</h2>' +
-    '<div class="kv"><span>When</span><b>' + esc(d.label) + ' · ' + esc(o.deliveryDate || '—') + '</b></div>' +
-    '<div class="kv"><span>How</span><b>' + esc(o.method || '—') + '</b></div>' +
+    (o.created ? '<div class="kv"><span>Ordered</span><b>' +
+      esc(plainDay(o.created)) + '</b></div>' : '') +
+    '<div class="kv"><span>Going out</span><b>' + esc(d.label) + ' · ' +
+      esc(o.deliveryDate || 'no date yet') +
+      (o.time ? ' · ' + esc(o.time) : '') + '</b></div>' +
+    '<div class="kv"><span>How</span><b>' + esc(o.method || '—') +
+      (o.venue ? ' · ' + esc(o.venue) : '') + '</b></div>' +
     '<div class="kv"><span>Status</span><b>' + esc(o.status) + (o.pending ? ' (not sent)' : '') + '</b></div>' +
     (o.contact ? '<div class="kv"><span>Contact</span><b>' + esc(o.contact) + '</b></div>' : '') +
     (o.notes ? '<div class="kv"><span>Notes</span><b>' + esc(o.notes) + '</b></div>' : '') +
@@ -3058,13 +3108,14 @@ function channelPrices(p) {
   const box  = !!p.isBox || catOf(p) === 'box';
   const webPct = (flat || box) ? 0 : markupPct('WEBSITE_MARKUP', 30);
   const mktPct = (flat || box) ? 0 : markupPct('MARKET_MARKUP', 15);
-  const marked = (base, pct) => !base ? 0
-    : !pct ? Math.round(base * 100) / 100 : round59(base * (1 + pct / 100));
+  const marked = markedUp;
   return {
     listPerLb: listLb, listPerPack: listPack,
     flat, box, webPct, mktPct,
-    wholesalePerLb:   box ? Number(p.webSetPerLb) || 0 : listLb,
-    wholesalePerPack: box ? Number(p.webSet)      || 0 : listPack,
+    // A box's price is typed into Price / pack, not Website / pack, so
+    // reading only the website column made every box $0 at wholesale.
+    wholesalePerLb:   box ? (Number(p.webSetPerLb) || listLb)   : listLb,
+    wholesalePerPack: box ? (Number(p.webSet)      || listPack) : listPack,
     websitePerLb:   Number(p.webSetPerLb) || (box ? listLb   : marked(listLb, webPct)),
     websitePerPack: Number(p.webSet)      || (box ? listPack : marked(listPack, webPct)),
     marketPerLb:    Number(p.marketPerLb) || (box ? 0 : marked(listLb, mktPct)),
@@ -5352,6 +5403,9 @@ function commitMove(key) {
  * that was never applied. */
 function noMarkupHere(p) {
   if (!p) return false;
+  /* Ground beef is priced by the tier table, the same table for all three
+     channels, so a markup on top would give it two different prices. */
+  if (isGroundBeef(p.sku)) return true;
   const cfg = (data.settings || {});
   const list = v => String(v || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
   const cats = cfg.NO_MARKUP_CATEGORIES !== undefined
