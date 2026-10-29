@@ -1139,7 +1139,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-30 03:30 UTC';
+const APP_BUILD = '2026-10-30 15:40 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -5436,9 +5436,14 @@ function renderCalc() {
   else if (w && calcUnit === 'oz') w = w / 16;      // the butcher's labels are in ounces
   const perLb = wholesale ? cp.wholesalePerLb : market ? cp.marketPerLb : cp.websitePerLb;
   const perPack = wholesale ? cp.wholesalePerPack : market ? cp.marketPerPack : cp.websitePerPack;
-  // The channel price already carries its markup and its rounding, so a
-  // weight sum is only tidied, never marked up a second time.
-  const tidy = v => wholesale ? Math.round(v * 100) / 100 : round59(v);
+  /* The channel price already carries its markup, so a weight sum is only
+     tidied, never marked up a second time — and tidied by the same rule as
+     everything else. This was rounding every piece to the next $5 whatever
+     its size: a shank steak at 1.13 lb came to $21.38 and was shown as $25.
+     Above the step line a piece is a retail price point; under it, the
+     whole dollar. */
+  const tidy = v => wholesale ? Math.round(v * 100) / 100
+    : (v > priceStepOver() ? round59(v) : upToDollar(v));
 
   // A price typed into the sheet is a finished number and is shown as typed.
   // A weight × $/lb sum is rounded, because those land on $84.37.
