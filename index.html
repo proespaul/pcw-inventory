@@ -210,6 +210,9 @@
   .seg{display:flex;gap:0;border:1px solid var(--line);border-radius:11px;overflow:hidden}
   .seg button{background:var(--bg);color:var(--ink);border-radius:0;padding:11px;font-size:14px}
   .seg button.on{background:var(--brand-2);color:var(--on-brand)}
+  /* The same strip, sized to sit inside a card on the product screen
+     rather than to be the main control of a whole page. */
+  .seg.small button{padding:7px 4px;font-size:13px;font-weight:600}
   nav button{min-width:0}
   nav{position:fixed;bottom:0;left:0;right:0;height:calc(var(--nav-h) + env(safe-area-inset-bottom));
       padding-bottom:env(safe-area-inset-bottom);background:var(--card);
@@ -1139,7 +1142,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-30 15:40 UTC';
+const APP_BUILD = '2026-10-30 21:00 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -4610,8 +4613,69 @@ function openProduct(sku) {
         'The faint figures came from that rule; type over one to set it yourself, ' +
         'or empty it to hand it back.';
 
-  const prices = '<p class="muted" style="margin:0 0 8px">' + rule + '</p>' +
-    (byPack ? packGrid : weightGrid);
+  /* What it sells for, read first and changed second.
+     The prices used to be six boxes you could type in, halfway down the
+     screen, under everything about the product. Nine times in ten the
+     question is "what does this go for" and the answer was a grid of input
+     fields to be read like a form. So the figures are read-only and up
+     front, and changing one is a deliberate tap. */
+  const money3 = (label, perPack, perLb) =>
+    '<div class="kv"><span>' + label + '</span><b>' +
+      (byPack
+        ? (perPack ? plain(perPack) + ' / pack' : '—')
+        : (perLb ? plain(perLb) + ' / lb' : '—')) +
+    '</b></div>';
+  const priceRead =
+    '<div class="card" style="margin:0 0 4px">' +
+      money3('Wholesale', cp.wholesalePerPack, cp.wholesalePerLb) +
+      money3('Website', cp.websitePerPack, cp.websitePerLb) +
+      money3('Farmers market', cp.marketPerPack, cp.marketPerLb) +
+      (!byPack && cp.wholesalePerLb
+        ? '<div class="kv sub"><span>Wholesale per kilo</span><b>' +
+          plain(cp.wholesalePerLb * LB_PER_KG) + '</b></div>' : '') +
+      '<button class="ghost small" style="margin-top:10px" ' +
+        'onclick="togglePriceEdit()">Change the price</button>' +
+    '</div>';
+
+  const prices = '<div id="epPrices" style="display:none">' +
+    '<p class="muted" style="margin:0 0 8px">' + rule + '</p>' +
+    (byPack ? packGrid : weightGrid) +
+    /* Changing a price here changes it for everybody, so it goes on the
+       record with a reason if one is given. A price agreed with one customer
+       belongs on that customer's order instead, not up here. */
+    '<label>Why, if the price is changing</label>' +
+    '<input id="epWhy" type="text" placeholder="e.g. feed cost, new season — optional">' +
+    '<p class="muted" style="margin:4px 0 12px">A change here is the price for ' +
+      'everybody and is written down on the PRICE CHANGES tab. A price just for ' +
+      'one customer goes on their order instead.</p>' +
+    '</div>';
+
+  /* The same sum as the Price screen, on the product itself, because
+     "what is this 1.2 lb piece worth" is asked standing at the freezer with
+     the pack in hand — not after navigating to another tab and finding the
+     product again. */
+  const calc =
+    '<div class="card" style="margin:0 0 4px">' +
+      '<div class="row">' +
+        '<input type="number" inputmode="decimal" id="pcW" step="0.01" min="0" ' +
+          'placeholder="weight" oninput="prodCalc()" style="flex:1.2">' +
+        '<div class="seg small" id="pcUnit" style="flex:1;margin:0">' +
+          ['lb', 'kg', 'oz'].map(u => '<button type="button" data-u="' + u + '"' +
+            (u === prodCalcUnit ? ' class="on"' : '') +
+            ' onclick="prodCalcSet(\'unit\',\'' + u + '\')">' + u + '</button>').join('') +
+        '</div>' +
+      '</div>' +
+      '<div class="seg small" id="pcCh" style="margin:8px 0 0">' +
+        [['wholesale', 'Wholesale'], ['website', 'Website'], ['market', 'Market']]
+          .map(c => '<button type="button" data-c="' + c[0] + '"' +
+            (c[0] === prodCalcChannel ? ' class="on"' : '') +
+            ' onclick="prodCalcSet(\'channel\',\'' + c[0] + '\')">' + c[1] + '</button>').join('') +
+      '</div>' +
+      '<div class="quote" style="padding:10px 0 2px">' +
+        '<div class="big" id="pcOut">—</div>' +
+        '<div class="basis" id="pcSay">Type a weight.</div>' +
+      '</div>' +
+    '</div>';
 
   const shot = photoFor(sku);
 
@@ -4625,8 +4689,12 @@ function openProduct(sku) {
     '<p class="muted" style="margin:2px 0 14px">− and + ask how many and why. ' +
       'Tap a line to fix the freezer, batch, grade or weight.</p>' +
 
+    '<label>What it sells for</label>' + priceRead + prices +
+
+    '<label style="margin-top:14px">What is a piece worth?</label>' + calc +
+
     // ── what it is ──
-    '<label>Name</label>' +
+    '<label style="margin-top:14px">Name</label>' +
     '<input id="epName" type="text" value="' + esc(p.product || '') + '">' +
     '<label>Category</label>' +
     '<select id="epCat">' + categoryList().map(c =>
@@ -4655,16 +4723,6 @@ function openProduct(sku) {
           esc(g) + '</option>').join('') + '</select>' : '') +
     batchRow +
 
-    '<label style="margin-top:14px">Prices</label>' + prices +
-    /* Changing a price here changes it for everybody, so it goes on the
-       record with a reason if one is given. A price agreed with one customer
-       belongs on that customer's order instead, not up here. */
-    '<label>Why, if the price is changing</label>' +
-    '<input id="epWhy" type="text" placeholder="e.g. feed cost, new season — optional">' +
-    '<p class="muted" style="margin:4px 0 12px">A change here is the price for ' +
-      'everybody and is written down on the PRICE CHANGES tab. A price just for ' +
-      'one customer goes on their order instead.</p>' +
-
     '<label>Tell me when it drops below</label>' +
     '<input id="epReorder" type="number" inputmode="numeric" step="1" min="0" value="' +
       (p.reorder === '' || p.reorder === undefined ? '' : p.reorder) + '" placeholder="packs">' +
@@ -4674,6 +4732,9 @@ function openProduct(sku) {
     '<button id="epGo" style="margin-top:14px" onclick="saveProduct(\'' + esc(sku) + '\')">Save changes</button>' +
     '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Close</button>' +
     '<p class="muted" style="margin-top:10px">Code: ' + esc(sku) + '</p>');
+
+  prodCalcSku = sku;
+  prodCalc();
 
   const cat = $('epCat');
   if (cat) cat.addEventListener('change', () => {
@@ -4685,6 +4746,49 @@ function openProduct(sku) {
     cat.insertBefore(o, cat.lastElementChild);
     cat.value = typed;
   });
+}
+
+/* The little calculator on the product screen. Its own unit and list, kept
+   between openings so somebody pricing a boxful of steaks sets it once. */
+let prodCalcUnit = 'lb';
+let prodCalcChannel = 'website';
+let prodCalcSku = '';
+
+function prodCalcSet(what, value) {
+  if (what === 'unit') prodCalcUnit = value; else prodCalcChannel = value;
+  const box = what === 'unit' ? '#pcUnit' : '#pcCh';
+  const attr = what === 'unit' ? 'u' : 'c';
+  document.querySelectorAll(box + ' button').forEach(b =>
+    b.classList.toggle('on', b.dataset[attr] === value));
+  prodCalc();
+}
+
+function prodCalc() {
+  const out = $('pcOut'), say = $('pcSay');
+  if (!out) return;
+  const p = (data.products || []).find(x => x.sku === prodCalcSku);
+  if (!p) return;
+  const typed = Number(($('pcW') || {}).value || 0);
+  const w = inLb(typed, prodCalcUnit);
+  const q = piecePrice(p, w, prodCalcChannel);
+  if (!q.ok) {
+    out.textContent = '—';
+    say.textContent = 'No ' + (prodCalcChannel === 'market' ? 'market ' : '') +
+      'price on file for this one.';
+    return;
+  }
+  out.textContent = plain(q.price);
+  say.textContent = (typed ? '' : 'No weight typed — ') + q.said;
+}
+
+/* The prices are read first and changed second, so the boxes stay out of
+   the way until somebody says they are changing one. */
+function togglePriceEdit() {
+  const box = $('epPrices');
+  if (!box) return;
+  const showing = box.style.display !== 'none';
+  box.style.display = showing ? 'none' : '';
+  if (!showing) box.scrollIntoView({ block: 'center', behavior: 'smooth' });
 }
 
 /* Per pound, per kilo and per ounce are three ways of saying one number, so
@@ -5419,50 +5523,42 @@ function noMarkupHere(p) {
 }
 
 /* ───────── 3. Price ───────── */
-function renderCalc() {
-  const sku = $('calcProduct').value;
-  const p = data.products.find(x => x.sku === sku);
-  if (!p) { $('calcPrice').textContent = '—'; $('calcBasis').textContent = 'Pick a product.'; return; }
 
-  const market = calcChannel === 'market';
-  // Wholesale is the price list as written: nothing added, and none of the
-  // rounding either. A wholesale quote that came back as $84.99 instead of
-  // $84.37 would be wrong, not tidier. Website and the market are that list
-  // plus their markup — the same sum the product screen shows.
-  const wholesale = calcChannel === 'wholesale';
-  const cp = channelPrices(p);
-  let w = Number($('calcWeight').value || 0);
-  if (w && calcUnit === 'kg') w = w * LB_PER_KG;
-  else if (w && calcUnit === 'oz') w = w / 16;      // the butcher's labels are in ounces
+/**
+ * What one piece is worth on one price list.
+ *
+ * The only place this sum is done. It was in three — the Price screen, the
+ * backend's quote and the box suggestions — and they drifted: one of them
+ * rounded a wholesale quote up to the next $5, which is helping yourself to
+ * the difference on somebody else's trade price.
+ *
+ * Wholesale is the price list as written: nothing added, and none of the
+ * rounding either. $84.37 is right and $84.99 is wrong. Website and market
+ * carry their markup already, so a weight sum is only tidied, never marked
+ * up a second time — to the next $5 above the step line, to the whole
+ * dollar under it.
+ */
+function piecePrice(p, w, channel) {
+  const market = channel === 'market';
+  const wholesale = channel === 'wholesale';
+  const cp = channelPrices(p || {});
   const perLb = wholesale ? cp.wholesalePerLb : market ? cp.marketPerLb : cp.websitePerLb;
   const perPack = wholesale ? cp.wholesalePerPack : market ? cp.marketPerPack : cp.websitePerPack;
-  /* The channel price already carries its markup, so a weight sum is only
-     tidied, never marked up a second time — and tidied by the same rule as
-     everything else. This was rounding every piece to the next $5 whatever
-     its size: a shank steak at 1.13 lb came to $21.38 and was shown as $25.
-     Above the step line a piece is a retail price point; under it, the
-     whole dollar. */
   const tidy = v => wholesale ? Math.round(v * 100) / 100
     : (v > priceStepOver() ? round59(v) : upToDollar(v));
 
   // A price typed into the sheet is a finished number and is shown as typed.
   // A weight × $/lb sum is rounded, because those land on $84.37.
-  let price = 0, basis = '', raw = 0, rounded = false;
+  let price = 0, basis = '', raw = 0, rounded = false, ok = true;
   if (w && perLb) {
     raw = w * perLb; price = tidy(raw); rounded = !wholesale;
     basis = w.toFixed(2) + ' lb × ' + money(perLb) + '/lb';
-  }
-  else if (perPack) { price = perPack; basis = 'set price for one ' + p.product; }
-  else if (perLb && Number(p.avgWeight)) {
+  } else if (perPack) {
+    price = perPack; basis = 'set price for one ' + (p.product || p.sku || 'it');
+  } else if (perLb && Number(p.avgWeight)) {
     raw = perLb * Number(p.avgWeight); price = tidy(raw); rounded = !wholesale;
     basis = 'average ' + p.avgWeight + ' lb × ' + money(perLb) + '/lb';
-  } else {
-    $('calcPrice').textContent = '—';
-    $('calcBasis').textContent = 'No price set for ' + p.product +
-      (market ? ' at the market.' : '.') + ' Add one on the PRODUCTS tab.';
-    $('calcExtra').innerHTML = '';
-    return;
-  }
+  } else ok = false;
 
   // Processed meat is one price everywhere at the moment, so saying "website"
   // beside it would imply a market price exists when it does not.
@@ -5472,9 +5568,39 @@ function renderCalc() {
     : market ? 'farmers market — list +' + cp.mktPct + '%'
     : 'website — list +' + cp.webPct + '%';
 
+  return { ok, price, basis, raw, rounded, where, perLb, perPack, cp, wholesale, market,
+           said: basis + ' · ' + where +
+             (rounded && round2(raw) !== price ? ' · rounded up from ' + money(raw) : '') };
+}
+
+/** A typed weight in lb, whatever unit the buttons are set to. */
+function inLb(value, unit) {
+  let w = Number(value || 0);
+  if (!w) return 0;
+  if (unit === 'kg') return w * LB_PER_KG;
+  if (unit === 'oz') return w / 16;        // the butcher's labels are in ounces
+  return w;
+}
+
+function renderCalc() {
+  const sku = $('calcProduct').value;
+  const p = data.products.find(x => x.sku === sku);
+  if (!p) { $('calcPrice').textContent = '—'; $('calcBasis').textContent = 'Pick a product.'; return; }
+
+  const w = inLb($('calcWeight').value, calcUnit);
+  const q = piecePrice(p, w, calcChannel);
+  const market = q.market, wholesale = q.wholesale, cp = q.cp;
+  const perLb = q.perLb, price = q.price;
+  if (!q.ok) {
+    $('calcPrice').textContent = '—';
+    $('calcBasis').textContent = 'No price set for ' + p.product +
+      (market ? ' at the market.' : '.') + ' Add one on the PRODUCTS tab.';
+    $('calcExtra').innerHTML = '';
+    return;
+  }
+
   $('calcPrice').textContent = plain(price);
-  $('calcBasis').textContent = basis + ' · ' + where +
-    (rounded && round2(raw) !== price ? ' · rounded up from ' + money(raw) : '');
+  $('calcBasis').textContent = q.said;
 
   const lots = data.stock.filter(l => l.sku === sku && l.packages > 0);
   const batch = lots.length ? lots[0].batch : '';
@@ -5506,10 +5632,10 @@ let editingPriceFrom = '';
 function changePriceHere(sku) {
   editingPriceFrom = 'Price tab';
   openProduct(sku);
-  // The prices are halfway down a long screen; take them there.
+  // Somebody who pressed "change this price" means it: open the boxes.
   setTimeout(() => {
-    const el = $('epWhy');
-    if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    const box = $('epPrices');
+    if (box && box.style.display === 'none') togglePriceEdit();
   }, 220);
 }
 
@@ -7677,6 +7803,20 @@ $('btnFuRewrite').addEventListener('click', () => openFu &&
   openFollowup(openFu.customer, openFu.boughtOn, true));
 $('btnFuSnooze').addEventListener('click', () => markFollowup('snooze', 30));
 $('btnFuCalled').addEventListener('click', () => markFollowup('contacted'));
+/* Enter means "I have typed it".
+   Android leaves the number pad up after Enter unless the field gives up
+   focus, so half the screen stays covered by a keypad while somebody tries
+   to read the figure they just worked out. Nothing in this app is saved by
+   submitting a form — every field is saved by a button or as it is typed —
+   so dropping focus on Enter costs nothing and hands the screen back. */
+document.addEventListener('keydown', ev => {
+  if (ev.key !== 'Enter' || ev.shiftKey) return;
+  const el = ev.target;
+  if (!el || el.tagName !== 'INPUT') return;
+  if (['button', 'submit', 'checkbox', 'radio', 'file'].includes(el.type)) return;
+  el.blur();
+});
+
 $('scrim').addEventListener('click', closeSheet);
 $('syncPill').addEventListener('click', () =>
   stuck.length ? openStuck() : queue.length ? openWaiting() : openSettings());
