@@ -311,6 +311,14 @@
   .chips button{width:auto;flex:0 0 auto;padding:9px 13px;font-size:14px;background:var(--bg);
                 color:var(--ink);border:1px solid var(--line)}
   .chips button.on{background:var(--brand-2);color:var(--on-brand);border-color:var(--brand-2)}
+  /* A link that looks like the chips beside it — "open their line in the
+     sales sheet" is a link, not a button, and must still be thumb-sized. */
+  .tapname{cursor:pointer}
+  .tapname .tapmore{font-size:13px;font-weight:600;color:var(--accent);margin-left:8px;
+                    white-space:nowrap}
+  .chips a{display:inline-block;flex:0 0 auto;padding:9px 13px;font-size:14px;
+           background:var(--bg);color:var(--ink);border:1px solid var(--line);
+           border-radius:11px;text-decoration:none;font-weight:600}
   .shots{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}
   .shot{position:relative;width:64px;height:64px;border-radius:9px;overflow:hidden;
         border:1px solid var(--line)}
@@ -324,6 +332,54 @@
                 padding:13px 10px;text-align:left;font-size:14px;font-weight:600;line-height:1.25}
   .tally button small{display:block;font-weight:400;color:var(--muted);font-size:11px;margin-top:3px}
   .tally button b{float:right;color:var(--accent)}
+
+  /* ── the month, as a calendar ──────────────────────────────────────
+     A list of dates answers "what is next". It does not answer "what does
+     the week after next look like", which is the question asked when
+     somebody rings wanting a day — and that is what a calendar is for.
+     Seven columns, the days of the month in them, and what is on each day
+     written in the cell rather than hidden behind a dot. */
+  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+  .cal .dow{text-align:center;font-size:10.5px;color:var(--muted);font-weight:700;
+            padding:2px 0;text-transform:uppercase;letter-spacing:.05em}
+  .cal .day{min-height:84px;border-radius:10px;background:var(--bg);
+            border:1px solid var(--line);display:flex;flex-direction:column;
+            padding:2px 2px 3px;cursor:pointer;position:relative;overflow:hidden;
+            -webkit-user-select:none;user-select:none}
+  /* The days either side of the month are drawn, faintly. Leaving them
+     blank hides whatever is booked on them — a drop-off on the 31st would
+     simply not be in October or in November. Google shows them; so do we. */
+  .cal .day.other{background:transparent;border-color:transparent}
+  .cal .day.other .dn{opacity:.45}
+  .cal .day.other .ev{opacity:.6}
+  .cal .day.today{border:2px solid var(--accent)}
+  .cal .day .dn{font-size:11px;font-weight:700;color:var(--muted);text-align:center;
+                line-height:1.2}
+  .cal .day.today .dn{color:var(--accent)}
+  .cal .evs{flex:1;display:flex;flex-direction:column;gap:2px;margin-top:2px;overflow:hidden}
+  /* Two lines on a chip: the time, then who it is for. A cell is about
+     50px wide on a phone, so one line could only ever show "2p K…" —
+     which is a dot with extra steps. */
+  .cal .ev{padding:2px 3px;border-radius:4px;background:var(--brand-2);
+           color:var(--on-brand);touch-action:none;overflow:hidden}
+  .cal .ev.pick{background:var(--ch-site);color:var(--on-brand)}
+  .cal .ev.done{background:none;border:1px dashed var(--line);color:var(--muted)}
+  .cal .ev .t{display:block;font-size:8.5px;line-height:1.15;opacity:.9;font-weight:700}
+  .cal .ev .n{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+              overflow:hidden;font-size:9.5px;line-height:1.2;font-weight:600;
+              overflow-wrap:anywhere}
+  .cal .ev.ghosted{opacity:.35}
+  .cal .more{font-size:9.5px;color:var(--muted);text-align:center;line-height:1.3}
+  .cal .day.drop{border:2px solid var(--accent);background:var(--card)}
+  .calhead{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .calhead b{flex:1;text-align:center;font-size:15px}
+  .calhead button{width:auto;flex:0 0 auto;padding:7px 14px}
+  /* The label that follows the finger while a booking is being dragged. */
+  .evdrag{position:fixed;z-index:70;pointer-events:none;font-size:11px;font-weight:700;
+          padding:4px 9px;border-radius:7px;background:var(--brand-2);
+          color:var(--on-brand);box-shadow:0 6px 18px rgba(0,0,0,.3);
+          transform:translate(-50%,-140%);max-width:60vw;white-space:nowrap;
+          overflow:hidden;text-overflow:ellipsis}
 
   /* ── sign-in gate ── */
   .signin { position:fixed; inset:0; z-index:200; display:flex; align-items:center;
@@ -592,6 +648,10 @@
            text-decoration:none;margin-top:9px;padding:12px 14px;border-radius:12px;
            font:inherit;font-weight:700;background:var(--brand-2);color:var(--on-brand);border:0}
   .btnlike.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line)}
+  /* Call / text / email side by side: three full-width buttons pushed the
+     order itself a screen and a half down. */
+  .row>.btnlike{margin-top:0;padding:11px 8px;font-size:14px;
+                white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 </style>
 </head>
 <body>
@@ -827,9 +887,16 @@
         <h2 style="margin:0;flex:1">Drop-offs &amp; pick-ups</h2>
         <button style="flex:0 0 auto;width:auto;padding:9px 14px" onclick="showView('calnew')">+ Add</button>
       </div>
-      <p class="muted" id="calStatus" style="margin:8px 0 0"></p>
+      <div class="calhead" style="margin-top:10px">
+        <button class="ghost" onclick="calShift(-1)">‹</button>
+        <b id="calLabel">—</b>
+        <button class="ghost" onclick="calShift(1)">›</button>
+      </div>
+      <div class="cal" id="calGrid"></div>
+      <p class="muted" id="calStatus" style="margin:10px 0 0"></p>
     </div>
-    <div class="card list" id="calList"></div>
+    <h3 id="calNextHead">Coming up</h3>
+    <div class="list cells" id="calList"></div>
   </section>
 
   <section class="view" id="view-calnew">
@@ -1045,6 +1112,17 @@
       <input id="clientSearch" type="search" placeholder="Search customers…" autocomplete="off">
       <button class="mic" onclick="dictate('clientSearch',this,renderClients)">🎤</button>
     </div>
+    <div class="card" id="clientBooks">
+      <div class="item" style="border:0;padding:2px">
+        <div class="name"><b>The three books</b>
+          <span id="clientSyncLine">The app, the 2026 sales sheet and Google Contacts.</span></div>
+      </div>
+      <div class="row" style="margin-top:9px">
+        <button class="ghost small" onclick="syncBooks()">Square them up</button>
+        <button class="ghost small" onclick="openBookLinks()">Open a book</button>
+      </div>
+      <div id="clientExtras"></div>
+    </div>
     <div class="card list" id="clientList"></div>
   </section>
 
@@ -1142,7 +1220,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-10-30 21:00 UTC';
+const APP_BUILD = '2026-11-04 17:50 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -2875,7 +2953,11 @@ function renderOrderDetail() {
   const d = dayInfo(o.deliveryDate);
 
   $('orderHead').innerHTML =
-    '<h2>' + esc(o.customer) + '</h2>' +
+    /* The name is the way through to the client's card — their number,
+       their email, and the line they are on in each of the three books. */
+    '<h2 class="tapname" onclick="openCustomer(' +
+      JSON.stringify(o.customer).replace(/"/g, '&quot;') + ')">' + esc(o.customer) +
+      '<span class="tapmore">details ›</span></h2>' +
     (o.created ? '<div class="kv"><span>Ordered</span><b>' +
       esc(plainDay(o.created)) + '</b></div>' : '') +
     '<div class="kv"><span>Going out</span><b>' + esc(d.label) + ' · ' +
@@ -2996,16 +3078,18 @@ function renderOrderDetail() {
  * connected on the SETTINGS tab, puts it in the calendar with the
  * customer's phone and what they are getting on the entry. Moving the day
  * later moves that entry rather than leaving a second one behind. */
-function openSchedule(id) {
+function openSchedule(id, onDay) {
   const o = (data.orders || []).find(x => x.id === id);
   if (!o) return;
   const method = /deliver|drop/i.test(o.method || '') ? 'Delivery' : 'Pickup';
   const onCal = !!String((data.settings || {}).CALENDAR_ID || '').trim();
   openSheet('Schedule ' + (o.customer || 'this order'),
-    (o.status === 'Open' ? 'Not assembled yet — the day can still be set'
-                         : 'Assembled and waiting to go out'),
+    (onDay ? 'Moving it to ' + onDay
+           : o.status === 'Open' ? 'Not assembled yet — the day can still be set'
+                                 : 'Assembled and waiting to go out'),
     '<label>Day</label>' +
-    '<input type="date" id="scDate" value="' + esc(o.deliveryDate || todayISO()) + '">' +
+    '<input type="date" id="scDate" value="' +
+      esc(onDay || o.deliveryDate || todayISO()) + '">' +
     '<label>Time</label>' +
     '<input type="time" id="scTime" value="' + esc(o.time || '') + '">' +
     '<p class="muted" style="margin:4px 0 0">Leave the time blank for ' +
@@ -3048,6 +3132,8 @@ function saveSchedule(id) {
              time, venue, method }]);
   closeSheet();
   toast('Set for ' + dayInfo(date).label + (time ? ' at ' + time : '') + '.', 'ok');
+  // The month on screen is now out of date by one booking.
+  if ($('calGrid')) loadSchedule(true);
 }
 
 /* ─────────── what kind of thing is this ───────────
@@ -6361,11 +6447,208 @@ function showCut(sku, backToProduct) {
 /* ─────────────────── one customer, everything ─────────────────── */
 // Tapping a name anywhere opens this: how to reach them, and every order
 // with the date it went out.
+/* The client's details, as all three books have them, and a way to put
+   them right. The card is the same wherever it is opened from — the
+   calendar, an order, the client list, the sales book — so there is one
+   place to look and one place to change. */
+let custCard = null;
+
+/* A string on its way into an onclick attribute. JSON gives the quotes,
+   &quot; keeps them from closing the attribute itself. */
+const arg = v => JSON.stringify(v == null ? '' : String(v)).replace(/"/g, '&quot;');
+
+const BOOK_NAME = { app: 'the app', 'sales sheet': 'the sales sheet', contacts: 'Google Contacts' };
+
+function custBookLinks(w) {
+  if (!w) return '';
+  const link = (href, label) => href
+    ? '<a class="chip" href="' + esc(href) + '" target="_blank" rel="noopener">' + label + '</a>'
+    : '';
+  return '<div class="chips" style="margin-top:10px">' +
+    link((w.app && w.app.url) || w.appUrl, 'App sheet') +
+    link((w.sales && w.sales.url) || w.salesUrl, 'Sales sheet') +
+    link(w.contact && w.contact.url, 'Google Contacts') +
+    '</div>';
+}
+
+function custDetails(w) {
+  if (!w || !w.ok) return '';
+  const known = w.known || { phone: [], email: [], town: [] };
+
+  /* Two numbers is two numbers, not a problem. Both are listed, both can
+     be rung, and neither is anybody's job to choose between. */
+  const line = (label, list, kind) => {
+    if (!list.length) return '<div class="kv"><span>' + label + '</span><b>—</b></div>';
+    return list.map((v, i) => '<div class="kv"><span>' +
+      (i ? '' : label) + '</span><b>' +
+      (kind === 'tel' ? '<a href="tel:' + esc(String(v.value).replace(/[^\d+]/g, '')) +
+                        '">' + esc(v.value) + '</a>'
+       : kind === 'mail' ? '<a href="mailto:' + esc(v.value) + '">' + esc(v.value) + '</a>'
+       : esc(v.value)) + '</b></div>').join('');
+  };
+
+  const rows =
+    line('Phone', known.phone, 'tel') +
+    line('Email', known.email, 'mail') +
+    line('Town', known.town) +
+    '<div class="kv"><span>In</span><b>' +
+      [w.app ? 'app' : '', w.sales ? 'sales sheet' : '', w.contact ? 'contacts' : '']
+        .filter(Boolean).join(' · ') + '</b></div>';
+
+  const WORD = { phone: ['number', 'numbers'], email: ['email address', 'email addresses'],
+                 town: ['address', 'addresses'] };
+  const several = ['phone', 'email', 'town']
+    .filter(k => (known[k] || []).length > 1)
+    .map(k => known[k].length + ' ' + WORD[k][1]);
+  const note = several.length
+    ? '<p class="muted" style="margin:8px 0 0">' + several.join(' and ') +
+      ' on file — all of them are kept, in Google Contacts and on the sales sheet. ' +
+      'Change or take one off under “Change their details”.</p>'
+    : '';
+
+  const trouble = (w.contactsError
+      ? '<p class="muted" style="margin-top:8px">Google Contacts: ' + esc(w.contactsError) + '</p>' : '') +
+    (w.salesError
+      ? '<p class="muted" style="margin-top:8px">Sales sheet: ' + esc(w.salesError) + '</p>' : '');
+
+  return '<h3 style="margin:16px 0 6px">Their details</h3>' +
+    '<div class="card" style="margin:0">' + rows + note + custBookLinks(w) + '</div>' +
+    trouble +
+    '<button class="ghost small" style="margin-top:9px" onclick="custEdit()">Change their details</button>';
+}
+
+/* One box per number they have, plus an empty one for another. Clearing a
+   box removes that number everywhere, which is the only way anything is
+   ever taken off a client. */
+function custBoxes(id, label, list, type) {
+  const vals = (list || []).map(v => v.value);
+  vals.push('');
+  return vals.map((v, i) =>
+    '<label>' + label + (i ? ' ' + (i + 1) : '') + '</label>' +
+    '<input class="' + id + '" type="' + type + '"' +
+    (type === 'email' ? ' autocapitalize="off"' : '') +
+    ' value="' + esc(v) + '"' +
+    (i === vals.length - 1 && vals.length > 1 ? ' placeholder="another one"' : '') + '>').join('');
+}
+
+function custEdit() {
+  const w = custCard || {};
+  const k = w.known || { phone: [], email: [], town: [] };
+  openSheet(w.name || 'Client', 'Saved into all three books',
+    '<label>Name</label><input id="cuName" value="' + esc(w.name || '') + '">' +
+    custBoxes('cuPhone', 'Phone', k.phone, 'tel') +
+    custBoxes('cuMail', 'Email', k.email, 'email') +
+    custBoxes('cuTown', 'Town', k.town, 'text') +
+    '<label>Notes</label><input id="cuNotes" value="' +
+      esc((w.app && w.app.notes) || '') + '">' +
+    '<p class="muted" style="margin:10px 0 0">Google Contacts keeps every number ' +
+      'and address. The two spreadsheets get them in the one cell, written ' +
+      '“one / the other”.</p>' +
+    '<button style="margin-top:12px" onclick="custSave()">Save in all three</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="openCustomer(' +
+      arg(w.name) + ')">Back</button>');
+}
+
+const custMany = cls => Array.from(document.querySelectorAll('input.' + cls))
+  .map(el => el.value.trim()).filter(Boolean);
+
+async function custSave() {
+  const was = (custCard || {}).name || '';
+  const body = { customer: $('cuName').value.trim() || was, was: was,
+                 phones: custMany('cuPhone'), emails: custMany('cuMail'),
+                 towns: custMany('cuTown'), notes: $('cuNotes').value.trim() };
+  if (!body.customer) return toast('They need a name.', 'bad');
+  openSheet(body.customer, 'Writing it to all three…', '<p class="muted">One moment.</p>');
+  try {
+    const r = await api('customerSave', body);
+    custCard = r;
+    toast(custSaidWhere(r), r.contactsError ? 'warn' : 'ok');
+    openCustomer(body.customer);
+  } catch (e) { toast(e.message, 'bad'); openCustomer(was || body.customer); }
+}
+
+function custSaidWhere(r) {
+  const done = r.saved || {};
+  const bits = [];
+  if ((done.app || []).length) bits.push('the app');
+  if ((done.sales || []).length) bits.push('the sales sheet');
+  if ((done.contact || []).length) bits.push('contacts');
+  if (r.contactsError) return 'Saved in the sheets. Contacts: ' + r.contactsError;
+  return bits.length ? 'Saved in ' + bits.join(', ') : 'Nothing to change';
+}
+
+/* ── the whole list, squared up ── */
+async function syncBooks() {
+  const line = $('clientSyncLine');
+  if (line) line.textContent = 'Reading all three…';
+  try {
+    const r = await api('syncCustomers', {});
+    const bits = [];
+    if (r.appAdded) bits.push(r.appAdded + ' added to the app');
+    if (r.appFilled) bits.push(r.appFilled + ' blank' + (r.appFilled === 1 ? '' : 's') + ' filled in the app');
+    if (r.salesAdded) bits.push(r.salesAdded + ' added to the sales sheet');
+    if (r.salesFilled) bits.push(r.salesFilled + ' filled on the sales sheet');
+    if (r.contactsMade) bits.push(r.contactsMade + ' new contact' + (r.contactsMade === 1 ? '' : 's'));
+    if (r.contactsFilled) bits.push(r.contactsFilled + ' contact' +
+        (r.contactsFilled === 1 ? '' : 's') + ' filled in');
+    if (line) line.textContent = r.checked + ' client' + (r.checked === 1 ? '' : 's') + ' checked' +
+      (bits.length ? ' · ' + bits.join(', ') : ' · nothing to change');
+    renderExtras(r);
+    if (r.contactsError) toast('Google Contacts: ' + r.contactsError, 'bad');
+    if (r.salesError) toast('Sales sheet: ' + r.salesError, 'bad');
+    sync(true);
+  } catch (e) {
+    if (line) line.textContent = e.message;
+    toast(e.message, 'bad');
+  }
+}
+
+/* Who has more than one number or address. Not a to-do list — both are
+   already in Contacts and on the sales sheet. It is here so he can see at
+   a glance which clients have two, in case one of them is a typo. */
+function renderExtras(r) {
+  const box = $('clientExtras');
+  if (!box) return;
+  const ex = (r && r.extras) || [];
+  box.innerHTML = !ex.length ? '' :
+    '<h3 style="margin:14px 0 6px">' + ex.length + ' with more than one</h3>' +
+    '<div class="card list" style="margin:0;padding:0;box-shadow:none">' +
+    ex.map(x => '<div class="item" onclick="openCustomer(' + arg(x.name) + ')">' +
+      '<div class="name"><b>' + esc(x.name) + '</b><span>' +
+      esc(x.what.toLowerCase()) + ': ' + x.values.map(esc).join(' · ') +
+      '</span></div><div class="qty"><b>›</b></div></div>').join('') + '</div>' +
+    '<p class="muted" style="margin:8px 0 0">All of them are kept — in Google Contacts ' +
+    'and on the sales sheet. Open one only if a number looks wrong.</p>';
+}
+
+function openBookLinks() {
+  const w = custCard || {};
+  openSheet('The three books', 'Where a client’s details live',
+    '<div class="card list" style="margin:0;padding:0;box-shadow:none">' +
+    '<div class="item"><div class="name"><b>The app</b>' +
+      '<span>CUSTOMERS tab of the PCW Inventory sheet — what the app reads</span></div></div>' +
+    '<div class="item"><div class="name"><b>The sales sheet</b>' +
+      '<span>"Customers’ info" in 1. 2026 sales sheet — the book of record</span></div></div>' +
+    '<div class="item"><div class="name"><b>Google Contacts</b>' +
+      '<span>Labelled PCW Customers, so a name comes up when they ring</span></div></div>' +
+    '</div>' +
+    '<p class="muted" style="margin-top:10px">Open a client to jump straight to their line in ' +
+    'any of the three. Squaring them up puts every number and address into every ' +
+    'book — a client with two of something keeps both, and nothing is ever deleted ' +
+    'by it.</p>' +
+    '<button class="ghost" style="margin-top:12px" onclick="closeSheet()">Close</button>');
+}
+
 async function openCustomer(name) {
   openSheet(name, 'Looking them up…', '<p class="muted">One moment.</p>');
   let f;
-  try { f = await api('customer', { customer: name }); }
+  try { f = await api('customer', { customer: name, where: true }); }
   catch (e) { return openSheet(name, '', '<p class="muted">' + esc(e.message) + '</p>'); }
+  /* If the backend could not reach the other two books, the card still
+     works — it just knows only what the app knows. */
+  const one = v => v ? [{ value: v, where: ['app'] }] : [];
+  custCard = f.where && f.where.ok ? f.where : { ok: true, name: f.name, app: null,
+    known: { phone: one(f.phone), email: one(f.email), town: one(f.town) } };
 
   const tel = String(f.phone || '').replace(/[^\d+]/g, '');
   const buttons =
@@ -6396,7 +6679,7 @@ async function openCustomer(name) {
     [f.town, f.orderCount ? f.orderCount + ' order' + (f.orderCount === 1 ? '' : 's') : '',
      f.spend ? money(f.spend) + ' all time' : '',
      f.last ? 'last bought ' + f.last : ''].filter(Boolean).join(' · '),
-    buttons + waiting +
+    buttons + custDetails(f.where) + waiting +
     '<h3 style="margin:16px 0 6px">What they have ordered</h3>' +
     '<div class="card list" style="margin:0;padding:0;box-shadow:none">' + lines + '</div>' +
     (f.notes ? '<p class="muted" style="margin-top:12px">' + esc(f.notes) + '</p>' : '') +
@@ -6440,66 +6723,352 @@ function pickProduct(sku) {
   renderCalc();
 }
 
-/* ─────────────────── drop-offs and pick-ups ─────────────────── */
+/* ─────────────────── drop-offs and pick-ups ───────────────────
+ *
+ * A month at a time, laid out as a calendar.
+ *
+ * It was a list of dates, which answers "what is next" and nothing else.
+ * The question actually asked — somebody on the phone wanting a day — is
+ * "what does the week after next look like", and a list cannot show you
+ * that. So: seven columns, what is on each day written in the cell, and a
+ * booking can be dragged onto another day.
+ */
 let calEntries = [], cnLines = [];
+let calMonth = '';                  // YYYY-MM, the month on screen
+let calLoaded = '';                 // the month the entries in hand are for
+
+const calMonthStr = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+const calDayStr = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+                       '-' + String(d.getDate()).padStart(2, '0');
+
+/* The grid runs from the Sunday on or before the 1st to the Saturday on or
+   after the last, so the days either side of the month are real days with
+   real bookings on them rather than empty squares. */
+function calGridStart(month) {
+  const p = String(month).split('-');
+  const first = new Date(Number(p[0]), Number(p[1]) - 1, 1);
+  const start = new Date(first);
+  start.setDate(1 - first.getDay());
+  return start;
+}
+
+function calShift(by) {
+  const p = (calMonth || calMonthStr(new Date())).split('-');
+  calMonth = calMonthStr(new Date(Number(p[0]), Number(p[1]) - 1 + by, 1));
+  renderSchedule();                 // the month redraws at once, empty if need be
+  loadSchedule(true);
+}
 
 async function loadSchedule(quiet) {
+  if (!calMonth) calMonth = calMonthStr(new Date());
+  const month = calMonth;
   try {
-    const r = await api('schedule', { days: 90 });
+    /* Six weeks from the grid's first square. Asking from the 1st would
+       leave the days before it blank on screen while something sat on
+       them. Settled ones are asked for too: a month with last week's
+       deliveries missing is not what the month looked like. */
+    const r = await api('schedule', { from: calDayStr(calGridStart(month)),
+                                      days: 42, includeDone: true });
     calEntries = r.entries || [];
-    $('calStatus').textContent = r.calendarOn
-      ? calEntries.length + (calEntries.length === 1 ? ' coming up' : ' coming up') + ', synced to the PCW calendar'
-      : calEntries.length + ' coming up · not synced — set CALENDAR_ID in the Sheet to put these on Google Calendar';
+    calLoaded = month;
+    const soon = calEntries.filter(e => !calSettled(e) && e.date >= todayISO()).length;
+    $('calStatus').textContent = (r.calendarOn
+      ? soon + ' still to go out, synced to the PCW calendar'
+      : soon + ' still to go out · not synced — set CALENDAR_ID in the Sheet to put ' +
+        'these on Google Calendar') +
+      ' · tap a day to see it, press and hold a booking to move it';
     renderSchedule();
   } catch (e) { if (!quiet) toast(e.message, 'bad'); }
 }
 
-function renderSchedule() {
-  const today = todayISO();
-  $('calList').innerHTML = calEntries.length ? calEntries.map((e, i) => {
-    const when = e.date === today ? 'Today' : e.date;
-    return '<div class="item" onclick="openCalEntry(' + i + ')">' +
-      '<div class="name"><b>' + esc(e.customer) +
-      '<span class="tag ' + (e.kind === 'Drop-off' ? 'out' : 'ok') + '">' + esc(e.kind) + '</span>' +
-      (e.onCalendar ? '' : '<span class="tag low">not on calendar</span>') +
-      '</b><span>' + esc(when) + (e.time ? ' at ' + esc(e.time) : '') +
-      (e.venue ? ' · ' + esc(e.venue) : '') +
-      (e.packages ? '<br>' + e.packages + ' package' + (e.packages === 1 ? '' : 's') : '') +
-      '</span></div>' +
-      '<div class="qty"><b>' + esc((e.date || '').slice(5)) + '</b><span>' + esc(e.status || '') + '</span></div>' +
-      '</div>';
-  }).join('') : '<div class="empty">Nothing booked in the next three months.</div>';
+const calSettled = e => ['Delivered', 'Cancelled'].includes(String((e || {}).status || ''));
+
+/* A cell is about 50px wide. "Katelyn Kelly" breaks across two lines in
+   the middle of a word; "Katelyn K." does not. */
+function calWho(name) {
+  const w = String(name || 'Someone').trim().split(/\s+/);
+  return w.length < 2 ? w[0] : w[0] + ' ' + w[1][0].toUpperCase() + '.';
 }
 
-// Tap an entry and get everything you need standing on the driveway.
+/* "2p", "11:30a" — the time in the space a calendar cell has for it. */
+function calClock(e) {
+  const t = String((e || {}).time || '').trim();
+  const m = t.match(/^(\d{1,2})[:h.]?(\d{2})?\s*(am|pm)?$/i);
+  if (!m) return t;
+  let h = Number(m[1]);
+  const mm = m[2] ? Number(m[2]) : 0;
+  const ap = (m[3] || '').toLowerCase();
+  if (ap === 'pm' && h < 12) h += 12;
+  if (ap === 'am' && h === 12) h = 0;
+  return (h % 12 || 12) + (mm ? ':' + String(mm).padStart(2, '0') : '') + (h < 12 ? 'a' : 'p');
+}
+
+function renderSchedule() {
+  const grid = $('calGrid');
+  if (!grid) return;
+  if (!calMonth) calMonth = calMonthStr(new Date());
+  const p = calMonth.split('-');
+  const y = Number(p[0]), m = Number(p[1]);
+  const today = todayISO();
+
+  const byDay = {};
+  (calLoaded === calMonth ? calEntries : []).forEach(e => {
+    if (!e.date) return;
+    (byDay[e.date] || (byDay[e.date] = [])).push(e);
+  });
+  Object.keys(byDay).forEach(k => byDay[k].sort((a, b) =>
+    String(a.time || '99').localeCompare(String(b.time || '99'))));
+
+  let cells = ['S','M','T','W','T','F','S']
+    .map(d => '<div class="dow">' + d + '</div>').join('');
+  const start = calGridStart(calMonth);
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    const key = calDayStr(d);
+    const other = d.getMonth() !== m - 1;
+    const mine = byDay[key] || [];
+    /* A last row that is entirely next month and entirely empty is a row
+       of nothing. Drop it; keep it the moment anything is on it. */
+    if (other && i >= 35 && !mine.length) continue;
+    const chips = mine.slice(0, 2).map(e => {
+      const i2 = calEntries.indexOf(e);
+      const t = calClock(e);
+      return '<div class="ev' + (calSettled(e) ? ' done' : (/pick/i.test(e.kind || '') ? ' pick' : '')) +
+        '" data-ev="' + i2 + '" data-day="' + key + '"' +
+        ' onpointerdown="calGrab(event,' + i2 + ',\'' + key + '\')"' +
+        ' onclick="event.stopPropagation()">' +
+        (t ? '<span class="t">' + esc(t) + '</span>' : '') +
+        '<span class="n">' + esc(calWho(e.customer)) + '</span></div>';
+    }).join('');
+    cells += '<div class="day' + (key === today ? ' today' : '') +
+      (other ? ' other' : '') + '" data-day="' + key + '"' +
+      ' onclick="openCalDay(\'' + key + '\')">' +
+      '<span class="dn">' + d.getDate() + '</span>' +
+      '<div class="evs">' + chips +
+        (mine.length > 2 ? '<div class="more">+' + (mine.length - 2) + '</div>' : '') +
+      '</div></div>';
+  }
+  grid.innerHTML = cells;
+  $('calLabel').textContent =
+    new Date(y, m - 1, 1).toLocaleDateString([], { month: 'long', year: 'numeric' });
+
+  /* Under the month, what is actually next — the three or four that matter
+     today, which is the one thing the old list did well. */
+  const soon = calEntries
+    .filter(e => !calSettled(e) && e.date >= today)
+    .sort((a, b) => String(a.date + (a.time || '')).localeCompare(b.date + (b.time || '')))
+    .slice(0, 6);
+  $('calNextHead').style.display = soon.length ? '' : 'none';
+  $('calList').innerHTML = soon.length ? soon.map(e => {
+    const i = calEntries.indexOf(e);
+    const when = e.date === today ? 'Today' : e.date;
+    return '<div class="ord" onclick="openCalEntry(' + i + ')">' +
+      '<div class="head">' +
+      '<div class="who"><b>' + esc(e.customer) +
+        '<span class="tag ' + (/pick/i.test(e.kind || '') ? 'ok' : 'out') + '">' +
+        esc(e.kind) + '</span>' +
+        (e.onCalendar ? '' : '<span class="tag low">not on calendar</span>') +
+        '</b><span>' + (e.packages ? e.packages + ' package' +
+          (e.packages === 1 ? '' : 's') : 'nothing listed') +
+        (e.venue ? ' · ' + esc(e.venue) : '') + '</span></div>' +
+      '<div class="when"><b>' + esc(when) + '</b>' +
+        esc(e.time ? calClock(e) : 'no time') + '</div>' +
+      '</div></div>';
+  }).join('') : '';
+}
+
+/* One day, everything on it. The cell can hold two; this holds the lot. */
+function openCalDay(day) {
+  const mine = calEntries.filter(e => e.date === day)
+    .sort((a, b) => String(a.time || '99').localeCompare(String(b.time || '99')));
+  const p = day.split('-');
+  const label = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]))
+    .toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+  openSheet(label, mine.length
+      ? mine.length + (mine.length === 1 ? ' booking' : ' bookings')
+      : 'Nothing booked',
+    (mine.length
+      ? '<div class="card list" style="margin:0">' + mine.map(e => {
+          const i = calEntries.indexOf(e);
+          return '<div class="item" onclick="closeSheet();setTimeout(function(){openCalEntry(' +
+            i + ')},260)"><div class="name"><b>' + esc(e.customer) +
+            '<span class="tag ' + (/pick/i.test(e.kind || '') ? 'ok' : 'out') + '">' +
+            esc(e.kind) + '</span></b><span>' +
+            (e.time ? esc(calClock(e)) + ' · ' : '') +
+            (e.packages ? e.packages + ' pkg' : 'nothing listed') +
+            (e.venue ? ' · ' + esc(e.venue) : '') + '</span></div>' +
+            '<div class="qty"><b>' + esc(e.status || '') + '</b></div></div>';
+        }).join('') + '</div>'
+      : '<div class="empty">Nothing booked on this day.</div>') +
+    '<button class="ghost" style="margin-top:12px" onclick="closeSheet()">Close</button>');
+}
+
+/* ── moving a booking by dragging it ───────────────────────────────────
+ * Press and hold, then drag. The hold is what separates a drag from a
+ * scroll and from a tap: move before it fires and it is a scroll, let go
+ * before it fires and it is a tap that opens the booking. Pointer events
+ * rather than HTML5 drag-and-drop, which does not exist on a phone.
+ *
+ * Dropping does not move anything by itself. It opens the same scheduling
+ * sheet as everywhere else with the new day filled in, because the time
+ * still has to be agreed and the customer still has to be told. */
+let calDrag = null;
+
+function calGrab(ev, idx, day) {
+  if (ev.button && ev.button !== 0) return;
+  const el = ev.currentTarget;
+  calDrag = { idx, day, el, x0: ev.clientX, y0: ev.clientY, id: ev.pointerId,
+              on: false, over: '', timer: setTimeout(calLift, 320) };
+  try { el.setPointerCapture(ev.pointerId); } catch (e) {}
+  el.onpointermove = calMoveP;
+  el.onpointerup = calDrop;
+  el.onpointercancel = calDragEnd;
+}
+
+function calLift() {
+  if (!calDrag) return;
+  calDrag.on = true;
+  calDrag.el.classList.add('ghosted');
+  const g = document.createElement('div');
+  g.className = 'evdrag';
+  g.textContent = (calEntries[calDrag.idx] || {}).customer || 'Booking';
+  g.style.left = calDrag.x0 + 'px';
+  g.style.top = calDrag.y0 + 'px';
+  document.body.appendChild(g);
+  calDrag.ghost = g;
+  try { if (navigator.vibrate) navigator.vibrate(12); } catch (e) {}
+}
+
+function calMoveP(ev) {
+  if (!calDrag) return;
+  if (!calDrag.on) {
+    if (Math.abs(ev.clientX - calDrag.x0) > 8 || Math.abs(ev.clientY - calDrag.y0) > 8) calDragEnd();
+    return;
+  }
+  ev.preventDefault();
+  calDrag.ghost.style.left = ev.clientX + 'px';
+  calDrag.ghost.style.top = ev.clientY + 'px';
+  const under = document.elementFromPoint(ev.clientX, ev.clientY);
+  const cell = under && under.closest ? under.closest('.day[data-day]') : null;
+  const day = cell ? cell.getAttribute('data-day') : '';
+  if (day !== calDrag.over) {
+    document.querySelectorAll('.cal .day.drop').forEach(d => d.classList.remove('drop'));
+    if (day && day !== calDrag.day && cell) cell.classList.add('drop');
+    calDrag.over = day;
+  }
+}
+
+function calDrop(ev) {
+  if (!calDrag) return;
+  const was = calDrag, onto = was.on ? was.over : '';
+  calDragEnd();
+  if (!was.on) return openCalEntry(was.idx);          // a tap, not a drag
+  if (!onto || onto === was.day) return;              // put back where it was
+  const e = calEntries[was.idx];
+  if (!e) return;
+  if (!(data.orders || []).some(o => o.id === e.id)) {
+    return toast('That one was added straight to the calendar — open it to change the day.', 'bad');
+  }
+  openSchedule(e.id, onto);
+}
+
+function calDragEnd() {
+  if (!calDrag) return;
+  clearTimeout(calDrag.timer);
+  try { calDrag.el.releasePointerCapture(calDrag.id); } catch (e) {}
+  calDrag.el.onpointermove = null;
+  calDrag.el.onpointerup = null;
+  calDrag.el.onpointercancel = null;
+  calDrag.el.classList.remove('ghosted');
+  /* Take the ghost off the screen whatever happened: a floating label left
+     behind after a drag sits over everything and nothing removes it. */
+  if (calDrag.ghost) { try { calDrag.ghost.remove(); } catch (e) {} }
+  document.querySelectorAll('.cal .day.drop').forEach(d => d.classList.remove('drop'));
+  calDrag = null;
+}
+
+/* Tap a name and get everything about them, standing on the driveway:
+ * when, where, the phone to ring, the email, what is on the order and what
+ * it comes to. The calendar entry carries the booking; the order in hand
+ * carries the money and the lines; the customer list carries the phone and
+ * email for anyone whose order was written without them. Take all three. */
+function calPerson(name) {
+  const t = String(name || '').trim().toLowerCase();
+  return knownCustomers().find(c => String(c.customer).trim().toLowerCase() === t) || {};
+}
+
 function openCalEntry(i) {
   const e = calEntries[i];
   if (!e) return;
-  const tel = String(e.phone || '').replace(/[^\d+]/g, '');
-  const rows = [
-    ['When', (e.date || '') + (e.time ? ' at ' + e.time : '')],
-    ['What kind', e.kind + (e.status ? ' · ' + e.status : '')],
-    ['Where', e.venue || '—'],
-    ['Phone', e.phone || '—'],
-    ['Email', e.email || '—']
-  ].map(([k, v]) =>
-    '<div class="item"><div class="name"><b>' + k + '</b><span>' + esc(v) + '</span></div></div>').join('');
+  const o = orderById(e.id) || null;           // null for calendar-only bookings
+  const who = calPerson(e.customer);
 
-  const items = (e.items || []).length
-    ? (e.items || []).map(it => '<div class="item"><div class="name"><b>' +
-        esc(it.product || it.sku) + '</b>' + (it.note ? '<span>' + esc(it.note) + '</span>' : '') +
-        '</div><div class="qty"><b>' + it.packages + '</b><span>pkgs</span></div></div>').join('')
+  const phone = e.phone || (o && o.phone) || who.phone || '';
+  const mail  = /@/.test(String(e.email || '')) ? e.email
+              : (o && /@/.test(String(o.contact || '')) ? o.contact : (who.email || ''));
+  const place = e.venue || (o && o.venue) || who.town || '';
+  const tel   = String(phone).replace(/[^\d+]/g, '');
+  const when  = plainDay(e.date) + (e.time ? ' at ' + calClock(e) : '');
+  const paid  = o && o.paid;
+
+  const rows = [
+    [/pick/i.test(e.kind || '') ? 'Picking up' : 'Dropping off', when],
+    ['Where', place || (/pick/i.test(e.kind || '') ? 'here' : '—')],
+    ['Phone', phone || '—'],
+    ['Email', mail || '—'],
+    ['Ordered on', o && o.created ? plainDay(o.created) : '—'],
+    ['Status', (e.status || (o && o.status) || '—') +
+      (o ? (paid ? ' · paid' + (o.paymentType ? ' by ' + o.paymentType : '')
+                 : ' · not paid yet') : '')],
+    ['Order', e.id || '—']
+  ].map(([k, v]) => '<div class="kv"><span>' + k + '</span><b>' +
+      esc(String(v)) + '</b></div>').join('');
+
+  const lines = (o ? o.items : e.items) || [];
+  const items = lines.length
+    ? lines.map(it => '<div class="item"><div class="name"><b>' +
+        esc(it.product || it.sku || '—') + '</b><span>' +
+        [it.content, it.weight ? round2(it.weight) + ' lb' : '',
+         it.rate ? plain(it.rate) + '/lb' : '', it.note]
+          .filter(Boolean).map(esc).join(' · ') + '</span></div>' +
+        '<div class="qty"><b>' + (it.packages || 0) + '</b><span>pkg' +
+          ((it.packages || 0) === 1 ? '' : 's') + '</span></div>' +
+        (it.total ? '<div class="lmoney"><b>' + plain(it.total) + '</b></div>' : '') +
+        '</div>').join('')
     : '<div class="empty">Nothing listed on the order.</div>';
 
-  openSheet(e.customer, e.kind + ' · ' + (e.date || ''),
-    (tel ? '<a class="btnlike" href="tel:' + esc(tel) + '">📞 Call</a>' : '') +
-    (e.email ? '<a class="btnlike ghost" href="mailto:' + esc(e.email) + '">✉️ Email</a>' : '') +
-    '<div class="card list" style="margin:12px 0 0;padding:0;box-shadow:none">' + rows + '</div>' +
-    '<h3 style="margin:16px 0 6px">The order</h3>' +
-    '<div class="card list" style="margin:0;padding:0;box-shadow:none">' + items + '</div>' +
-    (e.notes ? '<h3 style="margin:16px 0 6px">Special comments</h3><p>' + esc(e.notes) + '</p>' : '') +
-    '<button class="ghost" style="margin-top:12px" onclick="closeSheet();openCustomer(' +
-      JSON.stringify(e.customer).replace(/"/g, '&quot;') + ')">See everything they have ordered</button>' +
+  const total = o && o.total
+    ? '<div class="item ordtot"><div class="name"><b>' +
+        (o.totalManual ? 'Agreed total' : 'Total') + '</b><span>' +
+        esc(CHANNEL_NAME[o.channel] || o.channel || '') +
+        (paid ? ' · paid' : ' · to collect') + '</span></div>' +
+        '<div class="lmoney"><b>' + plain(o.total) + '</b></div></div>'
+    : '';
+
+  const notes = e.notes || (o && o.notes) || '';
+  const q = JSON.stringify(e.customer).replace(/"/g, '&quot;');
+  const after = fn => 'closeSheet();setTimeout(function(){' + fn + '},260)';
+
+  openSheet(e.customer, e.kind + ' · ' + when,
+    (tel || mail
+      ? '<div class="row" style="margin-top:10px">' +
+          (tel ? '<a class="btnlike" href="tel:' + esc(tel) + '">📞 Call</a>' : '') +
+          (tel ? '<a class="btnlike ghost" href="sms:' + esc(tel) + '">💬 Text</a>' : '') +
+          (mail ? '<a class="btnlike ghost" href="mailto:' + esc(mail) + '">✉️ Email</a>' : '') +
+        '</div>'
+      : '<p class="muted">No phone or email on file for them.</p>') +
+    '<div class="card" style="margin:12px 0 0">' + rows + '</div>' +
+    '<h3 style="margin:16px 0 6px">What they are getting</h3>' +
+    '<div class="card list" style="margin:0;padding:0;box-shadow:none">' + items + total + '</div>' +
+    (notes ? '<h3 style="margin:16px 0 6px">Special comments</h3><p>' + esc(notes) + '</p>' : '') +
+    (o ? '<button style="margin-top:12px" onclick="' +
+           after("openOrder('" + esc(o.id) + "')") + '">Open the order</button>' +
+         '<button class="ghost" style="margin-top:8px" onclick="' +
+           after("openSchedule('" + esc(o.id) + "')") + '">Change the day or time</button>'
+       : '') +
+    '<button class="ghost" style="margin-top:8px" onclick="' +
+      after('openCustomer(' + q + ')') + '">See everything they have ordered</button>' +
     '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Close</button>');
 }
 
