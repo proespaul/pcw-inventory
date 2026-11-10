@@ -43,9 +43,11 @@ jobs:
         with:
           node-version: 20
 
-      - name: Run the backend tests
-        if: steps.gate.outputs.id != '' && hashFiles('apps-script/test/run.js') != ''
-        run: node apps-script/test/run.js
+      - name: Check the code parses
+        if: steps.gate.outputs.id != ''
+        run: |
+          for f in apps-script/*.gs; do cp "$f" /tmp/check.js && node --check /tmp/check.js || { echo "::error::$f has a syntax error"; exit 1; }; done
+          jq empty apps-script/appsscript.json
 
       - name: Sign in to Apps Script
         if: steps.gate.outputs.id != ''

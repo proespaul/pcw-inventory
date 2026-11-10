@@ -42,6 +42,13 @@ jobs:
           npx -y @google/clasp@3.4.1 show-authorized-user > AUTHORIZED_USER.txt 2>&1 || true
           npx -y @google/clasp@3.4.1 pull
           npx -y @google/clasp@3.4.1 list-deployments > DEPLOYMENTS.txt 2>&1
+          DEPLOYED=$(grep -o '@[0-9]\+' DEPLOYMENTS.txt | tr -d @ | sort -n | tail -1)
+          if [ -n "$DEPLOYED" ]; then
+            mkdir -p deployed && cd deployed
+            printf '{"scriptId":"%s","rootDir":"."}\n' "$SCRIPT_ID" > .clasp.json
+            npx -y @google/clasp@3.4.1 pull --versionNumber "$DEPLOYED"
+            rm -f .clasp.json && echo "$DEPLOYED" > VERSION.txt && cd ..
+          fi
           npx -y @google/clasp@3.4.1 list-versions > VERSIONS.txt 2>&1 || true
           date -u +%Y-%m-%dT%H:%M:%SZ > TAKEN_AT.txt
           ls -la

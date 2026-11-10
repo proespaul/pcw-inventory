@@ -6,7 +6,7 @@ GitHub Pages, backed by a Google Sheet with an Apps Script web app.
 | | |
 |---|---|
 | **App** | `index.html` — one file, no build step, no dependencies |
-| **Backend** | `apps-script/Code.gs` — paste into the Sheet's Apps Script project |
+| **Backend** | `apps-script/Code.gs` — deployed to Apps Script automatically on every commit |
 | **Setup** | [`docs/SETUP.md`](docs/SETUP.md) |
 
 ## Publishing the app
@@ -31,9 +31,16 @@ immediately — that forces every cached file to be re-fetched.
 
 ## Changing the backend
 
-Edit `apps-script/Code.gs` here, paste the whole file over the one in Apps
-Script, then **Deploy ▸ Manage deployments ▸** pencil ▸ New version ▸ Deploy.
-The web app URL does not change.
+Edit `apps-script/Code.gs` (or `appsscript.json`) and commit to `main`. The
+**Deploy backend to Apps Script** workflow checks the code parses, pushes it to
+the Apps Script project with clasp, and moves the existing web app deployment
+(ID in `.github/apps-script-deployment-id`) onto a new version — the `/exec` URL
+never changes. It signs in with the `CLASPRC_JSON` repository secret
+(admin@pcwagyu.com).
+
+Don't edit in the Apps Script editor any more: the next commit overwrites it.
+To copy whatever is live in Apps Script onto the `live-snapshot` branch, touch
+`.github/snapshot-request` or run **Apps Script snapshot** from the Actions tab.
 
 `setup()` remaps rows by column name before rewriting headers, so adding a
 column never scrambles what is already in the tabs.
