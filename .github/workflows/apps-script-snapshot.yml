@@ -1,0 +1,60 @@
+# Copies the code that is live in Apps Script right now onto the
+# `live-snapshot` branch, with the list of deployments and versions.
+# Read-only on the Apps Script side: it never changes anything there.
+name: Apps Script snapshot
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/snapshot-request']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apps-script
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Sign in to Apps Script
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          if [ -z "$CLASPRC_JSON" ]; then echo "::error::The CLASPRC_JSON secret is missing"; exit 1; fi
+          printf '%s' "$CLASPRC_JSON" > ~/.clasprc.json
+          chmod 600 ~/.clasprc.json
+
+      - name: Pull the live code
+        run: |
+          SCRIPT_ID=$(jq -r .scriptId .clasp.json)
+          mkdir -p /tmp/live && cd /tmp/live
+          printf '{"scriptId":"%s","rootDir":"."}\n' "$SCRIPT_ID" > .clasp.json
+          npx -y @google/clasp@3.4.1 show-authorized-user > AUTHORIZED_USER.txt 2>&1 || true
+          npx -y @google/clasp@3.4.1 pull
+          npx -y @google/clasp@3.4.1 list-deployments > DEPLOYMENTS.txt 2>&1
+          npx -y @google/clasp@3.4.1 list-versions > VERSIONS.txt 2>&1 || true
+          date -u +%Y-%m-%dT%H:%M:%SZ > TAKEN_AT.txt
+          ls -la
+
+      - name: Save to the live-snapshot branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd /tmp/live
+          rm -f .clasp.json
+          git init -q -b live-snapshot
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -qm "Live Apps Script snapshot $(cat TAKEN_AT.txt)"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" live-snapshot
