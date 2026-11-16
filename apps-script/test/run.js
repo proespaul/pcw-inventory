@@ -1086,6 +1086,29 @@ console.log('\nthe wholesale screen: ordered, waiting, past');
   check('nor is anybody merely on the waiting list', !!fu['Ivan Wiebe'], false);
 }
 
+/* ---- a customer write that cannot land must say so ----
+   appWrite_ answers false when the heading is missing, and every caller used
+   to throw that away: the save came back ok, the sales sheet took the value,
+   and the app's own cell stayed empty with nothing to say so. */
+{
+  const c = buildContext();
+  c.setup();
+  const sh = c.sheet_(c.TABS.CUSTOMERS);
+  sh.appendRow(['Board and Barrel', 'boardnbarrel@gmail.com', '', '', '', '',
+                0, 1, 0, 0, 0, 'Paul', '', 'Bones']);
+
+  const ok = c.customerSave_({ customer: 'Board and Barrel', phone: '587-749-1188' });
+  check('a phone saved against a customer lands in the app book',
+    [ok.ok !== false, sh.getRange(2, 3, 1, 1).getValues()[0][0]],
+    [true, '587-749-1188']);
+
+  // Now take the Phone heading away and try the same save again.
+  sh.getRange(1, 3).setValue('');
+  const bad = c.customerSave_({ customer: 'Board and Barrel', phone: '780-555-0123' });
+  check('with no Phone column the save refuses instead of reporting success',
+    [bad.ok, /no Phone column/.test(String(bad.error))], [false, true]);
+}
+
 /* ---- the Contacts refusal has to name the right cause ----
    Both problems answer 403, and for a year the message told Paul to grant a
    permission that was already granted, while the People API sat switched off

@@ -49,6 +49,12 @@ class FakeRange {
 class FakeSheet {
   constructor(name) { this.name = name; this.data = []; }
   getName() { return this.name; }
+  /* A stable fake gid, so code that builds a deep link to a row runs here. */
+  getSheetId() {
+    let h = 0;
+    for (const ch of this.name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return h % 100000000;
+  }
   getLastRow() {
     let last = 0;
     this.data.forEach((row, i) => {

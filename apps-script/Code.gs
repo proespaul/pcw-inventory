@@ -6137,6 +6137,15 @@ function appCustomerRows_() {
            url: ss_().getUrl() + '#gid=' + sh.getSheetId() };
 }
 
+/**
+ * Writes one named column on one row of the app's customer book.
+ *
+ * It returns false when the heading is not on the tab — and for a long time
+ * every caller threw that answer away, so a write that never happened was
+ * reported back as done. A phone saved from the app came back "saved", the
+ * sales sheet got it, and the app's own cell stayed empty, with nothing
+ * anywhere to say so. Callers must now look at what this says.
+ */
 function appWrite_(book, row, header, value) {
   if (book.at[header] === undefined) return false;
   book.sheet.getRange(row, book.at[header] + 1).setValue(value);
@@ -6285,16 +6294,24 @@ function customerSave_(req) {
   /* the app — one cell, so the first one */
   if (!mine) { appAdd_(app, want); mine = app.rows[app.rows.length - 1]; done.app.push('added'); }
   else {
-    if (name !== mine.name) { appWrite_(app, mine.row, 'Customer', name); done.app.push('name'); }
+    var refused = [];
+    var put = function (header, value, label) {
+      if (appWrite_(app, mine.row, header, value)) { done.app.push(label); return true; }
+      refused.push(header);
+      return false;
+    };
+    if (name !== mine.name) put('Customer', name, 'name');
     WHERE_FIELDS.forEach(function (f) {
       if (!given[f.key] || str_(mine[f.key]) === want[f.key]) return;
-      appWrite_(app, mine.row, f.header, want[f.key]);
-      mine[f.key] = want[f.key];
-      done.app.push(f.key);
+      if (put(f.header, want[f.key], f.key)) mine[f.key] = want[f.key];
     });
     if (req.notes !== undefined && str_(mine.notes) !== want.notes) {
-      appWrite_(app, mine.row, 'Notes', want.notes);
-      done.app.push('notes');
+      put('Notes', want.notes, 'notes');
+    }
+    if (refused.length) {
+      return { ok: false, error: 'The customer tab has no ' +
+        refused.join(' or ') + ' column, so that did not save. ' +
+        'Add the heading to the CUSTOMERS tab and try again.' };
     }
   }
 
@@ -6735,7 +6752,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-16 17:55 UTC';
+var BACKEND_BUILD = '2026-11-16 18:03 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
