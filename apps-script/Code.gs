@@ -141,7 +141,7 @@ var HEADERS = {
   WHOLESALE:['Customer', 'Phone', 'Email', 'Wants', 'Status', 'Priority', 'Wanted by',
              'Deposit', 'Weight (lb)', 'Price', 'Invoice', 'Paid', 'Added', 'Notes'],
   WAITLIST: ['Customer', 'Phone', 'Email', 'Waiting for', 'Their words', 'Size', 'Grade',
-             'Packages', 'Added', 'Status', 'Told them on'],
+             'Packages', 'Added', 'Status', 'Told them on', 'Notes'],
   YIELD:    ['Cut', 'SKU', 'Category', 'lb per 100 lb rail', 'Packages per 100 lb rail',
              '$ / lb', 'Grade', 'Use?', 'Notes'],
   HISTORY:  ['Date', 'Customer', 'Sold by', 'What', 'Amount', 'Kind', 'Payment',
@@ -4448,7 +4448,7 @@ function importWaitlist_(src) {
       matched || wants, wants, '', '', 1,
       looseDate_(r['Date booked']),
       str_(r['Order Status']) || 'Waiting',
-      ''
+      '', ''
     ]);
     existing[key] = true;
   });
@@ -6720,7 +6720,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-16 15:50 UTC';
+var BACKEND_BUILD = '2026-11-16 17:24 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -8272,6 +8272,7 @@ function handle_(e, body) {
       case 'wholesaleMove': return json_(wholesaleMove_(req));
       case 'wholesaleSave': return json_(wholesaleSave_(req));
       case 'wholesaleAgain': return json_(wholesaleAgain_(req));
+      case 'waitlistSave': return json_(waitlistSave_(req));
       case 'addSteer':    return json_(addSteer_(req));
       case 'model':       return json_({ ok: true, model: modelFor_(num_(req.railWeight)) });
       case 'sweepWeb':    return json_({ ok: true, made: sweepWebsiteOrders_() });
@@ -9391,12 +9392,15 @@ function lists_() {
       }
       return out;
     }).filter(function (r) { return r.customer; }),
-    waitlist: readTable_(TABS.WAITLIST).map(function (r) {
-      return { customer: str_(r['Customer']), phone: str_(r['Phone']), email: str_(r['Email']),
+    waitlist: waitlistRows_().map(function (e) {
+      var r = e.fields;
+      return { row: e.row,
+               customer: str_(r['Customer']), phone: str_(r['Phone']), email: str_(r['Email']),
                wants: str_(r['Waiting for']), words: str_(r['Their words']),
                size: str_(r['Size']), grade: str_(r['Grade']),
                packages: num_(r['Packages']), added: dateStr_(r['Added']),
-               status: str_(r['Status']) || 'Waiting', told: dateStr_(r['Told them on']) };
+               status: str_(r['Status']) || 'Waiting', told: dateStr_(r['Told them on']),
+               notes: str_(r['Notes']) };
     }).filter(function (r) { return r.customer; }),
     customers: readTable_(TABS.CUSTOMERS).map(function (r) {
       return { customer: str_(r['Customer']), email: str_(r['Email']), phone: str_(r['Phone']),
@@ -9422,12 +9426,101 @@ function addToList_(req) {
       str_(e.wantedBy), num_(e.deposit), num_(e.weight), num_(e.price),
       str_(e.invoice), str_(e.paid), today, str_(e.notes)]);
   } else if (which === 'waitlist') {
-    sheet_(TABS.WAITLIST).appendRow([str_(e.customer), str_(e.phone), str_(e.email),
-      str_(e.wants), str_(e.words), str_(e.size), str_(e.grade), num_(e.packages) || 1,
-      today, str_(e.status) || 'Waiting', '']);
+    // Written by column name: the tab grew a Notes column after the sheet was
+    // first set up, and a hand-moved column would otherwise shift every value.
+    var head = ensureHeaders_(TABS.WAITLIST, HEADERS.WAITLIST);
+    var vals = {
+      'Customer': str_(e.customer), 'Phone': str_(e.phone), 'Email': str_(e.email),
+      'Waiting for': str_(e.wants), 'Their words': str_(e.words),
+      'Size': str_(e.size), 'Grade': str_(e.grade), 'Packages': num_(e.packages) || 1,
+      'Added': today, 'Status': str_(e.status) || 'Waiting', 'Told them on': '',
+      'Notes': str_(e.notes)
+    };
+    sheet_(TABS.WAITLIST).appendRow(head.map(function (h) {
+      return Object.prototype.hasOwnProperty.call(vals, h) ? vals[h] : '';
+    }));
   } else {
     return { ok: false, error: 'Unknown list: ' + which };
   }
+  return lists_();
+}
+
+/* ========================= CUT WAITING LIST =========================
+   Same shape as the wholesale lines below, and for the same reason: the CUT
+   WAITLIST tab has no key of its own, two customers can share a name, and
+   rows get inserted and sorted in the Sheet by hand. So a line is edited by
+   its row number, and every write quotes the name the app holds for that row
+   — if the row reads somebody else now, the write is refused rather than
+   landing on the wrong person. readTable_ drops blank rows, so its index
+   cannot be used for this; waitlistRows_ counts the sheet itself.
+   ------------------------------------------------------------------- */
+
+function waitlistRows_() {
+  var sh = sheet_(TABS.WAITLIST);
+  var lastRow = sh.getLastRow();
+  var lastCol = sh.getLastColumn();
+  if (lastRow < 2) return [];
+  var values = sh.getRange(1, 1, lastRow, lastCol).getValues();
+  var head = values.shift().map(function (h) { return String(h).trim(); });
+  var out = [];
+  values.forEach(function (row, i) {
+    var obj = {};
+    head.forEach(function (h, j) { if (h) obj[h] = row[j]; });
+    var any = Object.keys(obj).some(function (k) { return obj[k] !== '' && obj[k] !== null; });
+    if (any) out.push({ row: i + 2, fields: obj });
+  });
+  return out;
+}
+
+function waitlistLine_(row, customer) {
+  var n = Math.floor(num_(row));
+  if (!n || n < 2) return { ok: false, error: 'The app did not say which line to change.' };
+  var hit = null;
+  waitlistRows_().forEach(function (e) { if (e.row === n) hit = e; });
+  if (!hit) return { ok: false,
+    error: 'That line is not on the cut waiting list any more. Pull down to refresh.' };
+  var onSheet = str_(hit.fields['Customer']);
+  var asked = str_(customer);
+  if (asked && onSheet.toLowerCase() !== asked.toLowerCase()) {
+    return { ok: false, error: 'Row ' + n + ' reads ' + (onSheet || 'blank') + ', not ' +
+      asked + '. The rows have moved since the app loaded — pull down to refresh, ' +
+      'then try again.' };
+  }
+  return { ok: true, row: n, fields: hit.fields };
+}
+
+/** Writes named columns on one row, so adding a column never shifts a write. */
+function waitlistWrite_(row, patch) {
+  var sh = sheet_(TABS.WAITLIST);
+  var head = ensureHeaders_(TABS.WAITLIST, HEADERS.WAITLIST);
+  Object.keys(patch).forEach(function (col) {
+    var at = head.indexOf(col);
+    if (at === -1) return;
+    sh.getRange(row, at + 1).setValue(patch[col]);
+  });
+}
+
+var WAITLIST_FIELDS = {
+  customer: 'Customer', phone: 'Phone', email: 'Email', wants: 'Waiting for',
+  words: 'Their words', size: 'Size', grade: 'Grade', packages: 'Packages',
+  status: 'Status', told: 'Told them on', notes: 'Notes'
+};
+var WAITLIST_NUMBERS = { packages: true };
+
+function waitlistSave_(req) {
+  var line = waitlistLine_(req.row, req.customer);
+  if (!line.ok) return line;
+  var f = req.fields || {};
+  var patch = {};
+  Object.keys(WAITLIST_FIELDS).forEach(function (key) {
+    if (!Object.prototype.hasOwnProperty.call(f, key)) return;
+    patch[WAITLIST_FIELDS[key]] = WAITLIST_NUMBERS[key] ? num_(f[key]) : str_(f[key]);
+  });
+  if (Object.prototype.hasOwnProperty.call(f, 'customer') && !str_(f.customer)) {
+    return { ok: false, error: 'A line needs a name.' };
+  }
+  if (!Object.keys(patch).length) return { ok: false, error: 'Nothing to change.' };
+  waitlistWrite_(line.row, patch);
   return lists_();
 }
 

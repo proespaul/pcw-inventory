@@ -113,6 +113,12 @@ check('with no figure in the figure\'s place when there is no money down',
 check('a waiting line keeps what they want and when they asked',
   /Whole · asked \w+ \d+/.test(text('whWaitingList')), true);
 check('and what they said', text('whWaitingList').indexOf('asked at the market') > -1, true);
+/* A phone on the line showed on the few lines that carry one and nowhere
+   else, which read as a difference between the customers. It belongs behind
+   the name, where every line has one. */
+check('no phone or email reaches a list line',
+  ['780-555-0141', '780-555-0199', 'sp@example.com']
+    .some(t => (text('whOrderedList') + ' ' + text('whWaitingList')).indexOf(t) > -1), false);
 
 /* ───────── a title and its list are one card ───────── */
 ['whOrderedList', 'whWaitingList'].forEach(id => {
@@ -267,6 +273,79 @@ check('and the call line does not invent anybody',
   text('whCallLine'), 'Nobody has had an animal yet.');
 check('an empty list leaves no count hanging in its title',
   [text('whOrderedCount'), text('whWaitingCount')], ['', '']);
+
+
+/* ───────── the cut waiting list, same shape as wholesale ───────── */
+console.log('\ncut waiting list (browser)');
+w.eval('closeSheet(); data.products = [{ sku: "GROUND-BEEF", product: "Ground beef" }];' +
+       'window.physicalOnHand = function () { return 6; };' +
+       'data.lists.waitlist = ' + JSON.stringify([
+  { row: 2, customer: 'Neil Harder', phone: '780-555-0177', email: 'neil@example.com', wants: 'GROUND-BEEF',
+    words: 'Ground beef', size: 'M', grade: '', packages: 2, added: '2026-11-04',
+    status: 'Waiting', told: '', notes: 'wants it before Christmas' },
+  { row: 3, customer: 'Alvin Toews', phone: '', email: 'at@example.com', wants: 'Pichana',
+    words: 'Pichana', size: '', grade: '', packages: 1, added: '2026-10-28',
+    status: 'Waiting', told: '', notes: '' }
+]) + '; renderWaitlist();');
+
+const wlNames = Array.from(doc.querySelectorAll('#waitlistList .item .name b'))
+  .map(b => b.textContent.replace(/in stock now/g, '').trim());
+check('both lines are drawn', wlNames, ['Neil Harder', 'Alvin Toews']);
+check('a line reads name, product, when they asked, and the comment',
+  /Ground beef · M · asked \w+ \d+/.test(text('waitlistList')) &&
+  text('waitlistList').indexOf('wants it before Christmas') > -1, true);
+check('and carries no phone or email',
+  ['780-555-0177', 'neil@example.com', 'at@example.com']
+    .some(t => text('waitlistList').indexOf(t) > -1), false);
+check('what is on hand is still on the line',
+  text('waitlistList').indexOf('on hand') > -1, true);
+
+w.eval('openWaitlist(2);');
+check('tapping a name opens their line', text('sheetTitle'), 'Neil Harder');
+body = text('sheetBody');
+check('with everything on them',
+  ['Waiting for', 'Ground beef', 'Packages', 'Asked', 'Phone', 'Comment']
+    .every(t => body.indexOf(t) > -1), true);
+check('there is a way to call, text and email',
+  Array.from(doc.querySelectorAll('#sheetBody a')).map(a => a.getAttribute('href').split(':')[0]),
+  ['tel', 'sms', 'mailto']);
+check('and a way through to their orders',
+  body.indexOf('See everything they have ordered') > -1, true);
+
+/* A line with no phone of its own falls back to the customer book. */
+w.eval('closeSheet(); data.lists.customers = data.lists.customers.concat([' +
+       '{ customer: "Alvin Toews", phone: "780-555-0190", email: "", town: "Fairview" }]);' +
+       'openWaitlist(3);');
+body = text('sheetBody');
+check('a phone the line never had is filled in from the customer book',
+  [body.indexOf('780-555-0190') > -1, body.indexOf('Fairview') > -1], [true, true]);
+
+w.eval('__sent.length = 0; closeSheet(); wlEditForm(2);');
+w.eval('document.getElementById("wlEdNotes").value = "rang her, still waiting";' +
+       'document.getElementById("wlEdQty").value = "3"; wlEditSave(2);');
+check('an edit quotes the row and the name on it, and sends what changed',
+  w.__sent.map(s => [s.action, s.payload.row, s.payload.customer,
+                     s.payload.fields.notes, s.payload.fields.packages,
+                     s.payload.fields.wants]),
+  [['waitlistSave', 2, 'Neil Harder', 'rang her, still waiting', '3', 'GROUND-BEEF']]);
+
+w.eval('__sent.length = 0; closeSheet(); wlEditForm(2);' +
+       'document.getElementById("wlEdName").value = ""; wlEditSave(2);');
+check('a line cannot be saved nameless', w.__sent.length, 0);
+
+w.eval('__sent.length = 0; openWaitlist(99);');
+check('a row the app no longer knows opens nothing', w.__sent.length, 0);
+
+w.eval('closeSheet(); data.lists.waitlist = data.lists.waitlist.concat([{ row: 9,' +
+       ' customer: "Dave O\'Brien <script>", phone: "", email: "", wants: "Brisket",' +
+       ' words: "Brisket", packages: 1, added: "2026-11-01", notes: "" }]);' +
+       'renderWaitlist();');
+check('a quote or a tag in a name is drawn as text, not markup',
+  doc.querySelectorAll('#waitlistList script').length, 0);
+
+w.eval('data.lists.waitlist = []; renderWaitlist();');
+check('an empty list says so rather than going blank',
+  text('waitlistList'), 'Nobody waiting on a cut.');
 
 console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll browser checks passed.\n');
 process.exit(failures ? 1 : 0);

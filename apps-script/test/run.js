@@ -417,12 +417,32 @@ console.log('\nageing, boxes, steers and the calculator');
   check('and the margin with it', q.margin !== '', true);
 
   go('addToList', { list: 'waitlist', entry: { customer: 'R. Dyck', phone: '780-555-0199',
-    wants: 'Tenderloin', size: 'L', packages: 4 } });
+    wants: 'Tenderloin', size: 'L', packages: 4, notes: 'wants it before Christmas' } });
   go('addToList', { list: 'wholesale', entry: { customer: 'Bergen family', email: 'b@example.com',
     wants: 'Half', wantedBy: '2026-11-01', deposit: 500 } });
   const L = go('lists');
   check('cut waitlist saved', L.waitlist[0].customer, 'R. Dyck');
+  check('with the comment that came with it', L.waitlist[0].notes, 'wants it before Christmas');
+  check('and the row it sits on, so it can be opened and changed',
+    L.waitlist[0].row, 2);
   check('wholesale list saved', L.wholesale[0].wants, 'Half');
+
+  // Changing a cut waiting line, with the same row guard the wholesale tab has.
+  const wlSaved = go('waitlistSave', { row: L.waitlist[0].row, customer: 'R. Dyck',
+    fields: { phone: '780-555-0144', notes: 'rang her, still waiting' } });
+  check('a waiting line can be changed',
+    [wlSaved.waitlist[0].phone, wlSaved.waitlist[0].notes],
+    ['780-555-0144', 'rang her, still waiting']);
+  check('and what nobody touched is left alone',
+    [wlSaved.waitlist[0].size, wlSaved.waitlist[0].packages], ['L', 4]);
+  check('a waiting line cannot be left nameless',
+    go('waitlistSave', { row: L.waitlist[0].row, customer: 'R. Dyck',
+      fields: { customer: '' } }).ok, false);
+  check('and a row that reads somebody else is refused',
+    go('waitlistSave', { row: L.waitlist[0].row, customer: 'Somebody Else',
+      fields: { notes: 'no' } }).ok, false);
+  check('the refusal leaves the line as it was',
+    go('lists').waitlist[0].notes, 'rang her, still waiting');
 
   go('submit', { ops: [{ clientKey: 'o', type: 'ORDER_NEW', orderId: 'ORD-9', customer: 'J. Wiebe',
     contact: 'jw@example.com', deliveryDate: '2026-10-02', lines: [{ sku: 'RIBEYE-STEAK', packages: 2 }] }]});
