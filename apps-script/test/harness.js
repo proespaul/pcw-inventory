@@ -78,6 +78,9 @@ class FakeSheet {
 class FakeSS {
   constructor() { this.sheets = {}; }
   getSheetByName(n) { return this.sheets[n] || null; }
+  // setup() walks the real tab list rather than trusting getSheetByName,
+  // so the fake has to offer the same walk.
+  getSheets() { return Object.keys(this.sheets).map(k => this.sheets[k]); }
   insertSheet(n) { return (this.sheets[n] = new FakeSheet(n)); }
   getUrl() { return 'https://sheet.test'; }
 }

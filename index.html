@@ -1001,36 +1001,29 @@
   </section>
 
   <section class="view" id="view-wholesale">
+    <!-- Reads top to bottom the way the questions actually get asked: who can
+         I add, who is waiting on a steer, who is interested, and who is due a
+         call about another one. Past customers are off the screen behind a
+         button because they are a reference, not a job. -->
+    <div class="card" style="padding:12px">
+      <button onclick="openWholesaleAdd()">+ Add someone</button>
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 2px">Ordered</h2>
+      <p class="muted" style="margin:0">Ordered and waiting on a steer — soonest first.</p>
+    </div>
+    <div class="card list" id="whOrderedList"></div>
+
     <div class="card">
       <h2 style="margin:0 0 2px">Waiting list</h2>
-      <p class="muted" style="margin:0">Wanting a whole, half or quarter — nobody invoiced yet.</p>
+      <p class="muted" style="margin:0">Interested in a whole, half or quarter — keenest first.</p>
     </div>
     <div class="card list" id="whWaitingList"></div>
+
     <div class="card">
-      <h2 style="margin:0 0 2px">Past customers</h2>
-      <p class="muted" style="margin:0">Animals already gone out, newest first.</p>
-    </div>
-    <div class="card list" id="whPastList"></div>
-    <div class="card">
-      <h2>Add someone</h2>
-      <div class="withmic"><input id="whName" placeholder="Name" autocomplete="off">
-        <button class="mic" onclick="dictate('whName',this)">🎤</button></div>
-      <div class="row" style="margin-top:9px">
-        <input id="whPhone" placeholder="Phone" autocomplete="off">
-        <input id="whEmail" placeholder="Email" autocomplete="off">
-      </div>
-      <div class="row" style="margin-top:9px">
-        <select id="whWants"><option>Whole</option><option>Half</option><option>Quarter</option></select>
-        <select id="whStatus"><option>Waiting</option><option>Past</option></select>
-      </div>
-      <div class="row" style="margin-top:9px">
-        <div><label>Wanted by</label><input type="date" id="whBy"></div>
-        <div><label>Deposit</label><input type="number" inputmode="decimal" id="whDeposit" placeholder="0"></div>
-      </div>
-      <label>Notes</label>
-      <div class="withmic"><input id="whNotes" autocomplete="off">
-        <button class="mic" onclick="dictate('whNotes',this)">🎤</button></div>
-      <button style="margin-top:11px" onclick="addList('wholesale')">Add to wholesale</button>
+      <p class="muted" style="margin:0 0 10px" id="whCallLine"></p>
+      <button class="ghost" id="whPastBtn" onclick="openWholesalePast()">Past customers</button>
     </div>
   </section>
 
@@ -1220,7 +1213,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-04 17:50 UTC';
+const APP_BUILD = '2026-11-16 15:50 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -6310,7 +6303,9 @@ function renderMenuCounts() {
   const L = data.lists || {};
   const waiting = arr => (arr || []).filter(x => x.status === 'Waiting').length;
   // A whole animal sold but not yet paid still needs chasing, so it counts too.
-  $('cWholesale').textContent = (L.wholesale || []).filter(x => x.status !== 'Done').length || '';
+  // What still needs something: ordered and waiting. Past customers are a
+  // reference, not a job, so they are not counted on the menu.
+  $('cWholesale').textContent = (L.wholesale || []).filter(x => x.stage !== 'past').length || '';
   $('cWaitlist').textContent = waiting(L.waitlist) || '';
   $('cClients').textContent = (L.customers || []).length || '';
   // Only the recent ones are worth a badge; a tally of every change ever
@@ -6343,49 +6338,398 @@ function renderPriceLog() {
   }).join('') : '<div class="empty">No price changes recorded yet.</div>';
 }
 
-function renderWholesale() {
-  const all = (data.lists || {}).wholesale || [];
+/* ───────── wholesale: ordered, waiting, past ─────────
+   Three lists off one tab. The backend says which of the three a line is in
+   and hands over the row it sits on; every write quotes that row back with
+   the name, so a line can never be edited into the wrong person. */
 
-  // Who is still waiting on an animal. High priority to the top.
-  const rank = p => (p === 'High' ? 0 : p === 'Low' ? 2 : 1);
-  const waiting = all.filter(r => r.stage !== 'past').slice().sort((a, b) =>
-    rank(a.priority) - rank(b.priority) || String(a.added).localeCompare(String(b.added)));
+/* How keen they are, which is what sorts the waiting list. */
+const WH_RANK = p => (/high/i.test(p || '') ? 0 : /low/i.test(p || '') ? 2 : 1);
 
-  // Who has already had one. Newest first.
-  const past = all.filter(r => r.stage === 'past').slice().sort((a, b) =>
+function whLines() { return (data.lists || {}).wholesale || []; }
+function whByRow(row) {
+  return whLines().find(r => Number(r.row) === Number(row)) || null;
+}
+
+/* Past customers, the one who is due a call first at the top. */
+function whPast() {
+  return whLines().filter(r => r.stage === 'past').slice().sort((a, b) =>
+    (a.due ? 0 : 1) - (b.due ? 0 : 1) ||
+    String(a.due).localeCompare(String(b.due)) ||
     String(b.added).localeCompare(String(a.added)));
+}
 
-  $('whWaitingList').innerHTML = waiting.length ? waiting.map(r =>
-    '<div class="item" onclick="openCustomer(' + JSON.stringify(r.customer).replace(/"/g, '&quot;') + ')">' +
-    '<div class="name"><b>' + esc(r.customer) +
-      (r.priority && r.priority !== 'Normal'
-        ? '<span class="tag ' + (r.priority === 'High' ? 'out' : '') + '">' + esc(r.priority) + '</span>' : '') +
-      '</b><span>' + esc(r.wants || 'not said yet') +
-      (r.wantedBy ? ' · wants it by ' + esc(r.wantedBy) : '') +
-      (r.phone || r.email ? ' · ' + esc(r.phone || r.email) : '') +
-      (r.added ? '<br>asked ' + esc(r.added) : '') +
-      (r.notes ? '<br>' + esc(r.notes) : '') + '</span></div>' +
-    (r.deposit ? '<div class="qty"><b>' + money(r.deposit) + '</b><span>deposit</span></div>' : '') +
-    '</div>').join('') : '<div class="empty">Nobody waiting on an animal.</div>';
+function whTag(r) {
+  return r.priority && !/normal/i.test(r.priority)
+    ? '<span class="tag' + (/high/i.test(r.priority) ? ' out' : '') + '">' +
+      esc(r.priority) + '</span>' : '';
+}
 
-  $('whPastList').innerHTML = past.length ? past.map(r => {
-    const facts = [
-      r.weight ? r.weight + ' lb' : '',
+function whItem(r, where) {
+  const facts = where === 'ordered'
+    ? [r.wants || 'not said yet',
+       r.wantedBy ? 'wants it by ' + plainDay(r.wantedBy) : 'no date yet',
+       r.phone || r.email || '']
+    : [r.wants || 'not said yet',
+       r.added ? 'asked ' + plainDay(r.added) : '',
+       r.phone || r.email || ''];
+  // Ordered lines carry the deposit, because "did they put money down?" is
+  // the question asked of that list. It says so either way rather than
+  // leaving a blank that could mean anything.
+  const right = where === 'ordered'
+    ? '<div class="qty"><b>' + (r.deposit ? money(r.deposit) : '—') + '</b><span>' +
+      (r.deposit ? 'deposit' : 'no deposit') + '</span></div>'
+    : '';
+  return '<div class="item" onclick="openWholesale(' + Number(r.row) + ')">' +
+    '<div class="name"><b>' + esc(r.customer) + whTag(r) + '</b><span>' +
+    facts.filter(Boolean).map(esc).join(' · ') +
+    (r.notes ? '<br>' + esc(r.notes) : '') + '</span></div>' + right + '</div>';
+}
+
+/* Who is worth ringing now, and who comes up next. Both dates are worked out
+   from the share size and the day it went out — nothing is stored, so moving
+   the months on the SETTINGS tab moves everybody at once. */
+function whCallLine(past) {
+  if (!past.length) return 'Nobody has had an animal yet.';
+  const due = past.filter(r => r.dueNow);
+  const next = past.filter(r => r.due && !r.dueNow)[0];
+  const bits = [due.length
+    ? '<b>' + due.length + (due.length === 1 ? ' is' : ' are') + ' worth a call now</b>' +
+      ' — their freezer should be getting low.'
+    : 'Nobody is due a call just yet.'];
+  if (next) bits.push('Then ' + esc(next.customer) + ' around ' + esc(plainDay(next.due)) + '.');
+  return bits.join(' ');
+}
+
+function renderWholesale() {
+  const all = whLines();
+
+  const ordered = all.filter(r => r.stage === 'ordered').slice().sort((a, b) =>
+    // Soonest wanted-by first; anyone who never named a date sits after them.
+    (a.wantedBy ? 0 : 1) - (b.wantedBy ? 0 : 1) ||
+    String(a.wantedBy).localeCompare(String(b.wantedBy)) ||
+    String(a.added).localeCompare(String(b.added)));
+
+  const waiting = all.filter(r => r.stage === 'waiting').slice().sort((a, b) =>
+    WH_RANK(a.priority) - WH_RANK(b.priority) ||
+    String(a.added).localeCompare(String(b.added)));
+
+  const past = whPast();
+
+  $('whOrderedList').innerHTML = ordered.length
+    ? ordered.map(r => whItem(r, 'ordered')).join('')
+    : '<div class="empty">Nobody waiting on a steer.</div>';
+  $('whWaitingList').innerHTML = waiting.length
+    ? waiting.map(r => whItem(r, 'waiting')).join('')
+    : '<div class="empty">Nobody on the waiting list.</div>';
+
+  $('whPastBtn').textContent = past.length
+    ? 'Past customers (' + past.length + ')' : 'Past customers';
+  $('whCallLine').innerHTML = whCallLine(past);
+}
+
+/* Opening a line from inside another panel: the panel reuses one element, so
+   it has to be shut and reopened rather than drawn over itself. */
+function whJump(row) { closeSheet(); setTimeout(() => openWholesale(row), 260); }
+
+function openWholesalePast() {
+  const past = whPast();
+  const body = past.length ? past.map(r => {
+    const facts = [r.share || r.wants || 'share',
+      r.weight ? round2(r.weight) + ' lb' : '',
       r.invoice ? 'invoice ' + r.invoice : '',
-      r.deposit ? 'deposit ' + money(r.deposit) : ''
-    ].filter(Boolean).join(' · ');
-    // Deliberately says nothing about whether it was paid: that lives on the
-    // invoice, not here, and guessing it told Paul nine people owed him money.
-    return '<div class="item" onclick="openCustomer(' +
-      JSON.stringify(r.customer).replace(/"/g, '&quot;') + ')">' +
-      '<div class="name"><b>' + esc(r.customer) + '</b><span>' +
-      esc(r.wants || 'share') + (r.added ? ' · ' + esc(r.added) : '') +
-      (r.phone || r.email ? ' · ' + esc(r.phone || r.email) : '') +
-      (facts ? '<br>' + esc(facts) : '') +
-      (r.notes ? '<br>' + esc(r.notes) : '') + '</span></div>' +
+      r.added ? 'went out ' + plainDay(r.added) : ''].filter(Boolean);
+    return '<div class="item" onclick="whJump(' + Number(r.row) + ')">' +
+      '<div class="name"><b>' + esc(r.customer) +
+      (r.dueNow ? '<span class="tag out">CALL</span>' : '') + '</b><span>' +
+      facts.map(esc).join(' · ') +
+      (r.due ? '<br>freezer likely low ' + esc(plainDay(r.due)) : '') + '</span></div>' +
       (r.price ? '<div class="qty"><b>' + money(r.price) + '</b><span>invoiced</span></div>' : '') +
       '</div>';
   }).join('') : '<div class="empty">No past wholesale customers yet.</div>';
+
+  openSheet('Past customers',
+    past.length ? past.filter(r => r.dueNow).length + ' of ' + past.length + ' worth a call'
+                : 'nobody yet',
+    '<div class="card list" style="margin:12px 0 0;padding:0;box-shadow:none">' + body + '</div>' +
+    '<button class="ghost" style="margin-top:12px" onclick="closeSheet()">Close</button>');
+}
+
+function openWholesale(row) {
+  const r = whByRow(row);
+  if (!r) return toast('That line has moved. Pull down to refresh.', 'bad');
+  // An old line can have been written without a phone or email; the customer
+  // book usually knows them, so a dash here would be a lie.
+  const who = calPerson(r.customer);
+  const phone = r.phone || who.phone || '';
+  const mail = /@/.test(String(r.email || '')) ? r.email : (who.email || '');
+  const tel = String(phone).replace(/[^\d+]/g, '');
+
+  const facts = [
+    ['What they want', r.wants || '—'],
+    ['How keen', r.priority || 'Normal'],
+    ['Asked', r.added ? plainDay(r.added) : '—'],
+    ['Wanted by', r.wantedBy ? plainDay(r.wantedBy) : '—'],
+    ['Deposit', r.deposit ? money(r.deposit) : 'none'],
+    ['Phone', phone || '—'],
+    ['Email', mail || '—'],
+    ['Town', who.town || '—']
+  ];
+  if (r.share && String(r.share).toLowerCase() !== String(r.wants).toLowerCase()) {
+    facts.splice(1, 0, ['Share size', r.share]);
+  }
+  if (r.stage === 'past') {
+    facts.push(['Hanging weight', r.weight ? round2(r.weight) + ' lb' : '—']);
+    facts.push(['Invoice', r.invoice || '—']);
+    facts.push(['Invoiced', r.price ? money(r.price) : '—']);
+    if (r.due) facts.push(['Freezer likely low',
+      plainDay(r.due) + (r.dueNow ? ' · worth a call' : '')]);
+  }
+  const rows = facts.map(([k, v]) => '<div class="kv"><span>' + k + '</span><b>' +
+    esc(String(v)) + '</b></div>').join('');
+
+  const where = r.stage === 'ordered' ? 'Ordered — waiting on a steer'
+              : r.stage === 'past' ? 'Had their animal'
+              : 'On the waiting list';
+
+  const move = r.stage === 'waiting'
+    ? '<button style="margin-top:12px" onclick="whMove(' + Number(r.row) +
+      ',\'ordered\')">They have ordered</button>'
+    : r.stage === 'ordered'
+    ? '<button style="margin-top:12px" onclick="whOutForm(' + Number(r.row) +
+      ')">Animal has gone out</button>' +
+      '<button class="ghost" style="margin-top:8px" onclick="whMove(' + Number(r.row) +
+      ',\'waiting\')">Back to the waiting list</button>'
+    : '<button style="margin-top:12px" onclick="whAgainForm(' + Number(r.row) +
+      ')">They want another one</button>';
+
+  openSheet(r.customer, where,
+    (tel || mail
+      ? '<div class="row" style="margin-top:10px">' +
+          (tel ? '<a class="btnlike" href="tel:' + esc(tel) + '">📞 Call</a>' : '') +
+          (tel ? '<a class="btnlike ghost" href="sms:' + esc(tel) + '">💬 Text</a>' : '') +
+          (mail ? '<a class="btnlike ghost" href="mailto:' + esc(mail) + '">✉️ Email</a>' : '') +
+        '</div>'
+      : '<p class="muted">No phone or email on file for them.</p>') +
+    '<div class="card" style="margin:12px 0 0">' + rows + '</div>' +
+    (r.notes ? '<h3 style="margin:16px 0 6px">Notes</h3><p>' + esc(r.notes) + '</p>' : '') +
+    move +
+    '<button class="ghost" style="margin-top:8px" onclick="whEditForm(' + Number(r.row) +
+      ')">Change the details</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="whSeeOrders(' + Number(r.row) +
+      ')">See everything they have ordered</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Close</button>');
+}
+
+function whSeeOrders(row) {
+  const r = whByRow(row);
+  if (!r) return;
+  closeSheet();
+  setTimeout(() => openCustomer(r.customer), 260);
+}
+
+async function whWrite(action, payload, said) {
+  try {
+    const res = await api(action, payload);
+    data.lists = res;
+    save(LS.data, data);
+    closeSheet();
+    renderAll();
+    toast(said, 'ok');
+  } catch (err) { toast(err.message, 'bad'); }
+}
+
+/* Every write quotes the row and the name the app has for it. If the rows in
+   the Sheet have moved underneath, the backend refuses and says so rather
+   than writing to whoever is on that row now. */
+function whMove(row, to, extra) {
+  const r = whByRow(row);
+  if (!r) return toast('That line has moved. Pull down to refresh.', 'bad');
+  whWrite('wholesaleMove',
+    Object.assign({ row: r.row, customer: r.customer, to: to }, extra || {}),
+    to === 'ordered' ? 'On the ordered list.'
+      : to === 'out' ? 'Marked as gone out.' : 'Back on the waiting list.');
+}
+
+function whOutForm(row) {
+  const r = whByRow(row);
+  if (!r) return;
+  openSheet(r.customer, 'Animal has gone out',
+    '<label>Hanging weight (lb)</label>' +
+    '<input id="whOutWeight" type="number" inputmode="decimal" step="0.1" placeholder="e.g. 232">' +
+    '<label style="margin-top:9px">Invoice</label>' +
+    '<input id="whOutInvoice" placeholder="e.g. PCW 062" autocomplete="off">' +
+    '<label style="margin-top:9px">Invoiced</label>' +
+    '<input id="whOutPrice" type="number" inputmode="decimal" step="0.01" placeholder="total on the invoice">' +
+    '<p class="muted" style="margin:8px 0 0">Any of these can wait — the line moves either way.</p>' +
+    '<button style="margin-top:11px" onclick="whOutSave(' + Number(r.row) + ')">Gone out</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="whJump(' + Number(r.row) + ')">Back</button>');
+}
+
+function whOutSave(row) {
+  whMove(row, 'out', {
+    weight: $('whOutWeight').value,
+    invoice: $('whOutInvoice').value.trim(),
+    price: $('whOutPrice').value
+  });
+}
+
+function whAgainForm(row) {
+  const r = whByRow(row);
+  if (!r) return;
+  openSheet(r.customer, 'Wants another one',
+    '<p class="muted" style="margin:10px 0 0">This starts a fresh line. The one they ' +
+      'already had keeps its invoice.</p>' +
+    '<div class="row" style="margin-top:10px">' +
+      '<div><label>What they want</label>' + whWantsSelect('whAgainWants', r.wants) + '</div>' +
+      '<div><label>How keen</label>' + whPrioritySelect('whAgainPriority', 'Normal') + '</div>' +
+    '</div>' +
+    '<label style="margin-top:9px">Wanted by</label><input type="date" id="whAgainBy">' +
+    '<label style="margin-top:9px">Notes</label>' +
+    '<input id="whAgainNotes" autocomplete="off" placeholder="anything they said">' +
+    '<button style="margin-top:11px" onclick="whAgainSave(' + Number(r.row) + ')">Add the new line</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="whJump(' + Number(r.row) + ')">Back</button>');
+}
+
+function whAgainSave(row) {
+  const r = whByRow(row);
+  if (!r) return toast('That line has moved. Pull down to refresh.', 'bad');
+  whWrite('wholesaleAgain', {
+    row: r.row, customer: r.customer,
+    wants: $('whAgainWants').value, priority: $('whAgainPriority').value,
+    wantedBy: $('whAgainBy').value, notes: $('whAgainNotes').value.trim()
+  }, 'Added to the waiting list.');
+}
+
+function whWantsSelect(id, chosen) {
+  const opts = ['Whole', 'Half', 'Quarter', 'Front Quarter', 'Hind Quarter'];
+  const pick = String(chosen || '');
+  // Whatever is already written on the line is kept as an option, so editing
+  // somebody never quietly rewrites what they actually asked for.
+  if (pick && !opts.some(o => o.toLowerCase() === pick.toLowerCase())) opts.unshift(pick);
+  return '<select id="' + id + '">' + opts.map(o =>
+    '<option' + (o.toLowerCase() === pick.toLowerCase() ? ' selected' : '') + '>' +
+    esc(o) + '</option>').join('') + '</select>';
+}
+
+function whPrioritySelect(id, chosen) {
+  return '<select id="' + id + '">' + ['High', 'Normal', 'Low'].map(o =>
+    '<option' + (o === (chosen || 'Normal') ? ' selected' : '') + '>' + o + '</option>')
+    .join('') + '</select>';
+}
+
+function whEditForm(row) {
+  const r = whByRow(row);
+  if (!r) return;
+  const val = v => esc(String(v == null ? '' : v));
+  openSheet(r.customer, 'Change the details',
+    '<label style="margin-top:10px">Name</label>' +
+    '<input id="whEdName" autocomplete="off" value="' + val(r.customer) + '">' +
+    '<div class="row" style="margin-top:9px">' +
+      '<div><label>Phone</label><input id="whEdPhone" autocomplete="off" value="' + val(r.phone) + '"></div>' +
+      '<div><label>Email</label><input id="whEdEmail" autocomplete="off" value="' + val(r.email) + '"></div>' +
+    '</div>' +
+    '<div class="row" style="margin-top:9px">' +
+      '<div><label>What they want</label>' + whWantsSelect('whEdWants', r.wants) + '</div>' +
+      '<div><label>How keen</label>' + whPrioritySelect('whEdPriority', r.priority) + '</div>' +
+    '</div>' +
+    '<div class="row" style="margin-top:9px">' +
+      '<div><label>Wanted by</label><input type="date" id="whEdBy" value="' + val(r.wantedBy) + '"></div>' +
+      '<div><label>Deposit</label><input type="number" inputmode="decimal" step="0.01" id="whEdDeposit" value="' + val(r.deposit || '') + '"></div>' +
+    '</div>' +
+    (r.stage === 'past'
+      ? '<div class="row" style="margin-top:9px">' +
+          '<div><label>Hanging weight</label><input type="number" inputmode="decimal" step="0.1" id="whEdWeight" value="' + val(r.weight || '') + '"></div>' +
+          '<div><label>Invoiced</label><input type="number" inputmode="decimal" step="0.01" id="whEdPrice" value="' + val(r.price || '') + '"></div>' +
+        '</div>' +
+        '<label style="margin-top:9px">Invoice</label>' +
+        '<input id="whEdInvoice" autocomplete="off" value="' + val(r.invoice) + '">'
+      : '') +
+    '<label style="margin-top:9px">Notes</label>' +
+    '<div class="withmic"><input id="whEdNotes" autocomplete="off" value="' + val(r.notes) + '">' +
+      '<button class="mic" onclick="dictate(\'whEdNotes\',this)">🎤</button></div>' +
+    '<button style="margin-top:11px" onclick="whEditSave(' + Number(r.row) + ')">Save</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="whJump(' + Number(r.row) + ')">Back</button>');
+}
+
+function whEditSave(row) {
+  const r = whByRow(row);
+  if (!r) return toast('That line has moved. Pull down to refresh.', 'bad');
+  const name = $('whEdName').value.trim();
+  if (!name) return toast('A line needs a name.', 'bad');
+  const fields = {
+    customer: name, phone: $('whEdPhone').value.trim(), email: $('whEdEmail').value.trim(),
+    wants: $('whEdWants').value, priority: $('whEdPriority').value,
+    wantedBy: $('whEdBy').value, deposit: $('whEdDeposit').value,
+    notes: $('whEdNotes').value.trim()
+  };
+  if (r.stage === 'past') {
+    fields.weight = $('whEdWeight').value;
+    fields.price = $('whEdPrice').value;
+    fields.invoice = $('whEdInvoice').value.trim();
+  }
+  whWrite('wholesaleSave', { row: r.row, customer: r.customer, fields: fields }, 'Saved.');
+}
+
+/* Adding somebody asks the first question first: which list are they going on? */
+let whAddStage = 'waiting';
+function whSetAddStage(stage) {
+  whAddStage = stage;
+  ['waiting', 'ordered'].forEach(s => {
+    const b = $('whAddStage-' + s);
+    if (b) b.className = s === stage ? 'on' : '';
+  });
+  const by = $('whAddByWrap');
+  if (by) by.style.display = stage === 'ordered' ? '' : 'none';
+}
+
+function openWholesaleAdd() {
+  whAddStage = 'waiting';
+  openSheet('Add someone', 'to the wholesale list',
+    '<label style="margin-top:10px">Which list?</label>' +
+    '<div class="seg" id="whAddStageSeg">' +
+      '<button id="whAddStage-waiting" class="on" onclick="whSetAddStage(\'waiting\')">Waiting list</button>' +
+      '<button id="whAddStage-ordered" onclick="whSetAddStage(\'ordered\')">Ordered</button>' +
+    '</div>' +
+    '<label style="margin-top:11px">Name</label>' +
+    '<div class="withmic"><input id="whAddName" placeholder="Name" autocomplete="off">' +
+      '<button class="mic" onclick="dictate(\'whAddName\',this)">🎤</button></div>' +
+    '<div class="row" style="margin-top:9px">' +
+      '<input id="whAddPhone" placeholder="Phone" autocomplete="off">' +
+      '<input id="whAddEmail" placeholder="Email" autocomplete="off">' +
+    '</div>' +
+    '<div class="row" style="margin-top:9px">' +
+      '<div><label>What they want</label>' + whWantsSelect('whAddWants', 'Half') + '</div>' +
+      '<div><label>How keen</label>' + whPrioritySelect('whAddPriority', 'Normal') + '</div>' +
+    '</div>' +
+    '<div class="row" style="margin-top:9px">' +
+      '<div id="whAddByWrap" style="display:none"><label>Wanted by</label>' +
+        '<input type="date" id="whAddBy"></div>' +
+      '<div><label>Deposit</label>' +
+        '<input type="number" inputmode="decimal" step="0.01" id="whAddDeposit" placeholder="0"></div>' +
+    '</div>' +
+    '<label style="margin-top:9px">Notes</label>' +
+    '<div class="withmic"><input id="whAddNotes" autocomplete="off" placeholder="what they said">' +
+      '<button class="mic" onclick="dictate(\'whAddNotes\',this)">🎤</button></div>' +
+    '<button style="margin-top:11px" onclick="addWholesale()">Add them</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Cancel</button>');
+}
+
+async function addWholesale() {
+  const name = $('whAddName').value.trim();
+  if (!name) return toast('Needs a name.', 'bad');
+  const by = $('whAddBy');
+  whWrite('addToList', {
+    list: 'wholesale',
+    entry: {
+      customer: name, phone: $('whAddPhone').value.trim(),
+      email: $('whAddEmail').value.trim(), wants: $('whAddWants').value,
+      status: whAddStage === 'ordered' ? 'Ordered' : 'Waiting',
+      priority: $('whAddPriority').value,
+      wantedBy: whAddStage === 'ordered' && by ? by.value : '',
+      deposit: $('whAddDeposit').value, notes: $('whAddNotes').value.trim()
+    }
+  }, 'Added.');
 }
 
 function renderWaitlist() {

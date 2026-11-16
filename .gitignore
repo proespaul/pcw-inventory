@@ -1,0 +1,4 @@
+# jsdom, for the browser checks in apps-script/test/ui.js. Installed with
+# `npm install --no-save jsdom` and never committed — the app itself has no
+# dependencies and no build step.
+node_modules/

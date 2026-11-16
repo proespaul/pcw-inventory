@@ -119,7 +119,26 @@ You can also add products and batches from the phone (**+ New product** /
 
 ### Inside Menu
 
-**Wholesale** — who wants a whole, half or quarter, their contact, when they want it, deposit, and whether they're waiting or active.
+**Wholesale** — three lists off one tab, with **+ Add someone** above them all.
+*Ordered* is the people who have ordered and are waiting on a steer, soonest
+wanted-by first, each showing their deposit or *no deposit*. *Waiting list* is
+the ones who said they were interested, keenest first, with what they want and
+the date they asked. Past customers are off the screen behind a button: above it
+a line says how many are worth a call now because their freezer should be
+getting low, and who comes up next. Tapping anyone opens their line — call, text
+or email, every detail, and the buttons that move them along (*They have
+ordered*, *Animal has gone out*, *back to the waiting list*, *They want another
+one*).
+
+A line is edited by the row it sits on, so the app checks the name on that row
+before writing. If rows have been inserted or sorted in the Sheet since the app
+loaded, it refuses and says so rather than writing to the wrong person — pull
+down to refresh and try again.
+
+When a past customer's freezer is likely getting low is worked out, never
+stored: a quarter is eaten in `QUARTER_MONTHS` (3), a half in `HALF_MONTHS` (6),
+a whole in `WHOLE_MONTHS` (10). Change those on **SETTINGS** and everybody moves
+at once.
 
 **Cut waiting list** — who is waiting on which cut, in what size and grade. A line turns green the moment there's enough in the freezer to call them.
 
@@ -244,7 +263,7 @@ scrambles what's already in the tabs.
 | **CUT YIELD MODEL** | What a rail should produce, held per 100 lb so it fits any animal — pounds, packages and price per cut. Backfilled from your *Steer potential vs actual yield* workbook. Set **Use?** to No for a cut you aren't taking: T-Bone conflicts with strip + tenderloin, and the rib styles are pick-one. |
 | **STEER PERFORMANCE** | One row per steer. You type the animal's own numbers — live and hanging weight, purchase, butcher and other costs. The script fills the rest from the ledger: packages cut, saleable weight, yield %, cost per saleable pound, what's sold and what's still in the freezer. |
 | **CUSTOMERS** | Rebuilt from orders. Name, contact, first and last order, how many orders, packages, spend. `In Google Contacts` goes to Yes once the contact is filed. |
-| **WHOLESALE** | Whole / half / quarter: both the people still waiting and the animals already sold — status, priority, deposit, rail weight, price, invoice number and whether it's paid. |
+| **WHOLESALE** | Whole / half / quarter: the interested, the ordered and the animals already sold — status, priority, deposit, rail weight, price, invoice number and whether it's paid. `Status` reads *Waiting*, *Ordered* or *Past*; a row carrying an invoice or a rail weight counts as past whatever the status says, because the money is the harder fact. |
 | **SALES HISTORY** | Everything sold, given away or eaten for quality control **before** the app started, kept as a record only. The `Counted in stock?` column says *No — before the opening count* on every row, because deducting it now would take the same meat out of the freezer twice. |
 | **CUT WAITLIST** | Who is waiting for a particular cut, what size and grade, how many. |
 | **SCANS** | Photographed labels waiting to be read. |
@@ -269,9 +288,10 @@ counts forward and works out when that freezer is probably low:
 
 A follow-up reads **Due now** for `FOLLOWUP_WINDOW` days (30) past that date and
 **Overdue** after. Where the share size was never written down it is read off the
-rail weight and the row says so rather than stating it as fact. Somebody still on
-the wholesale waiting list is never chased for a reorder, because the date on
-their row is when they asked, not when their freezer filled. This runs every
+rail weight and the row says so rather than stating it as fact. Nobody whose
+animal has not gone out is chased for a reorder — neither the waiting list nor
+somebody ordered and waiting on a steer — because the date on their row is when
+they asked, not when their freezer filled. This runs every
 rebuild, so the list is never stale or empty.
 
 **The weekly radar does the judgement.** The Wagyu Reorder Radar scheduled task
@@ -425,7 +445,7 @@ sales sheet**. It reads six tabs:
 | Wholesale Waiting List | WHOLESALE | *Awaiting Animal* becomes *Waiting*; priority, deposit, date booked and the contact notes come across |
 | Product Waiting List | CUT WAITLIST | What they asked for is kept **in their words**. Where the wording plainly names a product it also points at that product, so the app can say when it's in stock; where it doesn't — "Cowhide", "Beef spleen", "Pichana" — it stays as written rather than being guessed at |
 | Customers' info | CUSTOMERS | Name, phone, email, location, what they've bought before and how many orders, kept as **Orders before the app** so app orders count separately |
-| Whole Steer Sales | WHOLESALE + SALES HISTORY | The nine whole, half and quarter sales, with rail weight, price, invoice number and what's owed to Dynastar in the notes. Paid ones read *Done*; the rest stay *Active* and show an **unpaid** tag in the app. As the sheet stands, **Paid is FALSE on all nine** — so all nine land as Active. Worth a look: PCW 038 through PCW 050 are invoiced and a couple are marked E-transfer |
+| Whole Steer Sales | WHOLESALE + SALES HISTORY | The nine whole, half and quarter sales, with rail weight, price, invoice number and what's owed to Dynastar in the notes. An invoiced row lands as *Past*; one without an invoice stays *Waiting*. The sheet's `Paid` checkbox reads FALSE on every row, blank ones included, so it carries no information and is not imported — payment lives on the invoices. Worth a look: PCW 038 through PCW 050 are invoiced and a couple are marked E-transfer |
 | Sales | SALES HISTORY | Every retail sale with who sold it and how it was paid |
 | Promotions | SALES HISTORY | Giveaways, photoshoot stock and quality-control tastings, split into *Promotion* and *Quality control* so they never count as revenue |
 

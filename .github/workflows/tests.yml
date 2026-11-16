@@ -1,0 +1,31 @@
+# Every push: the ledger checks, then the browser checks against index.html.
+# Neither needs the Sheet or a deployment — run.js runs Code.gs against an
+# in-memory fake of Apps Script, and ui.js loads the page in jsdom.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: The backend checks
+        run: node apps-script/test/run.js
+
+      - name: The browser checks
+        run: |
+          npm install --no-save jsdom
+          node apps-script/test/ui.js

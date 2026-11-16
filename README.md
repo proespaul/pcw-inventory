@@ -29,6 +29,17 @@ service worker picks up the new version next time the app is opened twice.
 Bump `CACHE` in `sw.js` (`pcw-inv-v1` → `v2`) when a change must reach phones
 immediately — that forces every cached file to be re-fetched.
 
+## Checks
+
+```
+node apps-script/test/run.js              # the backend, against a fake Sheet
+npm install --no-save jsdom               # once
+node apps-script/test/ui.js               # the app, loaded in a headless DOM
+```
+
+Both run on every push (**Tests**), and the backend checks also gate the Apps
+Script deploy — a failing suite never reaches the live `/exec` URL.
+
 ## Changing the backend
 
 Edit `apps-script/Code.gs` (or `appsscript.json`) and commit to `main`. The

@@ -4728,9 +4728,10 @@ function rebuildFollowups_() {
 
   // The wholesale tab is the live record of who bought an animal.
   readTable_(TABS.WHOLESALE).forEach(function (r) {
-    // Somebody still on the waiting list has not taken an animal yet, so the
-    // date on their row is when they asked, not when their freezer filled.
-    if (str_(r['Status']) === 'Waiting') return;
+    // Only a line whose animal actually went out starts the clock. Somebody
+    // on the waiting list, or ordered and waiting on a steer, has an empty
+    // freezer — the date on their row is when they asked, not when it filled.
+    if (wholesaleStage_(r) !== 'past') return;
     consider(str_(r['Customer']), str_(r['Email']), str_(r['Phone']),
              str_(r['Wants']), str_(r['Wants']), num_(r['Weight (lb)']),
              dateStr_(r['Added']), 'From the wholesale list');
@@ -6719,7 +6720,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-04 17:50 UTC';
+var BACKEND_BUILD = '2026-11-16 15:50 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -8268,6 +8269,9 @@ function handle_(e, body) {
       case 'calendarSync':return json_({ ok: true, touched: syncCalendar_() });
       case 'lists':       return json_(lists_());
       case 'addToList':   return json_(addToList_(req));
+      case 'wholesaleMove': return json_(wholesaleMove_(req));
+      case 'wholesaleSave': return json_(wholesaleSave_(req));
+      case 'wholesaleAgain': return json_(wholesaleAgain_(req));
       case 'addSteer':    return json_(addSteer_(req));
       case 'model':       return json_({ ok: true, model: modelFor_(num_(req.railWeight)) });
       case 'sweepWeb':    return json_({ ok: true, made: sweepWebsiteOrders_() });
@@ -9306,21 +9310,86 @@ function quote_(req) {
   };
 }
 
+/**
+ * Every wholesale line with the sheet row it sits on. readTable_ drops blank
+ * rows, which would make its index lie about where a line really is, and the
+ * app edits a line by its row — so this keeps the row numbers true.
+ */
+function wholesaleRows_() {
+  var sh = sheet_(TABS.WHOLESALE);
+  var lastRow = sh.getLastRow();
+  var lastCol = sh.getLastColumn();
+  if (lastRow < 2) return [];
+  var values = sh.getRange(1, 1, lastRow, lastCol).getValues();
+  var head = values.shift().map(function (h) { return String(h).trim(); });
+  var out = [];
+  values.forEach(function (row, i) {
+    var obj = {};
+    head.forEach(function (h, j) { if (h) obj[h] = row[j]; });
+    var any = Object.keys(obj).some(function (k) { return obj[k] !== '' && obj[k] !== null; });
+    if (any) out.push({ row: i + 2, fields: obj });
+  });
+  return out;
+}
+
+/**
+ * The three places a wholesale line can be.
+ *
+ * An invoice or a hanging weight means the animal went out, whatever the
+ * Status column says — that column is written by hand and by the sales-sheet
+ * importer, and the money is the harder fact. Of the lines with neither, the
+ * ones whose status says they ordered are waiting on a steer; the rest are
+ * people who said they were interested.
+ */
+function wholesaleStage_(f) {
+  if (str_(f['Invoice']) || num_(f['Weight (lb)'])) return 'past';
+  var s = str_(f['Status']);
+  // Marked as gone out by hand, before the invoice is written.
+  if (/past|gone out|delivered|collected/i.test(s)) return 'past';
+  return /order/i.test(s) ? 'ordered' : 'waiting';
+}
+
+/**
+ * When a past customer's freezer is likely getting low, so they can be asked
+ * whether they want another. Worked out from the share size and the day they
+ * took it — never stored, so moving QUARTER_MONTHS / HALF_MONTHS /
+ * WHOLE_MONTHS on the SETTINGS tab moves everybody at once.
+ */
+function wholesaleDue_(f, st, todayIso) {
+  var clock = shareClock_(str_(f['Wants']), num_(f['Weight (lb)']), st);
+  var on = dateStr_(f['Added']);
+  if (!clock || !on) return null;
+  var due = addMonths_(on, clock.months);
+  if (!due) return null;
+  return { share: clock.share, months: clock.months, due: due, dueNow: due <= todayIso };
+}
+
 /** The two waiting lists and the customer book, for the Menu tab. */
 function lists_() {
+  var st = settings_();
+  var todayIso = today_();
   return {
     ok: true,
-    wholesale: readTable_(TABS.WHOLESALE).map(function (r) {
-      return { customer: str_(r['Customer']), phone: str_(r['Phone']), email: str_(r['Email']),
+    wholesale: wholesaleRows_().map(function (e) {
+      var r = e.fields;
+      var stage = wholesaleStage_(r);
+      var out = { row: e.row,
+               customer: str_(r['Customer']), phone: str_(r['Phone']), email: str_(r['Email']),
                wants: str_(r['Wants']), status: str_(r['Status']) || 'Waiting',
                priority: str_(r['Priority']), wantedBy: dateStr_(r['Wanted by']),
                deposit: num_(r['Deposit']), weight: num_(r['Weight (lb)']),
                price: num_(r['Price']), invoice: str_(r['Invoice']), paid: str_(r['Paid']),
                added: dateStr_(r['Added']), notes: str_(r['Notes']),
-               // Somebody who has been invoiced has had their animal; everyone
-               // else is still waiting on one. This is what splits the screen
-               // into a waiting list and past customers.
-               stage: (str_(r['Invoice']) || num_(r['Weight (lb)'])) ? 'past' : 'waiting' };
+               stage: stage };
+      if (stage === 'past') {
+        var clock = wholesaleDue_(r, st, todayIso);
+        if (clock) {
+          out.share = clock.share;
+          out.due = clock.due;
+          out.dueNow = clock.dueNow;
+        }
+      }
+      return out;
     }).filter(function (r) { return r.customer; }),
     waitlist: readTable_(TABS.WAITLIST).map(function (r) {
       return { customer: str_(r['Customer']), phone: str_(r['Phone']), email: str_(r['Email']),
@@ -9359,6 +9428,132 @@ function addToList_(req) {
   } else {
     return { ok: false, error: 'Unknown list: ' + which };
   }
+  return lists_();
+}
+
+/* ========================= WHOLESALE LINES =========================
+   The WHOLESALE tab has no key of its own and two customers can carry the
+   same name, so the app edits a line by its row number. That is only safe if
+   the row still holds the person the app thinks it does: if rows were
+   inserted, deleted or sorted in the Sheet since the app last loaded, row 7
+   is somebody else now, and writing to it would move the wrong person's
+   animal. So every write checks the name on the row first and refuses rather
+   than guessing. ------------------------------------------------------- */
+
+function wholesaleLine_(row, customer) {
+  var n = Math.floor(num_(row));
+  if (!n || n < 2) return { ok: false, error: 'The app did not say which line to change.' };
+  var hit = null;
+  wholesaleRows_().forEach(function (e) { if (e.row === n) hit = e; });
+  if (!hit) return { ok: false,
+    error: 'That line is not on the wholesale tab any more. Pull down to refresh.' };
+  var onSheet = str_(hit.fields['Customer']);
+  var asked = str_(customer);
+  if (asked && onSheet.toLowerCase() !== asked.toLowerCase()) {
+    return { ok: false, error: 'Row ' + n + ' reads ' + (onSheet || 'blank') + ', not ' +
+      asked + '. The rows have moved since the app loaded — pull down to refresh, ' +
+      'then try again.' };
+  }
+  return { ok: true, row: n, fields: hit.fields };
+}
+
+/** Writes named columns on one row, so adding a column never shifts a write. */
+function wholesaleWrite_(row, patch) {
+  var sh = sheet_(TABS.WHOLESALE);
+  var head = sh.getRange(1, 1, 1, Math.max(1, sh.getLastColumn())).getValues()[0]
+    .map(function (h) { return String(h).trim(); });
+  Object.keys(patch).forEach(function (col) {
+    var at = head.indexOf(col);
+    if (at === -1) return;
+    sh.getRange(row, at + 1).setValue(patch[col]);
+  });
+}
+
+/* The field names the app sends, and the column each one writes. */
+var WHOLESALE_FIELDS = {
+  customer: 'Customer', phone: 'Phone', email: 'Email', wants: 'Wants',
+  status: 'Status', priority: 'Priority', wantedBy: 'Wanted by', deposit: 'Deposit',
+  weight: 'Weight (lb)', price: 'Price', invoice: 'Invoice', paid: 'Paid', notes: 'Notes'
+};
+var WHOLESALE_NUMBERS = { deposit: true, weight: true, price: true };
+
+/**
+ * Moves a line along: onto the ordered list, out the door, or back to the
+ * waiting list. Going out can carry the hanging weight and invoice with it,
+ * which is what makes the line past for good.
+ */
+function wholesaleMove_(req) {
+  var line = wholesaleLine_(req.row, req.customer);
+  if (!line.ok) return line;
+  var to = str_(req.to).toLowerCase();
+  var patch = {};
+
+  if (to === 'ordered') {
+    patch['Status'] = 'Ordered';
+    if (str_(req.wantedBy)) patch['Wanted by'] = str_(req.wantedBy);
+    if (num_(req.deposit)) patch['Deposit'] = num_(req.deposit);
+  } else if (to === 'out' || to === 'past') {
+    patch['Status'] = 'Past';
+    if (num_(req.weight)) patch['Weight (lb)'] = num_(req.weight);
+    if (num_(req.price)) patch['Price'] = num_(req.price);
+    if (str_(req.invoice)) patch['Invoice'] = str_(req.invoice);
+  } else if (to === 'waiting') {
+    // Back to interested. An invoiced line is not sent back here — the money
+    // says the animal went out, and the app does not argue with that.
+    if (str_(line.fields['Invoice']) || num_(line.fields['Weight (lb)'])) {
+      return { ok: false, error: str_(line.fields['Customer']) +
+        ' has an invoice on that line, so it stays with the past customers. ' +
+        'Clear the invoice and weight on the Sheet if that was a mistake.' };
+    }
+    patch['Status'] = 'Waiting';
+  } else {
+    return { ok: false, error: 'Move it where? Expected ordered, out or waiting.' };
+  }
+
+  wholesaleWrite_(line.row, patch);
+  return lists_();
+}
+
+/** Edits any field on one line. Only the fields the app sends are touched. */
+function wholesaleSave_(req) {
+  var line = wholesaleLine_(req.row, req.customer);
+  if (!line.ok) return line;
+  var f = req.fields || {};
+  var patch = {};
+  Object.keys(WHOLESALE_FIELDS).forEach(function (key) {
+    if (!Object.prototype.hasOwnProperty.call(f, key)) return;
+    patch[WHOLESALE_FIELDS[key]] = WHOLESALE_NUMBERS[key] ? num_(f[key]) : str_(f[key]);
+  });
+  if (Object.prototype.hasOwnProperty.call(f, 'customer') && !str_(f.customer)) {
+    return { ok: false, error: 'A line needs a name.' };
+  }
+  if (!Object.keys(patch).length) return { ok: false, error: 'Nothing to change.' };
+  wholesaleWrite_(line.row, patch);
+  return lists_();
+}
+
+/**
+ * A past customer who wants another animal gets a fresh line. The old one is
+ * left exactly as it is, invoice and all, so what they already bought is
+ * still on the record.
+ */
+function wholesaleAgain_(req) {
+  var line = wholesaleLine_(req.row, req.customer);
+  if (!line.ok) return line;
+  var r = line.fields;
+  var had = str_(r['Wants']) || 'a share';
+  var on = dateStr_(r['Added']);
+  var status = /order/i.test(str_(req.status)) ? 'Ordered' : 'Waiting';
+
+  sheet_(TABS.WHOLESALE).appendRow([
+    str_(r['Customer']), str_(r['Phone']), str_(r['Email']),
+    str_(req.wants) || had,
+    status, str_(req.priority) || 'Normal', str_(req.wantedBy),
+    num_(req.deposit), '', '', '', '',
+    today_(),
+    ['Wants another — had ' + had + (on ? ' on ' + on : ''), str_(req.notes)]
+      .filter(String).join(' · ')
+  ]);
   return lists_();
 }
 

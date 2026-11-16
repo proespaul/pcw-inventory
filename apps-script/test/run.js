@@ -13,9 +13,10 @@ const ss = ctx.__ss;
 console.log('\nsetup()');
 ctx.setup();
 check('all tabs created', Object.keys(ss.sheets).sort(),
-  ['BATCHES','BOX RECIPES','CUSTOMERS','CUT WAITLIST','CUT YIELD MODEL','FOLLOW-UPS','FREEZERS','INVENTORY',
-   'MOVEMENTS','ORDER ITEMS','ORDERS','PRODUCTS','SALES HISTORY','SCANS','SETTINGS',
-   'STEER PERFORMANCE',
+  ['ALERTS','BATCHES','BOX RECIPES','CUSTOMERS','CUT WAITLIST','CUT YIELD MODEL','FOLLOW-UPS',
+   'FREEZER TEMPS','FREEZERS','INVENTORY',
+   'MOVEMENTS','ORDER ITEMS','ORDERS','PRICE CHANGES','PRODUCTS','SALES HISTORY','SCANS','SETTINGS',
+   'SIGN-IN LOG','STAFF','STEER PERFORMANCE',
    'STOCK BY PRODUCT','WHOLESALE']);
 check('freezers seeded', ctx.indexFreezers_().map(f => f.id), ['MAIN','SHOP','TRUCK']);
 check('token generated', typeof ctx.PropertiesService.getScriptProperties().getProperty('API_TOKEN'), 'string');
@@ -66,8 +67,13 @@ const call = (action, payload) => JSON.parse(ctx.handle_({ parameter: {} },
   Object.assign({ action, token: TOKEN }, payload || {}))._text);
 
 console.log('\nauth');
-check('bad token refused', JSON.parse(ctx.handle_({ parameter: {} }, { action: 'ping', token: 'nope' })._text).ok, false);
+// ping deliberately takes no sign-in — it is the only way to read the build
+// from outside, so it is not the action to test the door with.
+check('ping is open by design', JSON.parse(ctx.handle_({ parameter: {} }, { action: 'ping' })._text).ok, true);
+check('bad token refused', JSON.parse(ctx.handle_({ parameter: {} }, { action: 'lists', token: 'nope' })._text).ok, false);
+check('and no token at all refused', JSON.parse(ctx.handle_({ parameter: {} }, { action: 'lists' })._text).ok, false);
 check('good token ok', call('ping').ok, true);
+check('good token opens a real action', call('lists').ok, true);
 
 console.log('\nintake');
 call('submit', { ops: [
@@ -366,7 +372,7 @@ console.log('\nageing, boxes, steers and the calculator');
 
   const aged = go('ageing').lots;
   check('old lots flagged', aged.length, 2);
-  check('flagged once past the warning line', aged[0].level, 'warn');
+  check('flagged urgent once past the urgent line', aged[0].level, 'urgent');
   check('with a suggestion', aged[0].suggestion.length > 10, true);
   check('and the days counted', aged[0].days > 250, true);
 
@@ -393,13 +399,17 @@ console.log('\nageing, boxes, steers and the calculator');
   check('yield worked out', steer['Yield %'] > 0, true);
   check('cost per saleable lb', steer['Cost / saleable lb'] > 0, true);
 
+  // $63 is the price list, which IS the wholesale rate. A quote with no
+  // channel named is a website quote: +30%, so $82/lb, then the piece rounded.
   const q = go('quote', { sku: 'RIBEYE-STEAK', weight: 1.1 });
-  check('quoted on real weight', q.price, 69.3);
-  check('and shows the working', q.basis, '1.10 lb × $63.00/lb');
+  check('quoted on real weight', q.price, 91);
+  check('and shows the working', q.basis, '1.10 lb × $82.00/lb');
+  const qw = go('quote', { sku: 'RIBEYE-STEAK', weight: 1.1, channel: 'wholesale' });
+  check('a wholesale quote is the list rate, to the cent', qw.price, 69.3);
   const qm = go('quote', { sku: 'RIBEYE-STEAK', weight: 1.1, channel: 'market' });
-  check('market price is different', qm.price, 62.7);
+  check('market price is different', qm.price, 63);
   const qkg = go('quote', { sku: 'RIBEYE-STEAK', weight: 0.5, kg: true });
-  check('kilograms accepted', qkg.price, 69.45);
+  check('kilograms accepted', qkg.price, 91);
   const boxSku = Object.keys(c.indexProducts_()).filter(k => k.indexOf('BEST-OF-BOTH') === 0)[0];
   const qb = go('quote', { sku: boxSku });
   check('a box quotes at its set price', qb.price, 115);
@@ -531,7 +541,7 @@ console.log('\nreading the 2026 sales sheet');
 
   // Whole, half and quarter sales land on the wholesale list.
   const jean = L.wholesale.filter(r => r.customer === 'Jean & Val Sylvain')[0];
-  check('an unpaid half steer is still active', jean.status, 'Active');
+  check('an invoiced half steer reads as past', jean.status, 'Past');
   check('its rail weight came across', jean.weight, 580);
   check('the price is the number at the end of the sum', jean.price, 4060);
   check('the final invoice came across', jean.invoice, 'PCW 041');
@@ -543,7 +553,7 @@ console.log('\nreading the 2026 sales sheet');
   check('with the deposit taken', jeff2.deposit, 500);
 
   const haecki = L.wholesale.filter(r => r.customer.indexOf('Matthias') === 0)[0];
-  check('a paid whole animal reads as Done', haecki.status, 'Done');
+  check('a paid whole animal reads as past too', haecki.status, 'Past');
   check('a deposit written with a comma still parses', haecki.deposit, 5344);
   check('and so does a price', haecki.price, 10688);
   check('what Dynastar is owed is kept in the notes',
@@ -908,6 +918,152 @@ console.log('\nreorder follow-ups');
   c.rebuildInventory();
   check('the radar draft survives the rebuild',
     byName()['Keith Anderson'].draft.indexOf('front quarter') > -1, true);
+}
+
+console.log('\nthe wholesale screen: ordered, waiting, past');
+{
+  const c = buildContext();
+  c.setup();
+  const tk = c.PropertiesService.getScriptProperties().getProperty('API_TOKEN');
+  const go = (a, p) => JSON.parse(c.handle_({ parameter: {} }, Object.assign({ action: a, token: tk }, p || {}))._text);
+  const wh = c.__ss.getSheetByName('WHOLESALE');
+  // Customer, Phone, Email, Wants, Status, Priority, Wanted by, Deposit,
+  // Weight (lb), Price, Invoice, Paid, Added, Notes
+  const row = r => wh.data.push([r.name, r.phone || '', r.email || '', r.wants || '',
+    r.status || 'Waiting', r.priority || 'Normal', r.wantedBy || '', r.deposit || 0,
+    r.weight || '', r.price || '', r.invoice || '', r.paid || '', r.added || '', r.notes || '']);
+  const setSetting = (k, v) => {
+    const sh = c.__ss.getSheetByName('SETTINGS');
+    const head = sh.data[0].map(String);
+    const ki = head.indexOf('Key'), vi = head.indexOf('Value');
+    for (let i = 1; i < sh.data.length; i++) {
+      if (sh.data[i] && String(sh.data[i][ki]) === k) { sh.data[i][vi] = v; return; }
+    }
+  };
+  const byName = () => {
+    const o = {};
+    go('lists').wholesale.forEach(r => { o[r.customer] = r; });
+    return o;
+  };
+
+  row({ name: 'Dale Friesen', phone: '780-555-0141', wants: 'Half', priority: 'High',
+        wantedBy: '2027-02-01', deposit: 500, status: 'Ordered', added: '2026-11-02' });
+  row({ name: 'Renee Toews', phone: '780-555-0199', wants: 'Quarter', priority: 'Normal',
+        status: 'Ordered', added: '2026-11-09' });
+  row({ name: 'Ivan Wiebe', wants: 'Whole', priority: 'High', added: '2026-10-20',
+        notes: 'asked at the market' });
+  row({ name: 'Sarah Penner', wants: 'Quarter', priority: 'Low', added: '2026-09-14' });
+  row({ name: 'Glen Hiebert', wants: 'Quarter', weight: 232, price: 2088,
+        invoice: 'PCW 061', added: '2026-01-10' });            // freezer low by April
+  row({ name: 'Marie Doerksen', wants: 'Half', weight: 561, price: 4488,
+        invoice: 'PCW 058', added: '2026-06-15' });            // not low until December
+
+  let w = byName();
+  check('ordered, waiting and past are told apart',
+    ['Dale Friesen', 'Ivan Wiebe', 'Glen Hiebert'].map(n => w[n].stage),
+    ['ordered', 'waiting', 'past']);
+  check('an ordered line is not treated as having had its animal',
+    [w['Renee Toews'].stage, !!w['Renee Toews'].due], ['ordered', false]);
+  check('what they want, when they asked and how keen all survive',
+    [w['Ivan Wiebe'].wants, w['Ivan Wiebe'].added, w['Ivan Wiebe'].priority],
+    ['Whole', '2026-10-20', 'High']);
+  check('the deposit comes through on an ordered line', w['Dale Friesen'].deposit, 500);
+
+  check('a past line carries its share size', w['Glen Hiebert'].share, 'Quarter');
+  check('and when the freezer should be getting low', w['Glen Hiebert'].due, '2026-04-10');
+  check('which is already past, so they are worth a call', w['Glen Hiebert'].dueNow, true);
+  check('a half bought in June is not due yet',
+    [w['Marie Doerksen'].due, w['Marie Doerksen'].dueNow], ['2026-12-15', false]);
+
+  setSetting('HALF_MONTHS', '4');
+  check('moving HALF_MONTHS on the SETTINGS tab moves everybody at once',
+    [byName()['Marie Doerksen'].due, byName()['Marie Doerksen'].dueNow], ['2026-10-15', true]);
+  setSetting('HALF_MONTHS', '6');
+
+  // ---- the row a line sits on, and the guard on writing to it ----
+  const dale = byName()['Dale Friesen'];
+  check('a line knows which row it is on', dale.row, 2);
+  wh.data.push(['', '', '', '', '', '', '', '', '', '', '', '', '', '']);
+  row({ name: 'Lorne Zacharias', wants: 'Quarter', added: '2026-11-14' });
+  check('a blank row does not make the row numbers lie',
+    byName()['Lorne Zacharias'].row, 9);
+
+  check('writing to a row that now reads somebody else is refused',
+    go('wholesaleMove', { row: dale.row, customer: 'Renee Toews', to: 'out' }).ok, false);
+  check('and says so in words Paul can act on',
+    go('wholesaleMove', { row: dale.row, customer: 'Renee Toews', to: 'out' })
+      .error.indexOf('Dale Friesen') > -1, true);
+  check('nothing was written to the wrong person',
+    byName()['Dale Friesen'].stage, 'ordered');
+  check('a row that has gone from the tab is refused too',
+    go('wholesaleMove', { row: 400, customer: 'Dale Friesen', to: 'out' }).ok, false);
+
+  // ---- moving a line along ----
+  go('wholesaleMove', { row: byName()['Ivan Wiebe'].row, customer: 'Ivan Wiebe',
+                        to: 'ordered', wantedBy: '2027-05-01', deposit: 250 });
+  w = byName();
+  check('the waiting list to ordered', w['Ivan Wiebe'].stage, 'ordered');
+  check('with the date they want it by and the deposit',
+    [w['Ivan Wiebe'].wantedBy, w['Ivan Wiebe'].deposit], ['2027-05-01', 250]);
+
+  go('wholesaleMove', { row: w['Ivan Wiebe'].row, customer: 'Ivan Wiebe', to: 'waiting' });
+  check('and back to the waiting list', byName()['Ivan Wiebe'].stage, 'waiting');
+  check('the deposit is left alone on the way back', byName()['Ivan Wiebe'].deposit, 250);
+
+  go('wholesaleMove', { row: byName()['Renee Toews'].row, customer: 'Renee Toews',
+                        to: 'out', weight: 228, price: 2052, invoice: 'PCW 067' });
+  w = byName();
+  check('ordered to gone out', w['Renee Toews'].stage, 'past');
+  check('taking the hanging weight and invoice with it',
+    [w['Renee Toews'].weight, w['Renee Toews'].invoice], [228, 'PCW 067']);
+  check('and the reorder clock starts from there', !!w['Renee Toews'].due, true);
+
+  check('an invoiced line will not go back to the waiting list',
+    go('wholesaleMove', { row: w['Renee Toews'].row, customer: 'Renee Toews', to: 'waiting' }).ok,
+    false);
+  check('it stays where the money says it is', byName()['Renee Toews'].stage, 'past');
+  check('a move with no destination is refused',
+    go('wholesaleMove', { row: byName()['Sarah Penner'].row, customer: 'Sarah Penner',
+                          to: 'somewhere' }).ok, false);
+
+  // ---- editing the details ----
+  go('wholesaleSave', { row: byName()['Sarah Penner'].row, customer: 'Sarah Penner',
+    fields: { phone: '780-555-0177', priority: 'High', wants: 'Half',
+              notes: 'wants it before Christmas' } });
+  w = byName();
+  check('the details can be changed',
+    [w['Sarah Penner'].phone, w['Sarah Penner'].priority, w['Sarah Penner'].wants],
+    ['780-555-0177', 'High', 'Half']);
+  check('and a field nobody touched is left alone', w['Sarah Penner'].added, '2026-09-14');
+  check('a line cannot be left nameless',
+    go('wholesaleSave', { row: w['Sarah Penner'].row, customer: 'Sarah Penner',
+                          fields: { customer: '' } }).ok, false);
+  go('wholesaleSave', { row: w['Sarah Penner'].row, customer: 'Sarah Penner',
+                        fields: { customer: 'Sarah Penner-Klassen' } });
+  check('a name can be corrected', !!byName()['Sarah Penner-Klassen'], true);
+
+  // ---- they want another one ----
+  const glen = byName()['Glen Hiebert'];
+  go('wholesaleAgain', { row: glen.row, customer: 'Glen Hiebert', wants: 'Half',
+                         priority: 'High' });
+  const glens = go('lists').wholesale.filter(r => r.customer === 'Glen Hiebert');
+  check('a past customer who wants another gets a second line', glens.length, 2);
+  check('the old one keeps its invoice',
+    glens.filter(r => r.stage === 'past')[0].invoice, 'PCW 061');
+  check('the new one starts on the waiting list, asked today',
+    glens.filter(r => r.stage === 'waiting').map(r => [r.wants, r.added, r.priority])[0],
+    ['Half', c.today_(), 'High']);
+  check('and says what they had last time',
+    glens.filter(r => r.stage === 'waiting')[0].notes.indexOf('had Quarter') > -1, true);
+
+  // ---- the follow-up radar must not chase somebody who has no animal ----
+  c.rebuildInventory();
+  const fu = {};
+  go('followups').followups.forEach(f => { fu[f.customer] = f; });
+  check('a past customer is chased', !!fu['Marie Doerksen'], true);
+  check('somebody ordered and still waiting on a steer is not',
+    !!fu['Dale Friesen'], false);
+  check('nor is anybody merely on the waiting list', !!fu['Ivan Wiebe'], false);
 }
 
 console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll checks passed.\n');
