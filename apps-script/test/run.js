@@ -1086,6 +1086,39 @@ console.log('\nthe wholesale screen: ordered, waiting, past');
   check('nor is anybody merely on the waiting list', !!fu['Ivan Wiebe'], false);
 }
 
+/* ---- an address is not a list of towns ----
+   Splitting the town cell on its commas turned "Peace River, AB T8S 1A6"
+   into two towns: the app got the first fragment, the sales sheet was
+   rewritten with " / " where the comma had been, and the two halves were
+   reported as the books disagreeing. Thirteen real addresses were mangled
+   that way before anyone read one back. */
+{
+  const c = buildContext();
+  c.setup();
+  const addr = '8206 96 St\r\nPeace River, AB T8S 1A6\r\nCanada';
+  const sh = c.sheet_(c.TABS.CUSTOMERS);
+  sh.appendRow(['Mija Oh', 'michelleoh07@gmail.com', '', addr, '', '',
+                0, 1, 0, 0, 0, 'Website', '', '']);
+  const card = c.customerWhere_('Mija Oh');
+  check('an address stays one address, commas and all',
+    card.known.town.map(v => v.value), [addr]);
+
+  const saved = c.customerSave_({ customer: 'Mija Oh', town: addr });
+  check('and saving it back does not put slashes through it',
+    [saved.ok !== false, sh.getRange(2, 4, 1, 1).getValues()[0][0]], [true, addr]);
+
+  // A cell that really does hold two places still splits; the app's own cell
+  // holds one, which is why only the first is written back to it.
+  check('two towns separated on purpose are still two',
+    c.splitCell_('Peace River / Grimshaw', c.TOWN_SPLIT), ['Peace River', 'Grimshaw']);
+  check('and an address is left whole',
+    c.splitCell_(addr, c.TOWN_SPLIT), [addr]);
+
+  // Phones and emails keep splitting on commas, which is how they are written.
+  check('a phone cell with two numbers still splits on the comma',
+    c.splitCell_('780-555-0100, 780-555-0199'), ['780-555-0100', '780-555-0199']);
+}
+
 /* ---- a customer write that cannot land must say so ----
    appWrite_ answers false when the heading is missing, and every caller used
    to throw that away: the save came back ok, the sales sheet took the value,

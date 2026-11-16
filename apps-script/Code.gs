@@ -6173,26 +6173,39 @@ function appAdd_(book, person) {
 
 /* ─────────────────── what the three books say about one person ─────── */
 
+/* Two numbers in one cell are written "a / b", "a; b", "a, b" or "a or b". */
+var CELL_SPLIT = /\s*(?:\/|;|,| or )\s*/i;
+
+/* An address is not a list, and it is full of commas. Splitting one on its
+   commas turned "Peace River, AB T8S 1A6" into two separate towns, wrote the
+   first fragment into the app and "Peace River / AB T8S 1A6" back into the
+   sales sheet, and reported the two halves as a disagreement between the
+   books. A town cell only ever holds more than one place when something
+   explicitly separates them. */
+var TOWN_SPLIT = /\s*(?:\/|;)\s*/;
+
 var WHERE_FIELDS = [
   { key: 'phone', header: 'Phone', cell: 'phone', many: 'phones', same: samePhone_ },
   { key: 'email', header: 'Email', cell: 'email', many: 'emails', same: sameMail_ },
-  { key: 'town',  header: 'Town',  cell: 'town',  many: 'towns',  same: sameText_ }
+  { key: 'town',  header: 'Town',  cell: 'town',  many: 'towns',  same: sameText_,
+    split: TOWN_SPLIT }
 ];
 
 /* A cell in a book holds one thing; a person can have two. "780-625-6963 /
    780-555-0100" is how the sales sheet writes a client with two numbers,
    and it is how we read it back. */
-function splitCell_(v) {
-  return str_(v).split(/\s*(?:\/|;|,| or )\s*/i)
+function splitCell_(v, how) {
+  return str_(v).split(how || CELL_SPLIT)
     .map(function (x) { return x.trim(); }).filter(String);
 }
+
 function joinCell_(list) { return list.join(' / '); }
 
 /** Every answer the books have, each one once, in the order they were met. */
-function gatherValues_(says, same) {
+function gatherValues_(says, same, how) {
   var out = [];
   says.forEach(function (s) {
-    splitCell_(s.value).forEach(function (v) {
+    splitCell_(s.value, how).forEach(function (v) {
       var seen = null;
       out.forEach(function (o) { if (!seen && same(o.value, v)) seen = o; });
       if (seen) { if (seen.where.indexOf(s.where) === -1) seen.where.push(s.where); }
@@ -6253,7 +6266,7 @@ function customerWhere_(name, pre) {
       { where: 'contacts', value: card.contact
           ? joinCell_(card.contact[f.many] || []) : '' }
     ].filter(function (s) { return str_(s.value) !== ''; });
-    card.known[f.key] = gatherValues_(says, f.same);
+    card.known[f.key] = gatherValues_(says, f.same, f.split);
   });
   return card;
 }
@@ -6285,7 +6298,7 @@ function customerSave_(req) {
     var raw = req[f.many] !== undefined ? req[f.many] : req[f.key];
     given[f.key] = raw !== undefined && raw !== null;
     var all = [];
-    listOf_(raw).forEach(function (v) { all = all.concat(splitCell_(v)); });
+    listOf_(raw).forEach(function (v) { all = all.concat(splitCell_(v, f.split)); });
     want[f.many] = all;
     want[f.key] = all[0] || '';
   });
@@ -6397,7 +6410,8 @@ function syncCustomers_(opt) {
       if (!k || known[k]) return;
       appAdd_(app, { name: r.name, phone: splitCell_(r.phone)[0] || '',
                      email: splitCell_(r.email)[0] || '',
-                     town: splitCell_(r.town)[0] || '', source: 'Sales sheet' });
+                     town: splitCell_(r.town, TOWN_SPLIT)[0] || '',
+                     source: 'Sales sheet' });
       known[k] = true;
       out.appAdded++;
     });
@@ -6420,7 +6434,7 @@ function syncCustomers_(opt) {
         { where: 'app', value: mine[f.key] },
         { where: 'sales sheet', value: theirs ? theirs[f.key] : '' },
         { where: 'contacts', value: hit ? joinCell_(hit[f.many] || []) : '' }
-      ], f.same).map(function (v) { return v.value; });
+      ], f.same, f.split).map(function (v) { return v.value; });
       if (all[f.key].length > 1) {
         out.bothKept++;
         out.extras.push({ name: mine.name, field: f.key, what: f.header,
@@ -6752,7 +6766,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-16 18:03 UTC';
+var BACKEND_BUILD = '2026-11-16 18:07 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
