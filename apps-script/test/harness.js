@@ -165,8 +165,16 @@ function buildContext() {
       getAliases: () => ctx.__aliases
     },
     CalendarApp: { getCalendarById: () => null },
-    UrlFetchApp: { fetch: () => ({ getContentText: () => '{}', getResponseCode: () => 200 }) },
-    __ss: ss, __foreign: {}, __drive: {}, __sent: [], __aliases: [], __account: 'admin@pcwagyu.com'
+    /* Answers 200 with nothing, unless a check has set __fetchStub to the
+       code and body it wants back — which is how the Contacts refusals are
+       exercised without reaching Google. */
+    UrlFetchApp: { fetch: () => {
+      const stub = ctx.__fetchStub;
+      return { getContentText: () => (stub ? stub.body : '{}'),
+               getResponseCode: () => (stub ? stub.code : 200) };
+    } },
+    __ss: ss, __foreign: {}, __drive: {}, __sent: [], __aliases: [],
+    __fetchStub: null, __canStubFetch: true, __account: 'admin@pcwagyu.com'
   };
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'Code.gs'), 'utf8'), ctx);

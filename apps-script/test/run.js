@@ -1086,5 +1086,32 @@ console.log('\nthe wholesale screen: ordered, waiting, past');
   check('nor is anybody merely on the waiting list', !!fu['Ivan Wiebe'], false);
 }
 
+/* ---- the Contacts refusal has to name the right cause ----
+   Both problems answer 403, and for a year the message told Paul to grant a
+   permission that was already granted, while the People API sat switched off
+   in the Cloud project. The message is the only thing that reaches him. */
+{
+  const c = buildContext();
+  const peopleErr = (body) => {
+    try {
+      c.__fetchStub = { code: 403, body: body };
+      c.peopleFetch_('get', 'contactGroups');
+      return '';
+    } catch (e) { return e.message; }
+    finally { c.__fetchStub = null; }
+  };
+  if (typeof c.peopleFetch_ === 'function' && c.__canStubFetch) {
+    const off = peopleErr(JSON.stringify({ error: { message:
+      'People API has not been used in project 455461323167 before or it is disabled.' } }));
+    check('a switched-off People API says so, with the project and the link',
+      [/not enabled/.test(off), /455461323167/.test(off),
+       /console\.developers\.google\.com/.test(off), /setupCustomerSync/.test(off)],
+      [true, true, true, false]);
+    const denied = peopleErr(JSON.stringify({ error: { message: 'Request had insufficient scopes.' } }));
+    check('a missing permission still says to run setupCustomerSync',
+      /setupCustomerSync/.test(denied), true);
+  }
+}
+
 console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll checks passed.\n');
 process.exit(failures ? 1 : 0);

@@ -5880,6 +5880,21 @@ function peopleFetch_(method, path, payload) {
     var msg = body.slice(0, 300);
     try { msg = JSON.parse(body).error.message; } catch (e) {}
     if (code === 401 || code === 403) {
+      /* Two different problems answer the same way, and the advice for one is
+         useless for the other. A missing permission is fixed by running
+         setupCustomerSync once in the editor. The People API being switched
+         off in the Cloud project behind the script is not — no amount of
+         granting permission turns it on, and that is what this said to do
+         for a year while every Contacts call failed. Read which it is. */
+      if (/has not been used in project|is disabled|SERVICE_DISABLED/i.test(body)) {
+        var proj = (body.match(/project (\d+)/) || [])[1] || '';
+        throw new Error('Google Contacts is switched off for this script: the ' +
+          'People API is not enabled in its Cloud project' +
+          (proj ? ' (' + proj + ')' : '') + '. Turn it on at ' +
+          'https://console.developers.google.com/apis/api/people.googleapis.com/overview' +
+          (proj ? '?project=' + proj : '') +
+          ', wait a minute, then run the sync again. Nothing else is wrong.');
+      }
       throw new Error('Google Contacts refused (' + code + '): ' + msg +
         ' — open the Apps Script editor and run setupCustomerSync once, so it ' +
         'can ask permission for your contacts.');
@@ -6720,7 +6735,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-16 17:24 UTC';
+var BACKEND_BUILD = '2026-11-16 17:55 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
