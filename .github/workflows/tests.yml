@@ -20,12 +20,16 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: The backend checks
         run: node apps-script/test/run.js
 
+      # jsdom is pinned. Left floating, CI resolved a different major to the
+      # one these checks were written against and disagreed about which CSS
+      # rule wins — the checks failed on a page that renders correctly in a
+      # real browser.
       - name: The browser checks
         run: |
-          npm install --no-save jsdom
+          npm install --no-save jsdom@31.0.1
           node apps-script/test/ui.js

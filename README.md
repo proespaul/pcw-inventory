@@ -33,7 +33,7 @@ immediately — that forces every cached file to be re-fetched.
 
 ```
 node apps-script/test/run.js              # the backend, against a fake Sheet
-npm install --no-save jsdom               # once
+npm install --no-save jsdom@31.0.1        # once; pinned, as in CI
 node apps-script/test/ui.js               # the app, loaded in a headless DOM
 ```
 
