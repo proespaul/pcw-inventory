@@ -82,6 +82,16 @@
   .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
         padding:13px;margin-bottom:11px;box-shadow:var(--lift)}
   .card.flush{padding:6px 13px}
+  /* A section title and its list are one thing, not two cards with a gap
+     between them. The wrapper carries the rounded corners and the lift; the
+     cards inside it give those up and stack, so the title's own bottom border
+     becomes the line under the heading. */
+  .joined{border-radius:var(--radius);box-shadow:var(--lift);margin-bottom:11px;
+          overflow:hidden}
+  .joined > .card{box-shadow:none;border-radius:0;margin:0}
+  .joined > .card + .card{border-top:0}
+  /* How many are in the list below, said in the title itself. */
+  .hcount{font-weight:600;font-size:13px;color:var(--muted);margin-left:7px}
   h2{font-size:16px;margin:0 0 10px;font-weight:700}
   h3{font-size:12.5px;margin:16px 0 7px;color:var(--muted);text-transform:uppercase;
      letter-spacing:.7px;font-weight:700}
@@ -1009,17 +1019,21 @@
       <button onclick="openWholesaleAdd()">+ Add someone</button>
     </div>
 
-    <div class="card">
-      <h2 style="margin:0 0 2px">Ordered</h2>
-      <p class="muted" style="margin:0">Ordered and waiting on a steer — soonest first.</p>
+    <div class="joined">
+      <div class="card">
+        <h2 style="margin:0 0 2px">Ordered<span class="hcount" id="whOrderedCount"></span></h2>
+        <p class="muted" style="margin:0">Ordered and waiting on a steer — soonest first.</p>
+      </div>
+      <div class="card list" id="whOrderedList"></div>
     </div>
-    <div class="card list" id="whOrderedList"></div>
 
-    <div class="card">
-      <h2 style="margin:0 0 2px">Waiting list</h2>
-      <p class="muted" style="margin:0">Interested in a whole, half or quarter — keenest first.</p>
+    <div class="joined">
+      <div class="card">
+        <h2 style="margin:0 0 2px">Waiting list<span class="hcount" id="whWaitingCount"></span></h2>
+        <p class="muted" style="margin:0">Interested in a whole, half or quarter — keenest first.</p>
+      </div>
+      <div class="card list" id="whWaitingList"></div>
     </div>
-    <div class="card list" id="whWaitingList"></div>
 
     <div class="card">
       <p class="muted" style="margin:0 0 10px" id="whCallLine"></p>
@@ -1213,7 +1227,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-16 15:50 UTC';
+const APP_BUILD = '2026-11-16 16:13 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -6375,11 +6389,12 @@ function whItem(r, where) {
        r.phone || r.email || ''];
   // Ordered lines carry the deposit, because "did they put money down?" is
   // the question asked of that list. It says so either way rather than
-  // leaving a blank that could mean anything.
-  const right = where === 'ordered'
-    ? '<div class="qty"><b>' + (r.deposit ? money(r.deposit) : '—') + '</b><span>' +
-      (r.deposit ? 'deposit' : 'no deposit') + '</span></div>'
-    : '';
+  // leaving a blank that could mean anything — but with no money down there
+  // is no figure, and a dash set in the figure's place reads as one.
+  const right = where !== 'ordered' ? ''
+    : r.deposit
+      ? '<div class="qty"><b>' + money(r.deposit) + '</b><span>deposit</span></div>'
+      : '<div class="qty"><span>no deposit</span></div>';
   return '<div class="item" onclick="openWholesale(' + Number(r.row) + ')">' +
     '<div class="name"><b>' + esc(r.customer) + whTag(r) + '</b><span>' +
     facts.filter(Boolean).map(esc).join(' · ') +
@@ -6423,6 +6438,8 @@ function renderWholesale() {
     ? waiting.map(r => whItem(r, 'waiting')).join('')
     : '<div class="empty">Nobody on the waiting list.</div>';
 
+  $('whOrderedCount').textContent = ordered.length || '';
+  $('whWaitingCount').textContent = waiting.length || '';
   $('whPastBtn').textContent = past.length
     ? 'Past customers (' + past.length + ')' : 'Past customers';
   $('whCallLine').innerHTML = whCallLine(past);

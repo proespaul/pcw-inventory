@@ -105,9 +105,31 @@ check('an ordered line says what the deposit is',
   text('whOrderedList').indexOf('deposit') > -1, true);
 check('and says so when there is not one',
   text('whOrderedList').indexOf('no deposit') > -1, true);
+check('with no figure in the figure\'s place when there is no money down',
+  Array.from(doc.querySelectorAll('#whOrderedList .item')).map(i => {
+    const b = i.querySelector('.qty b');
+    return b ? b.textContent : '';
+  }), ['', '$500.00']);
 check('a waiting line keeps what they want and when they asked',
   /Whole · asked \w+ \d+/.test(text('whWaitingList')), true);
 check('and what they said', text('whWaitingList').indexOf('asked at the market') > -1, true);
+
+/* ───────── a title and its list are one card ───────── */
+['whOrderedList', 'whWaitingList'].forEach(id => {
+  const list = doc.getElementById(id);
+  const wrap = list.parentElement;
+  check(id + ' sits in the same card as its title',
+    [wrap.className, wrap.querySelector('h2').textContent.replace(/\d+$/, '').trim()],
+    ['joined', id === 'whOrderedList' ? 'Ordered' : 'Waiting list']);
+  check('and the title is the element right above it',
+    list.previousElementSibling.querySelector('h2') !== null, true);
+  const css = w.getComputedStyle(list);
+  check('with nothing between them to read as a gap',
+    [css.marginTop, css.borderTopWidth, css.boxShadow],
+    ['0px', '0px', 'none']);
+});
+check('the title says how many are under it',
+  [text('whOrderedCount'), text('whWaitingCount')], ['2', '2']);
 
 /* ───────── past behind a button, with the timeframe ───────── */
 check('past customers are a button with a count',
@@ -233,6 +255,8 @@ check('an empty screen says so rather than going blank',
   ['Nobody waiting on a steer.', 'Nobody on the waiting list.', 'Past customers']);
 check('and the call line does not invent anybody',
   text('whCallLine'), 'Nobody has had an animal yet.');
+check('an empty list leaves no count hanging in its title',
+  [text('whOrderedCount'), text('whWaitingCount')], ['', '']);
 
 console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll browser checks passed.\n');
 process.exit(failures ? 1 : 0);
