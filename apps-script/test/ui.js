@@ -130,6 +130,16 @@ check('and what they said', text('whWaitingList').indexOf('asked at the market')
 });
 check('the title says how many are under it',
   [text('whOrderedCount'), text('whWaitingCount')], ['2', '2']);
+{
+  const h2 = doc.querySelector('#whOrderedList').parentElement.querySelector('h2');
+  const name = doc.querySelector('#whOrderedList .item .name b');
+  const item = doc.querySelector('#whOrderedList .item');
+  check('a section title is set larger than the names under it',
+    parseFloat(w.getComputedStyle(h2).fontSize) >
+    parseFloat(w.getComputedStyle(name).fontSize), true);
+  check('and the names are stepped in from the title',
+    parseFloat(w.getComputedStyle(item).paddingLeft) > 8, true);
+}
 
 /* ───────── past behind a button, with the timeframe ───────── */
 check('past customers are a button with a count',
