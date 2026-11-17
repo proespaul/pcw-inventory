@@ -137,7 +137,8 @@ var HEADERS = {
              'Live weight (lb)', 'Hanging weight (lb)', 'Purchase cost', 'Butcher cost',
              'Other cost', 'Total cost', 'Packages cut', 'Saleable weight (lb)', 'Yield %',
              'Cost / saleable lb', 'Model saleable lb', 'Model revenue', 'Potential revenue',
-             'Sold so far', 'Still in the freezer', 'Variance vs model', 'Notes'],
+             'Sold so far', 'Still in the freezer', 'Variance vs model', 'Notes',
+             'Breakdown covers'],
   CUSTOMERS:['Customer', 'Email', 'Phone', 'Town', 'First order', 'Last order', 'Orders',
              'Orders before the app', 'Packages', 'Spend', 'Spend before the app',
              'Source', 'In Google Contacts', 'Bought before', 'Notes',
@@ -4267,19 +4268,26 @@ function rebuildCustomers_() {
   var products = indexProducts_();
   var existing = readTable_(TABS.CUSTOMERS);
   var byKey = {};
-  var rows = existing.map(function (r) {
-    var k = (str_(r['Email']) || str_(r['Customer'])).toLowerCase();
-    byKey[k] = r;
-    return r;
-  });
+  /* Filed under their address AND their name, both pointing at the one row.
+     Filed under only one of them, an order that carried an email and an
+     order that carried a phone made two Katelyn Kellys — four of her, in
+     the end, because every rebuild added the half it could not match. */
+  var file = function (r) {
+    var mail = str_(r['Email']).toLowerCase().trim();
+    var nm = str_(r['Customer']).toLowerCase().trim();
+    if (mail && !byKey[mail]) byKey[mail] = r;
+    if (nm && !byKey[nm]) byKey[nm] = r;
+  };
+  var rows = existing.map(function (r) { file(r); return r; });
 
   // Counts come from the orders every time, so a rebuild can't inflate them.
   rows.forEach(function (c) { c['Orders'] = 0; c['Packages'] = 0; c['Spend'] = 0; });
 
   orders.forEach(function (o) {
     if (o.status === 'Cancelled') return;
-    var k = (o.contact.indexOf('@') > -1 ? o.contact : o.customer).toLowerCase();
-    var c = byKey[k];
+    var mail = o.contact.indexOf('@') > -1 ? o.contact.toLowerCase().trim() : '';
+    var nm = str_(o.customer).toLowerCase().trim();
+    var c = (mail && byKey[mail]) || byKey[nm];
     if (!c) {
       c = { 'Customer': o.customer,
             'Email': o.contact.indexOf('@') > -1 ? o.contact : '',
@@ -4289,7 +4297,7 @@ function rebuildCustomers_() {
             'Spend before the app': '',
             'Source': o.id.indexOf('WEB') > -1 ? 'Website' : 'Direct',
             'In Google Contacts': '', 'Bought before': '', 'Notes': '' };
-      byKey[k] = c;
+      file(c);
       rows.push(c);
     }
     c['Orders'] = num_(c['Orders']) + 1;
@@ -6968,7 +6976,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-17 17:38 UTC';
+var BACKEND_BUILD = '2026-11-17 17:59 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -8522,6 +8530,7 @@ function handle_(e, body) {
       case 'wholesaleAgain': return json_(wholesaleAgain_(req));
       case 'waitlistSave': return json_(waitlistSave_(req));
       case 'addSteer':    return json_(addSteer_(req));
+      case 'cattle':      return json_(cattle_());
       case 'steerYield':  return json_(steerYield_(req));
       case 'steerGet':    return json_(steerGet_(req));
       case 'steerSave':   return json_(steerSave_(req));
@@ -9929,8 +9938,14 @@ var CUT_OFF_FLOOR = 2.0;         // and at least two points of the animal
    the yield they drag every cut's share down and make the animal look like
    it produced less than it did. A box is worse: it is made out of cuts
    already counted, so counting it again counts that meat twice. */
-var NOT_IN_YIELD_CATEGORIES = ['tallow', 'box'];
-var NOT_IN_YIELD_WORDS = /\b(tallow|fat|scrap|scraps|bone|bones|hide|offal)\b/i;
+/* Paul's rule: count it, do not count on it. Tallow sells and the liver
+   sells, but neither is why a steer is worth what it is worth, so the
+   weight is kept and the yield is worked out without it. Organs went on
+   this list after the June steer's 24 lb of liver was counted as meat and
+   put its yield 4 points too high. */
+var NOT_IN_YIELD_CATEGORIES = ['tallow', 'box', 'organ', 'organs', 'offal'];
+var NOT_IN_YIELD_WORDS =
+  /\b(tallow|fat|scrap|scraps|bone|bones|hide|offal|organ|organs|liver|heart|kidney|kidneys|tongue|oxtail|tripe|sweetbread|sweetbreads|suet)\b/i;
 
 function countsInYield_(sku, name, category) {
   var cat = str_(category).toLowerCase().trim();
@@ -10050,6 +10065,130 @@ function steerCutsSave_(req) {
   sh.getRange(kept.length + 2, 1, added.length, HEADERS.STEERCUTS.length)
     .setValues(added);
   return { ok: true, batch: batch, recorded: added.length };
+}
+
+/* ===================== CATTLE PERFORMANCE =====================
+ *
+ * Every animal the books know about, newest first: what it weighed, what
+ * came off it and what share of the hanging weight that was. Some of these
+ * went home with the customer straight from the butcher and were never
+ * weighed by us, so a good half of the figures are not there to be had.
+ * Those read "unavailable" rather than nothing, because a blank cell and a
+ * weight nobody took look the same and are not the same.
+ */
+function cattle_() {
+  var cats = {}, products = {};
+  readTable_(TABS.PRODUCTS).forEach(function (p) {
+    var sku = str_(p['SKU']);
+    products[sku] = str_(p['Product']) || sku;
+    cats[sku] = str_(p['Category']);
+  });
+
+  /* What each steer's written record adds up to, counted the same way the
+     yield screen counts it, so the list and the breakdown behind it can
+     never disagree. */
+  var recorded = {};
+  try {
+    readTable_(TABS.STEERCUTS).forEach(function (r) {
+      var id = str_(r['Steer ID']) || (r['Steer ID'] ? steerKey_(r['Steer ID']) : '');
+      if (!id && !r['Steer ID']) return;
+      var key = steerKey_(r['Steer ID']);
+      var into = recorded[key] || (recorded[key] = { weight: 0, aside: 0, packages: 0, cuts: 0 });
+      var sku = str_(r['SKU']), name = str_(r['Cut']) || products[sku] || sku;
+      var said = str_(r['In the yield']).toLowerCase();
+      var counts = said === 'yes' ? true : said === 'no' ? false
+        : countsInYield_(sku, name, cats[sku]);
+      var wt = num_(r['Weight (lb)']);
+      if (counts) into.weight += wt; else into.aside += wt;
+      into.packages += num_(r['Packages']);
+      into.cuts += 1;
+    });
+  } catch (eRec) { recorded = {}; }
+
+  /* And what was booked in as stock under a batch tag, for the animals with
+     no written record. Same split: meat on one side, fat and bone on the
+     other. */
+  var booked = {};
+  readTable_(TABS.MOVEMENTS).forEach(function (m) {
+    if (str_(m['Type']) !== 'INTAKE') return;
+    var b = str_(m['Batch']);
+    if (!b) return;
+    var key = steerKey_(b);
+    var into = booked[key] || (booked[key] = { weight: 0, aside: 0, packages: 0, cuts: 0 });
+    var sku = str_(m['SKU']), name = products[sku] || sku;
+    var wt = num_(m['Weight (lb)']);
+    if (countsInYield_(sku, name, cats[sku])) into.weight += wt; else into.aside += wt;
+    into.packages += num_(m['Packages']);
+    into.cuts += 1;
+  });
+
+  var seen = {};
+  var list = [];
+  readTable_(TABS.STEERS).forEach(function (r) {
+    var id = str_(r['Steer ID']);
+    if (!id) return;
+    var key = steerKey_(id);
+    seen[key] = true;
+    var from = recorded[key] || booked[key] || { weight: 0, aside: 0, packages: 0, cuts: 0 };
+    var stated = num_(r['Saleable weight (lb)']);
+    var meat = stated > 0 ? stated : from.weight;
+    var hanging = num_(r['Hanging weight (lb)']);
+    list.push({
+      id: id,
+      outfit: str_(r['Outfit']),
+      /* Named by whatever is on the row — a tag, a month, a letter and a
+         number. The date is the kill date where there is one, and the pack
+         date where there is not. */
+      when: dateStr_(r['Kill date']) || dateStr_(r['Pack date']),
+      live: num_(r['Live weight (lb)']) || null,
+      hanging: hanging || null,
+      meat: meat > 0 ? round2_(meat) : null,
+      aside: from.aside > 0 ? round2_(from.aside) : null,
+      packages: from.packages || null,
+      yieldPct: (hanging && meat) ? round2_(meat / hanging * 100) : null,
+      covers: str_(r['Breakdown covers']),
+      hasBreakdown: from.cuts > 0,
+      fromRecord: !!recorded[key],
+      notes: str_(r['Notes'])
+    });
+  });
+
+  /* A steer that only ever appears as a batch tag on a pile of stock is
+     still an animal, and leaving it off the list would hide meat we have.
+     It has no row of its own, so everything but what came off it is
+     unavailable. */
+  Object.keys(recorded).concat(Object.keys(booked)).forEach(function (key) {
+    if (seen[key]) return;
+    seen[key] = true;
+    var from = recorded[key] || booked[key];
+    list.push({
+      id: key, outfit: '', when: '', live: null, hanging: null,
+      meat: from.weight > 0 ? round2_(from.weight) : null,
+      aside: from.aside > 0 ? round2_(from.aside) : null,
+      packages: from.packages || null,
+      yieldPct: null, covers: '', hasBreakdown: from.cuts > 0,
+      fromRecord: !!recorded[key], notes: '', noRow: true
+    });
+  });
+
+  /* Newest first, and the ones with no date after them rather than before:
+     a missing date is not the beginning of time. */
+  list.sort(function (a, b) {
+    if (!a.when && !b.when) return String(a.id).localeCompare(String(b.id));
+    if (!a.when) return 1;
+    if (!b.when) return -1;
+    return String(b.when).localeCompare(String(a.when));
+  });
+
+  var weighed = list.filter(function (x) { return x.yieldPct !== null; });
+  return {
+    ok: true,
+    steers: list,
+    usualYield: weighed.length
+      ? round2_(weighed.reduce(function (s2, x) { return s2 + x.yieldPct; }, 0) / weighed.length)
+      : null,
+    weighed: weighed.length
+  };
 }
 
 function steerYield_(req) {
@@ -10187,7 +10326,16 @@ function steerYield_(req) {
   });
   var hanging = row ? num_(row['Hanging weight (lb)']) : 0;
   var live = row ? num_(row['Live weight (lb)']) : 0;
-  var yieldPct = hanging && mine.weight ? mine.weight / hanging * 100 : null;
+  /* What the cut list adds up to, and what the animal actually made. They
+     are the same number on a steer we cut and kept whole. Where they are
+     not — a share recorded off a steer that went several ways — the
+     typed figure is the animal's and the cut list is a part of it. */
+  var recorded = mine.weight;
+  var stated = row ? num_(row['Saleable weight (lb)']) : 0;
+  var covers = row ? str_(row['Breakdown covers']) : '';
+  var whole = stated > 0 ? stated : recorded;
+  var partial = stated > 0 && recorded > 0 && Math.abs(stated - recorded) > 0.5;
+  var yieldPct = hanging && whole ? whole / hanging * 100 : null;
 
   /* The same yardstick for the animal as a whole. */
   var pastYields = [];
@@ -10195,7 +10343,9 @@ function steerYield_(req) {
     var r2 = null;
     readTable_(TABS.STEERS).forEach(function (r) { if (sameSteer_(r['Steer ID'], b)) r2 = r; });
     var h = r2 ? num_(r2['Hanging weight (lb)']) : 0;
-    if (h && byBatch[b].weight) pastYields.push(byBatch[b].weight / h * 100);
+    var w = r2 && num_(r2['Saleable weight (lb)']) > 0
+      ? num_(r2['Saleable weight (lb)']) : byBatch[b].weight;
+    if (h && w) pastYields.push(w / h * 100);
   });
   var usualYield = pastYields.length
     ? pastYields.reduce(function (a, b) { return a + b; }, 0) / pastYields.length : null;
@@ -10203,7 +10353,9 @@ function steerYield_(req) {
   return {
     ok: true, batch: batch,
     live: live || null, hanging: hanging || null,
-    packages: round2_(mine.packages), weight: round2_(mine.weight),
+    packages: round2_(mine.packages), weight: round2_(whole),
+    recordedWeight: round2_(recorded),
+    partial: partial, covers: covers,
     yieldPct: yieldPct === null ? null : round2_(yieldPct),
     usualYield: usualYield === null ? null : round2_(usualYield),
     comparedWith: others.length,
@@ -10289,10 +10441,15 @@ var STEER_FIELDS = [
   ['killDate', 'Kill date'], ['packDate', 'Pack date'], ['grade', 'Grade (BMS)'],
   ['liveWeight', 'Live weight (lb)'], ['hangingWeight', 'Hanging weight (lb)'],
   ['purchaseCost', 'Purchase cost'], ['butcherCost', 'Butcher cost'],
-  ['otherCost', 'Other cost'], ['notes', 'Notes']
+  ['otherCost', 'Other cost'], ['notes', 'Notes'],
+  /* Written down for an animal whose cut-by-cut is only part of it. F2 went
+     three ways and only our own share was ever listed, so the breakdown adds
+     to 293.6 lb while the animal made 996.9. Typed here, the saleable weight
+     is the animal's and the cut list is labelled with what it covers. */
+  ['saleableWeight', 'Saleable weight (lb)'], ['covers', 'Breakdown covers']
 ];
 var STEER_NUMBERS = { liveWeight: true, hangingWeight: true, purchaseCost: true,
-                      butcherCost: true, otherCost: true };
+                      butcherCost: true, otherCost: true, saleableWeight: true };
 
 /** Fills the blanks on an existing steer row. Returns what it filled. */
 function steerFill_(row, s) {

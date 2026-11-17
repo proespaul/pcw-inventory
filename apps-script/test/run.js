@@ -1541,5 +1541,58 @@ console.log('\na client with two numbers');
     ['jvalsyl@telus.net', 'jvalsylv@gmail.com']);
 }
 
+/* ---- one person, one row ----
+   A customer was filed under their email address if they had one, else
+   under their name, and an order was looked up the same way. So an order
+   that carried her email found her row and an order that carried only her
+   phone did not, and made a second Katelyn Kelly. Then a third. */
+{
+  const c = buildContext();
+  c.setup();
+  const sh = c.sheet_(c.TABS.CUSTOMERS);
+  const at = (h) => c.HEADERS.CUSTOMERS.indexOf(h);
+  const line = c.HEADERS.CUSTOMERS.map(() => '');
+  line[at('Customer')] = 'Katelyn Kelly';
+  line[at('Email')] = 'katelynkelly4398@gmail.com';
+  sh.appendRow(line);
+
+  // One order with her address on it, one with only her phone.
+  const token = c.PropertiesService.getScriptProperties().getProperty('API_TOKEN');
+  c.handle_({ parameter: {} }, { action: 'submit', token: token, ops: [
+    { clientKey: 'kk1', type: 'ORDER_NEW', orderId: 'ORD-KK-1', customer: 'Katelyn Kelly',
+      contact: 'katelynkelly4398@gmail.com', deliveryDate: '2026-10-22', method: 'Pickup',
+      lines: [{ sku: 'RIBEYE-STEAK', packages: 1 }] },
+    { clientKey: 'kk2', type: 'ORDER_NEW', orderId: 'ORD-KK-2', customer: 'Katelyn Kelly',
+      contact: '17802197407', deliveryDate: '2026-10-22', method: 'Pickup',
+      lines: [{ sku: 'RIBEYE-STEAK', packages: 1 }] }
+  ]});
+  check('both orders were taken', c.readOrders_().length, 2);
+  c.rebuildCustomers_();
+
+  const kk = c.readTable_(c.TABS.CUSTOMERS)
+    .filter(r => String(r['Customer']).toLowerCase() === 'katelyn kelly');
+  check('an order by email and an order by phone land on the one row',
+    kk.length, 1);
+  check('and both of them are counted on it',
+    c.num_(kk[0] ? kk[0]['Orders'] : 0), 2);
+}
+
+/* ---- count it, do not count on it ----
+   Tallow sells and liver sells, and neither belongs in the yield. Organs
+   were missing from that list, so the June steer's 24 lb of liver read as
+   meat and put the yield four points high. */
+{
+  const c = buildContext();
+  const out = [['Beef Tallow', 'tallow'], ['Soup Bones', ''], ['Trim Scraps', ''],
+               ['Beef Liver', ''], ['Organ Meats', ''], ['Bone Marrow', ''],
+               ['Beef Heart', ''], ['Oxtail', '']];
+  const inYield = [['Ribeye Steak', 'steak'], ['Ground Beef', ''], ['Chuck Roast', ''],
+                   ['Brisket', ''], ['Maui Ribs (Flanken)', '']];
+  check('fat, bones, scraps and organs are counted but not counted on',
+    out.filter(x => c.countsInYield_('SKU', x[0], x[1])).map(x => x[0]), []);
+  check('and the meat still is',
+    inYield.filter(x => !c.countsInYield_('SKU', x[0], x[1])).map(x => x[0]), []);
+}
+
 console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll checks passed.\n');
 process.exit(failures ? 1 : 0);

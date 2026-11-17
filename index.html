@@ -991,8 +991,9 @@
       <button onclick="showView('clients')"><span class="ic">👥</span>
         <span class="grow">Customers<small>Everyone who has ordered</small></span>
         <span class="count" id="cClients"></span></button>
-      <button onclick="showView('market')"><span class="ic">⛺</span>
-        <span class="grow">Market day<small>Ring up sales at the table — no names, no typing</small></span></button>
+      <button onclick="showView('cattle')"><span class="ic">🐄</span>
+        <span class="grow">Cattle performance<small>Every animal: weights, what came off it, yield</small></span>
+        <span class="count" id="cCattle"></span></button>
       <button onclick="showView('boxes')"><span class="ic">📦</span>
         <span class="grow">Boxes<small>What you can build, and ideas worth making</small></span></button>
       <button onclick="showView('sales')"><span class="ic">💰</span>
@@ -1144,19 +1145,16 @@
     <div class="card list" id="clientList"></div>
   </section>
 
-  <section class="view" id="view-market">
-    <div class="card">
-      <div class="item" style="border:0;padding:2px">
-        <div class="name"><b id="mktCount">0 packages</b><span id="mktLine">Tap a product each time one sells.</span></div>
-        <div class="qty"><b id="mktTotal">$0</b><span>at market prices</span></div>
-      </div>
-    </div>
-    <div class="tally" id="mktGrid"></div>
-    <div class="row" style="margin-top:12px">
-      <button id="btnMktSubmit">Record the day</button>
-      <button class="ghost" id="btnMktClear">Clear</button>
-    </div>
-    <p class="muted" style="text-align:center">Nothing leaves stock until you record the day.</p>
+  <!-- Every animal, and what it did. Half of these went home with the
+       customer straight from the butcher and were never weighed by us, so
+       most of the figures are missing. A missing weight reads "unavailable"
+       rather than as a blank, because a weight nobody took and a cell
+       nobody filled look the same and are not the same thing. -->
+  <section class="view" id="view-cattle">
+    <div class="card" id="cattleTop"></div>
+    <div class="card flush list" id="cattleList"></div>
+    <p class="muted" style="text-align:center;margin:10px 0 0">
+      Tap an animal for the cut-by-cut behind it.</p>
   </section>
 
   <!-- Everything the freezer is short of, in one place, instead of popping up
@@ -1226,7 +1224,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-17 17:38 UTC';
+const APP_BUILD = '2026-11-17 17:59 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -1249,7 +1247,7 @@ let stuck = load(LS.stuck, []);
 /* Why the last sync did not get through, if it did not. In memory only — it
    is about this moment, not something to carry across a restart. */
 let syncTrouble = null;
-let intakeCart = [], orderCart = [], marketCart = {};
+let intakeCart = [], orderCart = [];
 let openOrderId = null, backTo = null, boxIdeas = [];
 // Wholesale opens first because it is the price list — the number already
 // written down. The other two are worked out from it.
@@ -2415,7 +2413,7 @@ function renderAll() {
   renderMenuCounts();
   renderFollowups();
   renderWholesale(); renderWaitlist(); renderClients(); renderSchedule(); renderCnLines();
-  renderMarketGrid(); renderBoxes(); renderAlerts();
+  renderBoxes(); renderAlerts();
   renderFreezers();
   renderSales();
   renderSteerNumbers();
@@ -7806,58 +7804,68 @@ async function addList(which) {
   } catch (err) { toast(err.message, 'bad'); }
 }
 
-/* ───────── market day ───────── */
-function marketPrice(sku) {
-  const p = data.products.find(x => x.sku === sku) || {};
-  if (Number(p.marketPrice)) return Number(p.marketPrice);
-  if (Number(p.price)) return Number(p.price);
-  const perLb = Number(p.marketPerLb) || Number(p.pricePerLb);
-  return perLb && Number(p.avgWeight) ? perLb * Number(p.avgWeight) : 0;
+/* ───────── cattle performance ─────────
+ *
+ * Every animal the books know about, and how it did. Most of them went home
+ * with the customer straight from the butcher, so we never put them on a
+ * scale: the word for that is "unavailable", not a dash and not a zero. A
+ * zero would average into the yield and drag it down, and a blank reads as
+ * though somebody forgot to type it.
+ */
+let cattle = null;
+
+function lbOr(v) { return v ? round2(v) + ' lb' : 'unavailable'; }
+
+async function loadCattle(force) {
+  if (cattle && !force) return renderCattle();
+  $('cattleTop').innerHTML = '<p class="muted" style="margin:0">Reading the herd…</p>';
+  $('cattleList').innerHTML = '';
+  try { cattle = await api('cattle', {}); }
+  catch (e) {
+    $('cattleTop').innerHTML = '<p class="muted" style="margin:0">' + esc(e.message) + '</p>';
+    return;
+  }
+  renderCattle();
 }
 
-function renderMarketGrid() {
-  const rows = productTotals().filter(r => r.packages > 0)
-    .sort((a, b) => String(a.product).localeCompare(String(b.product)));
-  $('mktGrid').innerHTML = rows.map(r => {
-    const each = marketPrice(r.sku);
-    const n = marketCart[r.sku] || 0;
-    return '<button onclick="tally(\'' + esc(r.sku) + '\')">' + esc(r.product) +
-      (n ? '<b>' + n + '</b>' : '') +
-      '<small>' + (each ? plain(each) : 'no price') + ' · ' + r.packages + ' left</small></button>';
-  }).join('') || '<div class="empty">Nothing in stock.</div>';
-  renderMarketTotal();
-}
+function renderCattle() {
+  const c = cattle || {};
+  const list = c.steers || [];
 
-function tally(sku) {
-  const next = (marketCart[sku] || 0) + 1;
-  if (next > physicalOnHand(sku)) return toast('That is more than the freezer shows.', 'bad');
-  marketCart[sku] = next;
-  renderMarketGrid();
-}
+  $('cattleTop').innerHTML =
+    '<div class="item" style="border:0;padding:2px"><div class="name">' +
+    '<b>' + list.length + (list.length === 1 ? ' animal' : ' animals') + '</b>' +
+    '<span>' + (c.weighed
+      ? c.weighed + ' of them weighed, averaging ' + round2(c.usualYield) + '% of the rail'
+      : 'None of them weighed yet') + '</span></div>' +
+    '<div class="qty"><b>' + (c.weighed ? round2(c.usualYield) + '%' : '—') +
+      '</b><span>usual yield</span></div></div>';
 
-function renderMarketTotal() {
-  let n = 0, total = 0;
-  Object.keys(marketCart).forEach(sku => {
-    n += marketCart[sku];
-    total += marketPrice(sku) * marketCart[sku];
-  });
-  $('mktCount').textContent = n + (n === 1 ? ' package' : ' packages');
-  $('mktTotal').textContent = plain(total);
-  $('mktLine').textContent = n ? 'Tap again for another of the same.' : 'Tap a product each time one sells.';
-}
+  $('cattleList').innerHTML = list.length ? list.map(x => {
+    /* Hanging weight is the one that matters — yield is worked out against
+       it — so it is named, and the live weight only shown where we have it. */
+    const weights = [
+      'rail ' + lbOr(x.hanging),
+      x.live ? 'live ' + round2(x.live) + ' lb' : ''
+    ].filter(Boolean).join(' · ');
+    const meat = x.meat
+      ? round2(x.meat) + ' lb of meat' + (x.aside ? ' · ' + round2(x.aside) +
+          ' lb fat, bone and organs' : '')
+      : 'nothing recorded off it';
+    return '<div class="item" onclick="openSteerBreakdown(' + arg(x.id) + ',\'cattle\')">' +
+      '<div class="name"><b>' + esc(x.id) +
+        (x.outfit && x.outfit.toLowerCase() !== 'pcw'
+          ? '<span class="tag">' + esc(x.outfit) + '</span>' : '') +
+        (x.hasBreakdown ? '' : '<span class="tag warn">no breakdown</span>') + '</b>' +
+      '<span>' + (x.when ? esc(x.when) : 'date unavailable') + ' · ' + weights +
+        '<br>' + meat + '</span></div>' +
+      '<div class="qty"><b>' + (x.yieldPct === null ? '—' : round2(x.yieldPct) + '%') +
+        '</b><span>' + (x.yieldPct === null ? 'unavailable' : 'of the rail') +
+        '</span></div></div>';
+  }).join('') : '<div class="empty">No animals recorded yet.</div>';
 
-function submitMarket() {
-  const skus = Object.keys(marketCart).filter(s => marketCart[s] > 0);
-  if (!skus.length) return toast('Nothing tallied yet.', 'bad');
-  enqueue(skus.map(sku => ({
-    type: 'SALE', sku,
-    product: (data.products.find(p => p.sku === sku) || {}).product,
-    packages: marketCart[sku], party: 'Farmers market'
-  })));
-  marketCart = {};
-  renderMarketGrid();
-  toast('Day recorded.', 'ok');
-  showView('inventory');
+  const badge = $('cCattle');
+  if (badge) { badge.textContent = list.length || ''; badge.style.display = list.length ? '' : 'none'; }
 }
 
 /* ───────── boxes ───────── */
@@ -8050,6 +8058,13 @@ function dropIntakeLine(i) {
 async function openSteerYield() {
   const batch = $('inBatch').value;
   if (!batch || batch === NEW_BATCH) return toast('Pick a steer first.', 'bad');
+  return openSteerBreakdown(batch);
+}
+
+/* The same card from two places: off the steer picker on "Meat coming in",
+   and off a name on the Cattle performance list. backTo says which, so
+   closing goes back where it came from. */
+async function openSteerBreakdown(batch, backTo) {
   openSheet(batch, 'Working it out…', '<p class="muted">One moment.</p>');
   let y;
   try { y = await api('steerYield', { batch }); }
@@ -8064,8 +8079,11 @@ async function openSteerYield() {
   const head =
     '<div class="card" style="margin:10px 0 0">' +
       '<div class="kv"><span>Packages cut</span><b>' + y.packages + '</b></div>' +
-      '<div class="kv"><span>Saleable weight</span><b>' + round2(y.weight) + ' lb</b></div>' +
-      (y.aside ? '<div class="kv"><span>Tallow, scraps, boxes</span><b>' +
+      '<div class="kv"><span>Meat weight</span><b>' + round2(y.weight) + ' lb</b></div>' +
+      (y.partial
+        ? '<div class="kv"><span>Listed below</span><b>' + round2(y.recordedWeight) +
+          ' lb</b></div>' : '') +
+      (y.aside ? '<div class="kv"><span>Fat, bone, organs</span><b>' +
         round2(y.aside) + ' lb, outside the yield</b></div>' : '') +
       (y.hanging ? '<div class="kv"><span>Hanging weight</span><b>' +
         round2(y.hanging) + ' lb</b></div>' : '') +
@@ -8075,6 +8093,10 @@ async function openSteerYield() {
           y.comparedWith + ' steer' + (y.comparedWith === 1 ? '' : 's') + '</b></div>'
         : '') +
     '</div>' +
+    (y.partial
+      ? '<p class="muted" style="margin:8px 0 0">The cut-by-cut below covers ' +
+        esc(y.covers || 'part of the animal') + '. The weight and yield above are ' +
+        'the whole animal’s.</p>' : '') +
     (y.needsHanging
       ? '<p class="muted" style="margin:8px 0 0">No hanging weight on this steer, ' +
         'so the yield cannot be worked out. Add it under “+ New steer” with the ' +
@@ -8087,18 +8109,27 @@ async function openSteerYield() {
           ? ', so they say little about the animal until the rest are weighed.'
           : '.') + '</p>' : '');
 
+  const partial = !!y.partial;
   const rows = y.cuts.map(c => {
     const tag = c.off === 'high' ? '<span class="tag">more than usual</span>'
               : c.off === 'low' ? '<span class="tag warn">less than usual</span>' : '';
+    /* Three different nothings, and they used to print the same. The fat
+       has a weight and no share because it is deliberately outside the
+       yield; a cut with no weight has no share because nobody weighed it;
+       and a weight off a sheet that never counted packs has no pack count.
+       "Needs weighing" against 171.5 lb of tallow was simply wrong. */
+    const why = c.counts === false ? 'not in the yield'
+              : !c.weight ? 'needs weighing'
+              : (partial ? 'of what is listed' : 'of the meat');
     return '<div class="item"><div class="name"><b>' + esc(c.product) + tag + '</b>' +
-      '<span>' + c.packages + (c.packages === 1 ? ' pack' : ' packs') +
+      '<span>' + (c.packages ? c.packages + (c.packages === 1 ? ' pack' : ' packs')
+                             : 'no pack count') +
         (c.weight ? ' · ' + round2(c.weight) + ' lb' : ' · not weighed') +
         (c.each ? ' · ' + c.each + ' lb each' : '') +
         (c.usual !== null ? ' · usually ' + round2(c.usual) + '%' : '') +
       '</span></div>' +
       '<div class="qty"><b>' + (c.share === null ? '—' : round2(c.share) + '%') +
-        '</b><span>' + (c.share === null ? 'needs weighing' : 'of the meat') +
-        '</span></div></div>';
+        '</b><span>' + why + '</span></div></div>';
   }).join('');
 
   openSheet(batch, 'What came off this steer',
@@ -8112,7 +8143,9 @@ async function openSteerYield() {
       : '<p class="muted" style="margin:10px 0 0">Flagged against the average of ' +
         y.comparedWith + ' earlier steers, not a published table — ours are cut ' +
         'to our own order.</p>') +
-    '<button class="ghost" style="margin-top:12px" onclick="closeSheet()">Close</button>');
+    '<button class="ghost" style="margin-top:12px" onclick="' +
+      (backTo === 'cattle' ? 'closeSheet();showView(\'cattle\')' : 'closeSheet()') +
+      '">Close</button>');
 }
 
 function renderSteerNumbers() {
@@ -9276,13 +9309,13 @@ function discardQueue() {
 
 const SUBVIEWS = { order:'orders', neworder:'orders', followup:'orders',
                    wholesale:'menu', waitlist:'menu',
-                   steer:'menu', clients:'menu', market:'menu', boxes:'menu',
+                   steer:'menu', clients:'menu', boxes:'menu', cattle:'menu',
                    sales:'menu', freezers:'menu',
                    calnew:'calendar' };
 const TITLES = { order:'Order', neworder:'New order', followup:'Follow up',
                  wholesale:'Wholesale',
                  waitlist:'Cut waiting list', steer:'Meat coming in', clients:'Customers',
-                 market:'Market day', boxes:'Boxes',
+                 boxes:'Boxes', cattle:'Cattle performance',
                  sales:'Sales, year to date',
                  freezers:'Freezer temps',
                  calendar:'Calendar', calnew:'Add to the calendar' };
@@ -9296,6 +9329,7 @@ function showView(name, opts) {
   if (name === 'neworder') paintOrderMode();
   if (name === 'calendar') loadSchedule(true);
   if (name === 'sales') renderSales();
+  if (name === 'cattle') loadCattle();
   if (name === 'steer') setLineFreezer();
   if (name === 'calnew' && !$('cnDate').value) $('cnDate').value = todayISO();
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('on', v.id === 'view-' + name));
@@ -9428,8 +9462,6 @@ $('btnCamera').addEventListener('click', () => {
 });
 $('camInput').addEventListener('change', e => { addPhotos(e.target.files, false); e.target.value = ''; });
 
-$('btnMktSubmit').addEventListener('click', submitMarket);
-$('btnMktClear').addEventListener('click', () => { marketCart = {}; renderMarketGrid(); });
 $('btnBoxIdeas').addEventListener('click', () => askBoxIdeas(false));
 $('btnBoxIdeasMkt').addEventListener('click', () => askBoxIdeas(true));
 

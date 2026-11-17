@@ -621,11 +621,16 @@ const pause = () => new Promise(r => setTimeout(r, 0));
       /Inventory status/.test(menu), false);
     check('nor a price-changes screen',
       /Price changes/.test(menu), false);
-    check('market day is still there, called what it does',
-      /Market day/.test(menu) && /Ring up sales/.test(menu), true);
+    /* Market day went too, once Paul described how he actually sells one
+       ribeye at the table: open the product, read the market price off it,
+       take one out as "Sold in person". Four taps on a screen he was using
+       anyway, against a screen he was not. */
+    check('nor a market-day screen', /Market day/.test(menu), false);
+    check('and the cattle do have one', /Cattle performance/.test(menu), true);
     check('and no dead screens were left behind',
-      [!!doc.getElementById('view-status'), !!doc.getElementById('view-pricelog')],
-      [false, false]);
+      [!!doc.getElementById('view-status'), !!doc.getElementById('view-pricelog'),
+       !!doc.getElementById('view-market')],
+      [false, false, false]);
   }
 
   /* ───────── what is short, gathered on the stock screen ───────── */
@@ -711,6 +716,84 @@ const pause = () => new Promise(r => setTimeout(r, 0));
       /three books/i.test(doc.getElementById('clientBooks').innerHTML), false);
     check('squaring them up still is',
       /syncBooks/.test(doc.getElementById('clientBooks').innerHTML), true);
+  }
+
+  /* ───────── cattle performance ─────────
+     Most of these animals went home with the customer straight from the
+     butcher and were never weighed by us. A weight nobody took has to read
+     as "unavailable" — a zero would average into the yield, and a blank
+     reads as though somebody forgot to type it. */
+  {
+    replyWith('cattle', { ok: true, weighed: 2, usualYield: 46.79, steers: [
+      { id: 'June-2026', outfit: 'PCW', when: '2026-06-01', live: 1290.8, hanging: 1290.8,
+        meat: 530.8, aside: 362.5, packages: 0, yieldPct: 41.12,
+        covers: '', hasBreakdown: true, fromRecord: true, notes: '' },
+      { id: 'F2', outfit: 'PCW', when: '2026-03-31', live: null, hanging: 1900,
+        meat: 996.9, aside: 201.3, packages: 222, yieldPct: 52.47,
+        covers: "PCW's own share only", hasBreakdown: true, fromRecord: true, notes: '' },
+      { id: 'June-2026-Wholesale', outfit: 'Wholesale', when: '', live: 1154.2,
+        hanging: null, meat: null, aside: null, packages: null, yieldPct: null,
+        covers: '', hasBreakdown: false, fromRecord: false, notes: '' }
+    ]});
+    w.eval('cattle = null; showView("cattle");');
+    await pause(); await pause();
+
+    // The tags sit inside the name, so take the text before them.
+    const cNames = Array.from(doc.querySelectorAll('#cattleList .item .name b'))
+      .map(b => (b.firstChild ? b.firstChild.textContent : b.textContent).trim());
+    check('every animal is listed, newest first',
+      cNames, ['June-2026', 'F2', 'June-2026-Wholesale']);
+    check('the ones with no date go last, not first',
+      cNames[cNames.length - 1], 'June-2026-Wholesale');
+
+    const body = text('cattleList');
+    check('a weight nobody took says so rather than reading as a blank',
+      /rail unavailable/.test(body), true);
+    check('and a yield that cannot be worked out is not drawn as 0%',
+      [/unavailable/.test(body), /\b0%/.test(body)], [true, false]);
+    check('a steer somebody else took says whose it was',
+      /Wholesale/.test(doc.getElementById('cattleList').innerHTML), true);
+    check('one with nothing recorded off it says that too',
+      /nothing recorded off it/.test(body), true);
+    check('the usual yield is the average of the ones we could weigh',
+      /46.79%/.test(text('cattleTop')), true);
+    check('and the count is on the menu', text('cCattle'), '3');
+
+    // Tapping a name opens the cut-by-cut, and says what it covers when the
+    // record is only part of the animal.
+    replyWith('steerYield', { ok: true, batch: 'F2', live: null, hanging: 1900,
+      packages: 222, weight: 996.9, recordedWeight: 293.6, partial: true,
+      covers: "PCW's own share only — 293.6 lb of the 996.9 lb the animal made",
+      aside: 201.3, yieldPct: 52.47, usualYield: 41.12, comparedWith: 1,
+      needsHanging: false, unweighed: 0, weighedPackages: 222, sharesCover: 100,
+      cuts: [{ sku: 'GROUND-BEEF-1-LB', product: 'Ground Beef', packages: 130,
+               weight: 129.5, each: 1, counts: true, share: 44.1, usual: null, off: '' },
+             { sku: 'CROSS-RIB-ROAST', product: 'Cross Rib Roast', packages: 0,
+               weight: 21.1, each: null, counts: true, share: 7.19, usual: null, off: '' },
+             { sku: 'RENDERED-TALLOW', product: 'Fat', packages: 0, weight: 171.5,
+               each: null, counts: false, share: null, usual: null, off: '' }] });
+    w.eval('openSteerBreakdown("F2", "cattle");');
+    await pause(); await pause();
+    const sheet = text('sheetBody');
+    check('the breakdown says the whole animal\u2019s weight',
+      /996.9 lb/.test(sheet), true);
+    check('and says the cut list under it is only part of that',
+      [/293.6 lb/.test(sheet), /share only/.test(sheet)], [true, true]);
+    check('fat, bone and organs are named as outside the yield',
+      /Fat, bone, organs/.test(sheet) && /outside the yield/.test(sheet), true);
+    /* A weight deliberately left out of the yield is not a weight nobody
+       took. 171.5 lb of tallow read "needs weighing" until these were told
+       apart, and the shares are of what is listed, not of the whole animal
+       when only part of it is listed. */
+    check('a share worked out over part of the animal says so',
+      /of what is listed/.test(sheet), true);
+    const asideRow = Array.from(doc.querySelectorAll('#sheetBody .item'))
+      .find(d => /Fat/.test(d.textContent));
+    check('and the fat is called out of the yield, not unweighed',
+      [/not in the yield/.test(asideRow.textContent),
+       /needs weighing/.test(asideRow.textContent)], [true, false]);
+    check('a cut the sheet never counted says so rather than "0 packs"',
+      /no pack count/.test(sheet), true);
   }
 
   console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll browser checks passed.\n');
