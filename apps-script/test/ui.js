@@ -89,6 +89,11 @@ w.eval('data.lists = ' + JSON.stringify({ wholesale: LINES, waitlist: [], custom
 ] }) + '; renderWholesale();');
 
 const text = id => doc.getElementById(id).textContent.replace(/\s+/g, ' ').trim();
+
+/* Opening a line panel now asks the backend what the other books hold for
+   that person. That is a read, and the checks below are about what the app
+   writes, so it is filtered out rather than counted as a call. */
+const wrote = () => w.__sent.filter(s => s.action !== 'customer');
 const names = id => Array.from(doc.querySelectorAll('#' + id + ' .item .name b'))
   .map(b => b.textContent.replace(/High|Low/g, '').trim());
 
@@ -201,31 +206,31 @@ check('a past line is the one that offers another animal',
 /* ───────── what gets sent, and the row guard ───────── */
 w.eval('__sent.length = 0; openWholesale(4); whMove(4, "ordered");');
 check('a move quotes the row and the name on it',
-  w.__sent.map(s => [s.action, s.payload.row, s.payload.customer, s.payload.to]),
+  wrote().map(s => [s.action, s.payload.row, s.payload.customer, s.payload.to]),
   [['wholesaleMove', 4, 'Ivan Wiebe', 'ordered']]);
 
 w.eval('__sent.length = 0; openWholesale(6); whAgainForm(6);');
 w.eval('document.getElementById("whAgainWants").value = "Half"; whAgainSave(6);');
 check('wanting another one sends the past line it came from',
-  w.__sent.map(s => [s.action, s.payload.row, s.payload.customer, s.payload.wants]),
+  wrote().map(s => [s.action, s.payload.row, s.payload.customer, s.payload.wants]),
   [['wholesaleAgain', 6, 'Glen Hiebert', 'Half']]);
 
 w.eval('__sent.length = 0; openWholesale(5); whEditForm(5);');
 w.eval('document.getElementById("whEdPhone").value = "780-555-0177";' +
        'document.getElementById("whEdPriority").value = "High"; whEditSave(5);');
 check('an edit sends only the fields on the form',
-  w.__sent.map(s => [s.action, s.payload.row, s.payload.customer,
-                     s.payload.fields.phone, s.payload.fields.priority]),
+  wrote().map(s => [s.action, s.payload.row, s.payload.customer,
+                    s.payload.fields.phone, s.payload.fields.priority]),
   [['wholesaleSave', 5, 'Sarah Penner', '780-555-0177', 'High']]);
 check('what they already asked for is kept as an option, not rewritten',
-  w.__sent[0].payload.fields.wants, 'Quarter');
+  wrote()[0].payload.fields.wants, 'Quarter');
 
 w.eval('__sent.length = 0; closeSheet(); whEditForm(5);' +
        'document.getElementById("whEdName").value = ""; whEditSave(5);');
-check('a line cannot be saved nameless', w.__sent.length, 0);
+check('a line cannot be saved nameless', wrote().length, 0);
 
 w.eval('__sent.length = 0; whMove(99, "out");');
-check('a row the app no longer knows is never sent', w.__sent.length, 0);
+check('a row the app no longer knows is never sent', wrote().length, 0);
 
 /* ───────── adding somebody ───────── */
 w.eval('closeSheet(); openWholesaleAdd();');
@@ -247,12 +252,12 @@ w.eval('__sent.length = 0;' +
        'document.getElementById("whAddBy").value = "2027-03-01";' +
        'addWholesale();');
 check('adding somebody to the ordered list sends it that way',
-  w.__sent.map(s => [s.action, s.payload.entry.customer, s.payload.entry.status,
+  wrote().map(s => [s.action, s.payload.entry.customer, s.payload.entry.status,
                      s.payload.entry.wants, s.payload.entry.priority, s.payload.entry.wantedBy]),
   [['addToList', 'Lorne Zacharias', 'Ordered', 'Quarter', 'High', '2027-03-01']]);
 
 w.eval('closeSheet(); openWholesaleAdd(); __sent.length = 0; addWholesale();');
-check('and a nameless one is not sent at all', w.__sent.length, 0);
+check('and a nameless one is not sent at all', wrote().length, 0);
 
 /* ───────── a name with a quote in it must not break the markup ───────── */
 w.eval('data.lists.wholesale = data.lists.wholesale.concat([{ row: 20,' +
@@ -274,6 +279,32 @@ check('and the call line does not invent anybody',
 check('an empty list leaves no count hanging in its title',
   [text('whOrderedCount'), text('whWaitingCount')], ['', '']);
 
+
+/* ───────── two numbers are two buttons ─────────
+   Picking the first for him is how a second number stayed invisible. */
+{
+  w.eval('closeSheet(); custCard = { ok: true, name: "Reene Beaudoin", app: null,' +
+         ' known: { phone: [{ value: "780-837-1377", where: ["wholesale line"] },' +
+         '                   { value: "250-299-4886", where: ["sales sheet"] }],' +
+         '           email: [{ value: "reenebeaudoin@gmail.com", where: ["contacts"] }],' +
+         '           town: [] }, alsoSpelled: ["Renee Beaudoin"], maybe: ["Reene Beaudion"] };' +
+         'document.getElementById("sheetBody").innerHTML = custDetails(custCard);');
+  body = text('sheetBody');
+  check('both numbers and the email are listed',
+    ['780-837-1377', '250-299-4886', 'reenebeaudoin@gmail.com']
+      .every(t => body.indexOf(t) > -1), true);
+  check('each one is tappable, by the right kind of link',
+    Array.from(doc.querySelectorAll('#sheetBody a[href^="tel:"], #sheetBody a[href^="mailto:"]'))
+      .map(a => a.getAttribute('href')),
+    ['tel:7808371377', 'tel:2502994886', 'mailto:reenebeaudoin@gmail.com']);
+  check('the card says how many are on file',
+    /2 numbers/.test(body), true);
+  check('and which other spelling it went through',
+    body.indexOf('Also written Renee Beaudoin') > -1, true);
+  check('a name that is merely close is asked about, not counted',
+    [/Could .*Reene Beaudion.* be the same person/.test(doc.getElementById('sheetBody').innerHTML),
+     body.indexOf('Nothing of theirs is counted above') > -1], [true, true]);
+}
 
 /* ───────── the cut waiting list, same shape as wholesale ───────── */
 console.log('\ncut waiting list (browser)');
@@ -324,17 +355,17 @@ w.eval('__sent.length = 0; closeSheet(); wlEditForm(2);');
 w.eval('document.getElementById("wlEdNotes").value = "rang her, still waiting";' +
        'document.getElementById("wlEdQty").value = "3"; wlEditSave(2);');
 check('an edit quotes the row and the name on it, and sends what changed',
-  w.__sent.map(s => [s.action, s.payload.row, s.payload.customer,
-                     s.payload.fields.notes, s.payload.fields.packages,
-                     s.payload.fields.wants]),
+  wrote().map(s => [s.action, s.payload.row, s.payload.customer,
+                    s.payload.fields.notes, s.payload.fields.packages,
+                    s.payload.fields.wants]),
   [['waitlistSave', 2, 'Neil Harder', 'rang her, still waiting', '3', 'GROUND-BEEF']]);
 
 w.eval('__sent.length = 0; closeSheet(); wlEditForm(2);' +
        'document.getElementById("wlEdName").value = ""; wlEditSave(2);');
-check('a line cannot be saved nameless', w.__sent.length, 0);
+check('a line cannot be saved nameless', wrote().length, 0);
 
 w.eval('__sent.length = 0; openWaitlist(99);');
-check('a row the app no longer knows opens nothing', w.__sent.length, 0);
+check('a row the app no longer knows opens nothing', wrote().length, 0);
 
 w.eval('closeSheet(); data.lists.waitlist = data.lists.waitlist.concat([{ row: 9,' +
        ' customer: "Dave O\'Brien <script>", phone: "", email: "", wants: "Brisket",' +

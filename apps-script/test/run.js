@@ -1086,6 +1086,74 @@ console.log('\nthe wholesale screen: ordered, waiting, past');
   check('nor is anybody merely on the waiting list', !!fu['Ivan Wiebe'], false);
 }
 
+/* ---- telling one customer from another ----
+   Real pairs out of the books. The first two are one person spelled two
+   ways; the third is two different people whose surnames are a letter
+   apart, and merging them would move a phone number onto the wrong woman. */
+{
+  const c = buildContext();
+  const like = (a, b) => c.nameLikeness_(a, b);
+
+  check('a swapped pair of letters is the same person',
+    like('Reene Beaudoin', 'Renee Beaudoin'), 'same');
+  check('and so is a single wrong letter',
+    like('Charlene Pizychi', 'Charlene Pizycki'), 'same');
+  check('case and punctuation are not a difference at all',
+    [like('kelly whalen (b&b)', 'Kelly Whalen'), like('Simard Butcher Co. Ltd.', 'simard butcher')],
+    ['same', 'same']);
+
+  // Six edits apart once the first names are counted, which is what keeps
+  // Carmen's phone number off Maggie's record.
+  check('two different people are never the same, however close the surname',
+    like('Maggie Labreque', 'Carmen Labrecque'), '');
+  check('two letters out is asked about, not merged',
+    like('Bert Guenette', 'Bert Gunuette'), 'maybe');
+  check('a name sitting inside a longer one is asked about',
+    like('Val Sylvain', 'Jean and Val Sylvain'), 'maybe');
+
+  check('sharing only a surname is not a match',
+    [like('Dixie Hodgson', 'Jacob Hodgson'), like('Eli Hodgson', 'Duey Hodgson')], ['', '']);
+  check('nor is a shared first name',
+    like('Melissa Labreque', 'Melissa Anctil'), '');
+  check('and an empty name matches nothing', like('', 'Reene Beaudoin'), '');
+}
+
+/* ---- a phone on a wholesale line reaches the customer card ----
+   Reene Beaudoin's email was on a wholesale line, her waiting line was
+   blank, the customer book had never heard of her, and the card showed
+   nothing because it only ever read two of the four tabs. */
+{
+  const c = buildContext();
+  c.setup();
+  c.addToList_({ list: 'wholesale', entry: { customer: 'Reene Beaudoin',
+    email: 'reenebeaudoin@gmail.com', phone: '780-837-1377', wants: 'Quarter' } });
+  c.addToList_({ list: 'waitlist', entry: { customer: 'Renee Beaudoin',
+    wants: 'Cowhide', words: 'Cowhide (low priority)' } });
+
+  const card = c.customerWhere_('Renee Beaudoin');
+  check('the card finds what the other spelling knows',
+    [card.known.email.map(v => v.value), card.known.phone.map(v => v.value)],
+    [['reenebeaudoin@gmail.com'], ['780-837-1377']]);
+  check('and says which line it came off',
+    card.known.email[0].where, ['wholesale line']);
+  check('and reports the other spelling it had to go through',
+    card.alsoSpelled, ['Reene Beaudoin']);
+
+  // Somebody genuinely different on a line nearby is only ever a question.
+  c.addToList_({ list: 'waitlist', entry: { customer: 'Carmen Labrecque',
+    phone: '780-837-1771', wants: 'Ground beef' } });
+  const other = c.customerWhere_('Maggie Labreque');
+  check('and a different woman with a near-identical surname is left alone',
+    [other.maybe, other.known.phone.length, other.alsoSpelled], [[], 0, []]);
+
+  // One worth asking about is shown as a question and nothing more.
+  c.addToList_({ list: 'waitlist', entry: { customer: 'Bert Gunuette',
+    phone: '780-983-0073', wants: 'Ground beef' } });
+  const bert = c.customerWhere_('Bert Guenette');
+  check('a two-letter difference is raised as a question, not used',
+    [bert.maybe, bert.known.phone.length], [['Bert Gunuette'], 0]);
+}
+
 /* ---- an address is not a list of towns ----
    Splitting the town cell on its commas turned "Peace River, AB T8S 1A6"
    into two towns: the app got the first fragment, the sales sheet was

@@ -6223,6 +6223,84 @@ function gatherValues_(says, same, how) {
  * more than one ends up holding them all. Nothing is ever thrown away and
  * nobody is asked to choose.
  */
+/* ───────────── telling one customer from another ─────────────
+   The books are typed by hand by several people, so the same person is
+   written "Reene Beaudoin" on one tab and "Renee Beaudoin" on the next, and
+   the exact-name lookup these books used to do found neither from the other.
+   Her email sat on a wholesale line while her waiting line showed nothing.
+
+   The opposite mistake is worse. "Maggie Labreque" and "Carmen Labrecque"
+   are two different people whose surnames are one letter apart, and quietly
+   merging them would put one woman's phone number on the other's record. So
+   this answers one of three things, and only the first ever merges:
+
+     'same'  — the same person, spelled differently
+     'maybe' — close enough to show Paul and let him decide
+     ''      — unrelated
+
+   Anything 'maybe' is listed on the card as a question, never folded in.
+   ------------------------------------------------------------------- */
+
+var NAME_NOISE = ['the', 'and', 'ltd', 'ltd.', 'inc', 'inc.', 'co', 'co.', 'family'];
+
+/** A name reduced to the letters that matter, for comparing. */
+function nameKey_(s) {
+  var t = str_(s).toLowerCase()
+    .replace(/[à-å]/g, 'a').replace(/[è-ë]/g, 'e')
+    .replace(/[ì-ï]/g, 'i').replace(/[ò-ö]/g, 'o')
+    .replace(/[ù-ü]/g, 'u').replace(/ç/g, 'c')
+    .replace(/&/g, ' and ')
+    .replace(/\(.*?\)/g, ' ')          // "Kelly Whalen (B&B)" -> "kelly whalen"
+    .replace(/[^a-z0-9 ]+/g, ' ');
+  var words = t.split(/\s+/).filter(function (w) {
+    return w && NAME_NOISE.indexOf(w) === -1;
+  });
+  return words.join(' ');
+}
+
+/** Edits apart, counting a swap of two neighbours as one (Reene/Renee). */
+function nameDistance_(a, b) {
+  if (a === b) return 0;
+  var d = editDistance_(a, b);
+  if (d !== 2) return d;
+  // Levenshtein charges 2 for a transposition; look for exactly that.
+  for (var i = 0; i < a.length - 1; i++) {
+    if (a.charAt(i) === b.charAt(i)) continue;
+    var swapped = a.substring(0, i) + a.charAt(i + 1) + a.charAt(i) +
+                  a.substring(i + 2);
+    return swapped === b ? 1 : 2;
+  }
+  return 2;
+}
+
+function nameWords_(key) { return key ? key.split(' ') : []; }
+
+/** Are all of the shorter name's words inside the longer one's? */
+function nameInside_(a, b) {
+  var x = nameWords_(a), y = nameWords_(b);
+  var few = x.length <= y.length ? x : y, many = x.length <= y.length ? y : x;
+  if (few.length < 2 || few.length === many.length) return false;
+  return few.every(function (w) { return many.indexOf(w) !== -1; });
+}
+
+/** 'same', 'maybe', or '' — see the note above. */
+function nameLikeness_(a, b) {
+  var ka = nameKey_(a), kb = nameKey_(b);
+  if (!ka || !kb) return '';
+  if (ka === kb) return 'same';
+
+  var wa = nameWords_(ka), wb = nameWords_(kb);
+  var d = nameDistance_(ka, kb);
+
+  // One typo or one swap, with the same number of words: the same person.
+  if (wa.length === wb.length && d <= 1) return 'same';
+
+  // Close, but not close enough to act on by ourselves.
+  if (wa.length === wb.length && d <= 3) return 'maybe';
+  if (nameInside_(ka, kb)) return 'maybe';
+  return '';
+}
+
 function customerWhere_(name, pre) {
   var who = str_(name);
   if (!who) return { ok: false, error: 'Which customer?' };
@@ -6230,9 +6308,28 @@ function customerWhere_(name, pre) {
 
   var app = (pre && pre.app) || appCustomerRows_();
   var book = (pre && pre.book) || salesBook_();
-  var mine = null, theirs = null;
-  app.rows.forEach(function (r) { if (!mine && str_(r.name).toLowerCase().trim() === key) mine = r; });
-  book.rows.forEach(function (r) { if (!theirs && str_(r.name).toLowerCase().trim() === key) theirs = r; });
+
+  /* An exact name wins; a one-typo spelling of it counts as the same person;
+     anything merely close is collected and asked about, never merged. */
+  var maybe = [], spellings = [];
+  var pick = function (rows, getName) {
+    var exact = null, close = null;
+    rows.forEach(function (r) {
+      var n = getName(r);
+      if (exact) return;
+      if (str_(n).toLowerCase().trim() === key) { exact = r; return; }
+      var how = nameLikeness_(who, n);
+      if (how === 'same') { if (!close) close = r; }
+      else if (how === 'maybe') maybe.push(str_(n));
+    });
+    var got = exact || close;
+    if (got && !exact) spellings.push(str_(getName(got)));
+    return got;
+  };
+
+  var byName = function (r) { return r.name; };
+  var mine = pick(app.rows, byName);
+  var theirs = pick(book.ok ? book.rows : [], byName);
 
   var card = {
     ok: true, name: mine ? mine.name : (theirs ? theirs.name : who),
@@ -6246,8 +6343,43 @@ function customerWhere_(name, pre) {
     salesUrl: book.ok ? book.url : '',
     salesError: book.ok ? '' : str_(book.error),
     contact: null, contactsError: '',
-    known: { phone: [], email: [], town: [] }
+    known: { phone: [], email: [], town: [] },
+    /* Contact details written on a wholesale or waiting line and nowhere
+       else — which is where half of these numbers actually live. */
+    lists: [],
+    alsoSpelled: [], maybe: []
   };
+
+  [{ tab: TABS.WHOLESALE, rows: wholesaleRows_, where: 'wholesale line' },
+   { tab: TABS.WAITLIST,  rows: waitlistRows_,  where: 'waiting line' }
+  ].forEach(function (src) {
+    var rows;
+    try { rows = src.rows(); } catch (e) { return; }
+    rows.forEach(function (e) {
+      var n = str_(e.fields['Customer']);
+      var how = nameLikeness_(who, n);
+      if (how === 'maybe') { maybe.push(n); return; }
+      if (how !== 'same' && n.toLowerCase().trim() !== key) return;
+      if (n.toLowerCase().trim() !== key) spellings.push(n);
+      var phone = str_(e.fields['Phone']), email = str_(e.fields['Email']);
+      if (phone || email) {
+        card.lists.push({ where: src.where, row: e.row, name: n,
+                          phone: phone, email: email });
+      }
+    });
+  });
+
+  var once = function (list) {
+    var out = [];
+    list.forEach(function (v) {
+      var k = nameKey_(v);
+      if (!k || k === nameKey_(card.name)) return;
+      if (!out.some(function (o) { return nameKey_(o) === k; })) out.push(v);
+    });
+    return out;
+  };
+  card.alsoSpelled = once(spellings);
+  card.maybe = once(maybe);
 
   var list = (pre && pre.contacts) || null;
   if (!list) {
@@ -6265,7 +6397,9 @@ function customerWhere_(name, pre) {
       { where: 'sales sheet', value: card.sales ? card.sales[f.key] : '' },
       { where: 'contacts', value: card.contact
           ? joinCell_(card.contact[f.many] || []) : '' }
-    ].filter(function (s) { return str_(s.value) !== ''; });
+    ].concat(card.lists.map(function (l) {
+      return { where: l.where, value: l[f.key] || '' };
+    })).filter(function (s) { return str_(s.value) !== ''; });
     card.known[f.key] = gatherValues_(says, f.same, f.split);
   });
   return card;
@@ -6766,7 +6900,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-16 18:07 UTC';
+var BACKEND_BUILD = '2026-11-17 15:09 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign

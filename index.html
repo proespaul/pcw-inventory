@@ -1236,7 +1236,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-16 17:24 UTC';
+const APP_BUILD = '2026-11-17 15:09 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -6483,6 +6483,77 @@ function openWholesalePast() {
     '<button class="ghost" style="margin-top:12px" onclick="closeSheet()">Close</button>');
 }
 
+/* ───────── every way to reach them, from all four tabs ─────────
+   A line panel only knows what is typed on its own line, and half these
+   numbers are written on a different tab under a different spelling of the
+   same name — Reene Beaudoin's email on a wholesale line, her waiting line
+   blank, nothing in the customer book. The panel opens straight away on
+   what the line knows and this fills in the rest when the backend answers.
+   ------------------------------------------------------------------- */
+
+function reachSlot() {
+  return '<div id="reachMore" class="muted" style="margin-top:10px">' +
+    'Checking the other books…</div>';
+}
+
+function reachLinks(list, kind) {
+  return list.map(v => kind === 'tel'
+    ? '<a class="btnlike ghost small" href="tel:' +
+      esc(String(v.value).replace(/[^\d+]/g, '')) + '">📞 ' + esc(v.value) + '</a>' +
+      '<a class="btnlike ghost small" href="sms:' +
+      esc(String(v.value).replace(/[^\d+]/g, '')) + '">💬</a>'
+    : '<a class="btnlike ghost small" href="mailto:' + esc(v.value) + '">✉️ ' +
+      esc(v.value) + '</a>').join('');
+}
+
+async function loadReach(name, had) {
+  const slot = () => document.getElementById('reachMore');
+  if (!slot()) return;
+  let w;
+  try {
+    const f = await api('customer', { customer: name, where: true });
+    w = f.where;
+  } catch (e) { if (slot()) slot().textContent = ''; return; }
+  if (!slot() || !w || !w.ok) { if (slot()) slot().textContent = ''; return; }
+
+  const seen = (had || []).map(v => String(v).replace(/[^\da-z@.]/gi, '').toLowerCase());
+  const fresh = kind => (w.known[kind] || []).filter(v =>
+    seen.indexOf(String(v.value).replace(/[^\da-z@.]/gi, '').toLowerCase()) === -1);
+  const phones = fresh('phone'), mails = fresh('email');
+
+  const note = (v) => '<div class="kv"><span>' + esc((v.where || []).join(', ')) +
+    '</span><b>' + esc(v.value) + '</b></div>';
+
+  let html = '';
+  if (phones.length || mails.length) {
+    html += '<h3 style="margin:14px 0 6px">Also on file for them</h3>' +
+      '<div class="row">' + reachLinks(phones, 'tel') + reachLinks(mails, 'mail') + '</div>' +
+      '<div class="card" style="margin:8px 0 0">' +
+      phones.concat(mails).map(note).join('') + '</div>';
+  }
+  if ((w.alsoSpelled || []).length) {
+    html += '<p class="muted" style="margin:8px 0 0">Also written ' +
+      w.alsoSpelled.map(esc).join(' and ') + ' on another tab.</p>';
+  }
+  if ((w.maybe || []).length) {
+    html += '<p class="muted" style="margin:8px 0 0">Could ' +
+      w.maybe.map(n => '<a href="#" onclick="jumpCustomer(' +
+        JSON.stringify(n).replace(/"/g, '&quot;') + ');return false">' + esc(n) + '</a>')
+        .join(' or ') + ' be the same person? Nothing of theirs is used here.</p>';
+  }
+  if (!html && !phones.length && !mails.length) {
+    html = '<p class="muted" style="margin:8px 0 0">Nothing else on file for them ' +
+      'in the app or on the sales sheet.</p>';
+  }
+  if (slot()) slot().outerHTML = html;
+}
+
+/* Panels share one element, so one has to shut before the next opens. */
+function jumpCustomer(name) {
+  closeSheet();
+  setTimeout(() => openCustomer(name), 260);
+}
+
 function openWholesale(row) {
   const r = whByRow(row);
   if (!r) return toast('That line has moved. Pull down to refresh.', 'bad');
@@ -6540,6 +6611,7 @@ function openWholesale(row) {
         '</div>'
       : '<p class="muted">No phone or email on file for them.</p>') +
     '<div class="card" style="margin:12px 0 0">' + rows + '</div>' +
+    reachSlot() +
     (r.notes ? '<h3 style="margin:16px 0 6px">Notes</h3><p>' + esc(r.notes) + '</p>' : '') +
     move +
     '<button class="ghost" style="margin-top:8px" onclick="whEditForm(' + Number(r.row) +
@@ -6547,6 +6619,7 @@ function openWholesale(row) {
     '<button class="ghost" style="margin-top:8px" onclick="whSeeOrders(' + Number(r.row) +
       ')">See everything they have ordered</button>' +
     '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Close</button>');
+  loadReach(r.customer, [phone, mail]);
 }
 
 function whSeeOrders(row) {
@@ -6838,12 +6911,14 @@ function openWaitlist(row) {
         '</div>'
       : '<p class="muted">No phone or email on file for them.</p>') +
     '<div class="card" style="margin:12px 0 0">' + kv + '</div>' +
+    reachSlot() +
     (r.notes ? '<h3 style="margin:16px 0 6px">Comment</h3><p>' + esc(r.notes) + '</p>' : '') +
     '<button style="margin-top:12px" onclick="wlEditForm(' + Number(r.row) +
       ')">Change the details</button>' +
     '<button class="ghost" style="margin-top:8px" onclick="wlSeeOrders(' + Number(r.row) +
       ')">See everything they have ordered</button>' +
     '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Close</button>');
+  loadReach(r.customer, [phone, mail]);
 }
 
 function wlSeeOrders(row) {
@@ -7005,6 +7080,19 @@ function custDetails(w) {
       'Change or take one off under “Change their details”.</p>'
     : '';
 
+  /* The same person is typed two ways across the tabs, so the card says
+     which spellings it had to go through to gather this. Anything merely
+     close is a question put to Paul, never folded into the figures above. */
+  const spelled = (w.alsoSpelled || []).length
+    ? '<p class="muted" style="margin:8px 0 0">Also written ' +
+      w.alsoSpelled.map(esc).join(' and ') + ' elsewhere in the books.</p>' : '';
+  const asking = (w.maybe || []).length
+    ? '<p class="muted" style="margin:8px 0 0">Could ' +
+      w.maybe.map(n => '<a href="#" onclick="jumpCustomer(' +
+        JSON.stringify(n).replace(/"/g, '&quot;') + ');return false">' + esc(n) +
+        '</a>').join(' or ') +
+      ' be the same person? Nothing of theirs is counted above.</p>' : '';
+
   const trouble = (w.contactsError
       ? '<p class="muted" style="margin-top:8px">Google Contacts: ' + esc(w.contactsError) + '</p>' : '') +
     (w.salesError
@@ -7012,7 +7100,7 @@ function custDetails(w) {
 
   return '<h3 style="margin:16px 0 6px">Their details</h3>' +
     '<div class="card" style="margin:0">' + rows + note + custBookLinks(w) + '</div>' +
-    trouble +
+    spelled + asking + trouble +
     '<button class="ghost small" style="margin-top:9px" onclick="custEdit()">Change their details</button>';
 }
 
@@ -7149,11 +7237,22 @@ async function openCustomer(name) {
   custCard = f.where && f.where.ok ? f.where : { ok: true, name: f.name, app: null,
     known: { phone: one(f.phone), email: one(f.email), town: one(f.town) } };
 
-  const tel = String(f.phone || '').replace(/[^\d+]/g, '');
-  const buttons =
-    (tel ? '<a class="btnlike" href="tel:' + esc(tel) + '">📞 Call ' + esc(f.phone) + '</a>' : '') +
-    (f.email ? '<a class="btnlike ghost" href="mailto:' + esc(f.email) + '">✉️ Email ' + esc(f.email) + '</a>' : '') +
-    (!tel && !f.email ? '<p class="muted">No phone or email on file for them.</p>' : '');
+  /* Two numbers means two buttons. Picking one for him was how a second
+     number ended up invisible, and neither of them is ours to choose. */
+  const every = kind => (custCard.known[kind] || []).map(v => v.value);
+  const phones = every('phone'), mails = every('email');
+  /* Three across cuts the digits off mid-number, and a number you cannot
+     read is no better than one that is not there. Past two, they stack. */
+  const tight = phones.length + mails.length > 2
+    ? ' style="flex-direction:column;align-items:stretch"' : '';
+  const buttons = (phones.length || mails.length)
+    ? '<div class="row"' + tight + '>' +
+        phones.map(p => '<a class="btnlike" href="tel:' +
+          esc(String(p).replace(/[^\d+]/g, '')) + '">📞 ' + esc(p) + '</a>').join('') +
+        mails.map(m => '<a class="btnlike ghost" href="mailto:' + esc(m) + '">✉️ ' +
+          esc(m) + '</a>').join('') +
+      '</div>'
+    : '<p class="muted">No phone or email on file for them.</p>';
 
   const lines = (f.lines || []).length
     ? (f.lines || []).map(l =>
