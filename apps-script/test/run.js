@@ -1161,6 +1161,27 @@ console.log('\nthe wholesale screen: ordered, waiting, past');
   check('and one that came out normal is not flagged at all',
     [by.BRISKET.share, by.BRISKET.off], [20, '']);
 
+  /* Only the ground beef weighed is the real state of a steer in the books,
+     and it used to come out as ground beef being the whole animal. */
+  {
+    const h = buildContext();
+    h.setup();
+    h.addProduct_({ product: 'Ground', content: '1 lb', avgWeight: 1, price: 14 });
+    h.addProduct_({ product: 'Denver', content: '1 steak', avgWeight: 1, price: 30 });
+    h.submit_({ ops: [
+      { clientKey: 'm1', type: 'INTAKE', sku: 'GROUND', product: 'Ground',
+        batch: 'M26', freezer: 'MAIN', packages: 14, weight: 14 },
+      { clientKey: 'm2', type: 'INTAKE', sku: 'DENVER', product: 'Denver',
+        batch: 'M26', freezer: 'MAIN', packages: 19, weight: 0 }] });
+    const m = h.steerYield_({ batch: 'M26' });
+    const by = {};
+    m.cuts.forEach(x => { by[x.sku] = x; });
+    check('a cut nobody weighed has no share, rather than none of the animal',
+      by.DENVER.share, null);
+    check('the screen is told how much of the steer those shares cover',
+      [m.weighedPackages, m.packages, m.sharesCover], [14, 33, 42.42]);
+  }
+
   // The very first steer has nothing to be measured against, and says so
   // rather than inventing a range for it.
   {

@@ -6902,7 +6902,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-17 16:21 UTC';
+var BACKEND_BUILD = '2026-11-17 16:43 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -9898,9 +9898,18 @@ function steerYield_(req) {
     });
   });
 
+  var weighedPacks = 0;
+  Object.keys(mine.cuts).forEach(function (sku) {
+    if (mine.cuts[sku].weight) weighedPacks += mine.cuts[sku].packages;
+  });
+
   var cuts = Object.keys(mine.cuts).map(function (sku) {
     var c = mine.cuts[sku];
-    var share = mine.weight ? c.weight / mine.weight * 100 : null;
+    /* A cut with no weight has no share, and saying 0% of them is worse
+       than saying nothing: on a steer where only the ground beef has been
+       weighed it put the ground beef at 100% of the animal and every steak
+       at none, which is the opposite of what happened. */
+    var share = (mine.weight && c.weight) ? c.weight / mine.weight * 100 : null;
     /* A cut this steer has and the others did not is averaged over all of
        them, not over the one that happened to have it — otherwise a single
        appearance reads as the norm. */
@@ -9947,6 +9956,10 @@ function steerYield_(req) {
     comparedWith: others.length,
     needsHanging: !hanging,
     unweighed: cuts.filter(function (c) { return !c.weight; }).length,
+    weighedPackages: round2_(weighedPacks),
+    /* Shares worked out over a fraction of the animal are not shares of the
+       animal. The screen says so rather than drawing them as if they were. */
+    sharesCover: mine.packages ? round2_(weighedPacks / mine.packages * 100) : 0,
     cuts: cuts
   };
 }

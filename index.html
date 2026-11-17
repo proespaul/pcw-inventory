@@ -1246,7 +1246,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-17 16:39 UTC';
+const APP_BUILD = '2026-11-17 16:43 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -8120,8 +8120,11 @@ async function openSteerYield() {
         'same ID and it will fill the blank in.</p>' : '') +
     (y.unweighed
       ? '<p class="muted" style="margin:8px 0 0">' + y.unweighed +
-        (y.unweighed === 1 ? ' cut has' : ' cuts have') + ' no weight yet, so the ' +
-        'shares below are of what has been weighed.</p>' : '');
+        (y.unweighed === 1 ? ' cut has' : ' cuts have') + ' no weight yet. The shares ' +
+        'below cover ' + (y.weighedPackages || 0) + ' of ' + y.packages + ' packs' +
+        (y.sharesCover < 60
+          ? ', so they say little about the animal until the rest are weighed.'
+          : '.') + '</p>' : '');
 
   const rows = y.cuts.map(c => {
     const tag = c.off === 'high' ? '<span class="tag">more than usual</span>'
@@ -8133,7 +8136,8 @@ async function openSteerYield() {
         (c.usual !== null ? ' · usually ' + round2(c.usual) + '%' : '') +
       '</span></div>' +
       '<div class="qty"><b>' + (c.share === null ? '—' : round2(c.share) + '%') +
-        '</b><span>of the meat</span></div></div>';
+        '</b><span>' + (c.share === null ? 'needs weighing' : 'of the meat') +
+        '</span></div></div>';
   }).join('');
 
   openSheet(batch, 'What came off this steer',
