@@ -290,13 +290,20 @@ check('an empty list leaves no count hanging in its title',
    as thirty cost the whole line. */
 {
   w.eval('closeSheet(); intakeCart = [];' +
-    'data.products = [{ sku: "RIBEYE", product: "Ribeye", sizes: "S,M,L", grade: "Gold", active: true }];' +
+    'data.products = [{ sku: "RIBEYE", product: "Ribeye", sizes: "S,M,L", content: "2 steaks",' +
+    '                   grade: "Gold", active: true }];' +
     'data.freezers = [{ id: "MAIN", active: true }, { id: "SHOP", active: true }];' +
     'data.stock = [{ sku: "RIBEYE", freezer: "SHOP", packages: 9 }];' +
     'fillSelects();' +
     'document.getElementById("inProduct").value = "RIBEYE"; renderInSizes(); setLineFreezer();' +
     'document.getElementById("inQty").value = "30"; addIntakeLine();');
   check('the line goes on as typed', text('inLines').indexOf('30 pkg') > -1, true);
+  check('no size is assigned at intake — there is no way to know one yet',
+    JSON.parse(w.eval('JSON.stringify(intakeCart.map(l => l.size))')), ['']);
+  check('and the grade it carries is the Gold the form defaults to',
+    JSON.parse(w.eval('JSON.stringify(intakeCart.map(l => l.grade))')), ['Gold']);
+  check('the packs box says what one pack holds, so it is not read as steaks',
+    text('inPackWhat'), 'How many packs, not how many steaks — one pack is 2 steaks.');
 
   w.eval('editIntakeLine(0);');
   check('the editor opens on that line with what it says',
@@ -305,13 +312,13 @@ check('an empty list leaves no count hanging in its title',
 
   w.eval('document.getElementById("elQty").value = "3";' +
          'document.getElementById("elWeight").value = "5.4";' +
-         'document.getElementById("elSize").value = "L";' +
+         'document.getElementById("elGrade").value = "Silver";' +
          'document.getElementById("elFreezer").value = "MAIN"; saveIntakeLine(0);');
   check('and the correction lands on the line, not a new one',
-    JSON.parse(w.eval('JSON.stringify(intakeCart.map(l => [l.packages, l.weight, l.size, l.freezer]))')),
-    [[3, 5.4, 'L', 'MAIN']]);
-  check('the label follows the size it was given',
-    text('inLines').indexOf('Ribeye · L') > -1, true);
+    JSON.parse(w.eval('JSON.stringify(intakeCart.map(l => [l.packages, l.weight, l.grade, l.freezer]))')),
+    [[3, 5.4, 'Silver', 'MAIN']]);
+  check('the label follows the grade it was given',
+    text('inLines').indexOf('Ribeye · Silver') > -1, true);
 
   w.eval('editIntakeLine(0); document.getElementById("elQty").value = "0"; saveIntakeLine(0);');
   check('a line cannot be saved down to nothing',

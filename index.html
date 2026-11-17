@@ -1100,18 +1100,19 @@
       <select id="inProduct"></select>
       <button class="ghost small" style="margin-top:7px" id="btnNewProduct">+ New product</button>
       <div class="row">
-        <div><label>Packages</label><input type="number" inputmode="numeric" id="inQty" min="0" step="1"></div>
+        <div><label>How many packs</label><input type="number" inputmode="numeric" id="inQty" min="0" step="1"></div>
         <div><label>Total weight (lb)</label><input type="number" inputmode="decimal" id="inWeight" step="0.01" placeholder="blank, add later"></div>
       </div>
-      <div class="row">
-        <div><label>Size</label><select id="inSize"><option value="">—</option></select></div>
-        <div><label>Grade</label>
-          <select id="inGrade"><option value="">— product default —</option>
-            <option>Gold</option><option>Silver</option><option>Bronze</option></select></div>
-      </div>
+      <p class="muted" id="inPackWhat" style="margin:6px 0 0"></p>
+      <label style="margin-top:9px">Grade</label>
+      <select id="inGrade"><option>Gold</option><option>Silver</option><option>Bronze</option>
+        <option value="">no grade</option></select>
       <label style="margin-top:9px">Into freezer</label>
       <select id="inLineFreezer"></select>
       <p class="muted" id="inFreezerWhy" style="margin:6px 0 0"></p>
+      <p class="muted" style="margin:10px 0 0">Sizes are not set here — which steaks are
+        small, medium or large only shows once they are all in. Sort them on the product
+        screen afterwards, under the lot you want to split.</p>
       <button style="margin-top:11px" id="btnAddInLine">Add to list</button>
     </div>
     <button id="btnSubmitIntake">Record what came in</button>
@@ -1245,7 +1246,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-17 16:21 UTC';
+const APP_BUILD = '2026-11-17 16:27 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -2489,13 +2490,18 @@ function fillSelects() {
   renderInSizes();
 }
 
+/* Sizes used to be picked here, and could not honestly be: which steaks are
+   small, medium or large is only knowable once they are all out of the box
+   and side by side. They are sorted on the product screen afterwards. What
+   this says instead is what one pack actually holds, because "packages" was
+   being read as a steak count. */
 function renderInSizes() {
   const p = data.products.find(x => x.sku === $('inProduct').value) || {};
-  const sizes = String(p.sizes || '').split(',').map(x => x.trim()).filter(Boolean);
-  const el = $('inSize'), v = el.value;
-  el.innerHTML = '<option value="">' + (sizes.length ? '— pick a size —' : '— one size —') + '</option>' +
-    sizes.map(x => opt(x, x)).join('');
-  if (v && [...el.options].some(o => o.value === v)) el.value = v;
+  const el = $('inPackWhat');
+  if (!el) return;
+  el.textContent = !p.sku ? ''
+    : p.content ? 'How many packs, not how many steaks — one pack is ' + p.content + '.'
+    : 'How many packs, not how many steaks.';
 }
 
 /* ───────── 1. Orders ───────── */
@@ -4626,6 +4632,11 @@ function bandCard(sku) {
       'group a box from one band and this is what one in it weighs.</p></div>';
 }
 
+/** The sizes a product is cut into, as the catalogue lists them. */
+function sizeList(p) {
+  return String((p || {}).sizes || '').split(',').map(x => x.trim()).filter(Boolean);
+}
+
 function openProduct(sku) {
   // Anyone arriving here any other way came off the product screen.
   if (!editingPriceFrom) editingPriceFrom = 'Product screen';
@@ -4685,10 +4696,24 @@ function openProduct(sku) {
             gradeList(l.grade).map(g => '<option value="' + esc(g) + '"' +
               (g === (l.grade || defaultGrade(p)) ? ' selected' : '') + '>' +
               esc(g) + '</option>').join('') + '</select>' +
-          '<input id="lz' + i + '" type="text" value="' + esc(l.size || '') + '" placeholder="size" style="flex:1">' +
+          // Sizes are set here rather than at intake, because which steaks are
+          // small, medium or large only shows once they are all in. Typed
+          // free-hand, "lge" and "L" became two bands holding half the
+          // steaks each, so the product's own sizes are offered as a list
+          // with the typed box kept for a product that has none.
+          (sizeList(p).length
+            ? '<select id="lz' + i + '" style="flex:1">' +
+                '<option value="">no size</option>' +
+                sizeList(p).map(z => '<option value="' + esc(z) + '"' +
+                  (z === (l.size || '') ? ' selected' : '') + '>' + esc(z) + '</option>').join('') +
+              '</select>'
+            : '<input id="lz' + i + '" type="text" value="' + esc(l.size || '') +
+              '" placeholder="size" style="flex:1">') +
           '<input id="lq' + i + '" type="number" inputmode="numeric" min="1" max="' + l.packages +
             '" step="1" placeholder="all ' + l.packages + '" style="flex:1">' +
         '</div>' +
+        '<p class="muted" style="margin:6px 0 0">To sort these into sizes, set the size ' +
+          'and how many of them, and save. Repeat for the rest.</p>' +
         (pend
           ? '<button class="ghost" style="margin-top:8px" disabled>Sending the last change…</button>' +
             '<p class="lotsay">Wait for this to go up before changing it again — ' +
@@ -7987,15 +8012,10 @@ function editIntakeLine(i) {
     .map(f => '<option value="' + esc(f.id) + '"' +
       (f.id === l.freezer ? ' selected' : '') + '>' + esc(f.name || f.id) + '</option>').join('');
   const p = (data.products || []).find(x => x.sku === l.sku) || {};
-  const sizes = String(p.sizes || '').split(',').map(x => x.trim()).filter(Boolean);
-  const sizeSel = '<select id="elSize"><option value="">' +
-    (sizes.length ? '— pick a size —' : '— one size —') + '</option>' +
-    sizes.map(x => '<option' + (x === l.size ? ' selected' : '') + '>' + esc(x) + '</option>').join('') +
-    '</select>';
   const grades = ['Gold', 'Silver', 'Bronze'];
-  const gradeSel = '<select id="elGrade"><option value="">— product default —</option>' +
+  const gradeSel = '<select id="elGrade">' +
     grades.map(g => '<option' + (g === l.grade ? ' selected' : '') + '>' + g + '</option>').join('') +
-    '</select>';
+    '<option value=""' + (l.grade ? '' : ' selected') + '>no grade</option></select>';
 
   openSheet(l.label, 'Change this line',
     '<div class="row" style="margin-top:10px">' +
@@ -8006,10 +8026,7 @@ function editIntakeLine(i) {
         esc(l.weight === null || l.weight === undefined ? '' : String(l.weight)) +
         '" placeholder="blank, add later"></div>' +
     '</div>' +
-    '<div class="row" style="margin-top:9px">' +
-      '<div><label>Size</label>' + sizeSel + '</div>' +
-      '<div><label>Grade</label>' + gradeSel + '</div>' +
-    '</div>' +
+    '<label style="margin-top:9px">Grade</label>' + gradeSel +
     '<label style="margin-top:9px">Into freezer</label>' +
     '<select id="elFreezer">' + fOpts + '</select>' +
     '<button style="margin-top:12px" onclick="saveIntakeLine(' + i + ')">Save</button>' +
@@ -8026,11 +8043,9 @@ function saveIntakeLine(i) {
   const p = (data.products || []).find(x => x.sku === l.sku) || {};
   l.packages = qty;
   l.weight = $('elWeight').value === '' ? null : Number($('elWeight').value);
-  l.size = $('elSize').value;
-  l.grade = $('elGrade').value || p.grade || '';
+  l.grade = $('elGrade').value;
   l.freezer = $('elFreezer').value;
-  l.label = (p.product || l.sku) + (l.size ? ' · ' + l.size : '') +
-            ($('elGrade').value ? ' · ' + $('elGrade').value : '');
+  l.label = (p.product || l.sku) + (l.grade ? ' · ' + l.grade : '');
   closeSheet();
   renderCart('intake');
   toast('Line changed.', 'ok');
@@ -8109,8 +8124,9 @@ function renderSteerNumbers() {
   $('steerNumbers').innerHTML = cost
     ? '<div class="kv" style="margin-top:10px"><span>This steer costs</span><b>' +
       money(cost) + ' per saleable lb</b></div>'
-    : '<p class="muted" style="margin:10px 0 0">Yield works itself out from what you enter here — ' +
-      'the only extra typing is the animal\'s weights and costs on the STEER PERFORMANCE tab.</p>';
+    : '<p class="muted" style="margin:10px 0 0">Yield works itself out from what you book ' +
+      'in here, against the animal\'s weights — those go on the steer itself, under ' +
+      '“Edit this steer”.</p>';
 }
 
 /* Each cut goes back where that cut already lives, because the freezers are
@@ -8150,13 +8166,13 @@ function addIntakeLine() {
   if (!qty || qty <= 0) return toast('Enter how many packages.', 'bad');
   const p = data.products.find(x => x.sku === sku) || {};
   const w = $('inWeight').value === '' ? null : Number($('inWeight').value);
-  const size = $('inSize').value;
+  const grade = $('inGrade').value;
   const freezer = ($('inLineFreezer') || {}).value || $('inFreezer').value || '';
   if (!freezer) return toast('Pick a freezer for this cut.', 'bad');
   intakeCart.push({
-    sku, product: p.product, content: p.content, size, freezer,
-    grade: $('inGrade').value || p.grade || '', packages: qty, weight: w,
-    label: (p.product || sku) + (size ? ' · ' + size : '') + ($('inGrade').value ? ' · ' + $('inGrade').value : '')
+    sku, product: p.product, content: p.content, size: '', freezer,
+    grade: grade, packages: qty, weight: w,
+    label: (p.product || sku) + (grade ? ' · ' + grade : '')
   });
   $('inQty').value = ''; $('inWeight').value = '';
   renderCart('intake');
