@@ -1116,6 +1116,14 @@ console.log('\nthe wholesale screen: ordered, waiting, past');
   check('nor is a shared first name',
     like('Melissa Labreque', 'Melissa Anctil'), '');
   check('and an empty name matches nothing', like('', 'Reene Beaudoin'), '');
+
+  /* One edit is most of a short name and almost none of a long one. These
+     two are both in the books and are not the same person. */
+  check('a short name has to match outright',
+    [like('Joe (Jamie Cloutier)', 'Opey'), like('Opey', 'Opel')], ['', '']);
+  check('the real one-letter pairs in the books still come through',
+    [like('Andrea Schneebeli', 'Andrea Schneebli'), like('Page Rey', 'Paige Rey')],
+    ['same', 'same']);
 }
 
 /* ---- a phone on a wholesale line reaches the customer card ----

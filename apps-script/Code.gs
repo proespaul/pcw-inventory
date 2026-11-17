@@ -6291,12 +6291,14 @@ function nameLikeness_(a, b) {
 
   var wa = nameWords_(ka), wb = nameWords_(kb);
   var d = nameDistance_(ka, kb);
+  var shortest = Math.min(ka.length, kb.length);
 
-  // One typo or one swap, with the same number of words: the same person.
-  if (wa.length === wb.length && d <= 1) return 'same';
-
-  // Close, but not close enough to act on by ourselves.
-  if (wa.length === wb.length && d <= 3) return 'maybe';
+  /* One edit means far less in a short name than a long one: "Joe" and
+     "Opey" are two edits apart and two different people, while thirteen
+     letters agreeing but for two is a spelling of one name. So a short
+     name has to match outright. */
+  if (wa.length === wb.length && d <= 1 && shortest >= 6) return 'same';
+  if (wa.length === wb.length && d <= 3 && shortest >= 8) return 'maybe';
   if (nameInside_(ka, kb)) return 'maybe';
   return '';
 }
@@ -6900,7 +6902,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-17 15:09 UTC';
+var BACKEND_BUILD = '2026-11-17 15:11 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
