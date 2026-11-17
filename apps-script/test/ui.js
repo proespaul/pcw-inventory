@@ -285,6 +285,43 @@ check('an empty list leaves no count hanging in its title',
   [text('whOrderedCount'), text('whWaitingCount')], ['', '']);
 
 
+/* ───────── a line on the list can be corrected ─────────
+   It could only be thrown away and typed again, so three packages entered
+   as thirty cost the whole line. */
+{
+  w.eval('closeSheet(); intakeCart = [];' +
+    'data.products = [{ sku: "RIBEYE", product: "Ribeye", sizes: "S,M,L", grade: "Gold", active: true }];' +
+    'data.freezers = [{ id: "MAIN", active: true }, { id: "SHOP", active: true }];' +
+    'data.stock = [{ sku: "RIBEYE", freezer: "SHOP", packages: 9 }];' +
+    'fillSelects();' +
+    'document.getElementById("inProduct").value = "RIBEYE"; renderInSizes(); setLineFreezer();' +
+    'document.getElementById("inQty").value = "30"; addIntakeLine();');
+  check('the line goes on as typed', text('inLines').indexOf('30 pkg') > -1, true);
+
+  w.eval('editIntakeLine(0);');
+  check('the editor opens on that line with what it says',
+    [doc.getElementById('elQty').value, doc.getElementById('elFreezer').value],
+    ['30', 'SHOP']);
+
+  w.eval('document.getElementById("elQty").value = "3";' +
+         'document.getElementById("elWeight").value = "5.4";' +
+         'document.getElementById("elSize").value = "L";' +
+         'document.getElementById("elFreezer").value = "MAIN"; saveIntakeLine(0);');
+  check('and the correction lands on the line, not a new one',
+    JSON.parse(w.eval('JSON.stringify(intakeCart.map(l => [l.packages, l.weight, l.size, l.freezer]))')),
+    [[3, 5.4, 'L', 'MAIN']]);
+  check('the label follows the size it was given',
+    text('inLines').indexOf('Ribeye · L') > -1, true);
+
+  w.eval('editIntakeLine(0); document.getElementById("elQty").value = "0"; saveIntakeLine(0);');
+  check('a line cannot be saved down to nothing',
+    JSON.parse(w.eval('JSON.stringify(intakeCart.map(l => l.packages))')), [3]);
+
+  w.eval('editIntakeLine(0); dropIntakeLine(0);');
+  check('and taking it off still works',
+    Number(w.eval('intakeCart.length')), 0);
+}
+
 /* ───────── what a size band weighs ─────────
    A box is made up by putting similar steaks together and the price follows
    the weight, so the band has to say what one of them weighs. */
@@ -495,7 +532,32 @@ const pause = () => new Promise(r => setTimeout(r, 0));
        /Brisket.*than usual/.test(body)], [true, true, false]);
 
     // Nothing to compare against yet must not read as "everything is normal".
-    replyWith('steerYield', { ok: true, batch: 'FIRST', packages: 10, weight: 20,
+    /* A weight typed with a digit missing has to be correctable from here,
+     which is the half the add-a-steer form deliberately will not do. */
+  replyWith('steerGet', { ok: true, id: 'S4', row: 3, tag: '771', grade: 'BMS 8',
+    butcher: 'Simard', killDate: '2026-10-02', packDate: '2026-10-09',
+    liveWeight: 1320, hangingWeight: 2000, purchaseCost: 4200,
+    butcherCost: 900, otherCost: null });
+  replyWith('steerSave', { ok: true, id: 'S4', changed: ['Hanging weight (lb)'] });
+  w.eval('closeSheet(); var b3 = document.getElementById("inBatch");' +
+         'b3.innerHTML = "<option>S4</option>"; b3.value = "S4"; openSteerEdit();');
+  await pause();
+  check('the steer opens showing what is on it now',
+    [doc.getElementById('seHang').value, doc.getElementById('seButcher').value,
+     doc.getElementById('seTag').value],
+    ['2000', 'Simard', '771']);
+  check('an empty figure comes through as empty, not as a zero',
+    doc.getElementById('seOther').value, '');
+
+  w.eval('__sent.length = 0; document.getElementById("seHang").value = "200";' +
+         'saveSteerEdit("S4");');
+  await pause();
+  const sent = w.__sent.filter(x => x.action === 'steerSave')[0];
+  check('saving writes the corrected weight over the old one',
+    [sent.payload.id, sent.payload.fields.hangingWeight, sent.payload.fields.butcher],
+    ['S4', '200', 'Simard']);
+
+  replyWith('steerYield', { ok: true, batch: 'FIRST', packages: 10, weight: 20,
       hanging: 0, live: 0, yieldPct: null, usualYield: null, comparedWith: 0,
       needsHanging: true, unweighed: 0, cuts: [{ sku: 'RIBEYE', product: 'Ribeye',
         packages: 10, weight: 20, each: 2, share: 100, usual: null, off: '' }] });

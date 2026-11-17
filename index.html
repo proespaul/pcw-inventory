@@ -1087,8 +1087,10 @@
       <p class="muted" style="margin:7px 0 0">Each cut goes back to the freezer it
         already lives in. This one is only used for a cut that has never been stocked.</p>
       <div id="steerNumbers"></div>
-      <button class="ghost small" style="margin-top:9px"
-              onclick="openSteerYield()">What came off this steer</button>
+      <div class="row" style="margin-top:9px">
+        <button class="ghost small" onclick="openSteerYield()">What came off this steer</button>
+        <button class="ghost small" onclick="openSteerEdit()">Edit this steer</button>
+      </div>
     </div>
 
     <h3>Packages in</h3>
@@ -1243,7 +1245,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-17 16:11 UTC';
+const APP_BUILD = '2026-11-17 16:21 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -7904,6 +7906,141 @@ async function acceptIdea(i) {
    The performance tab carries the totals, but "63% yield" does not say
    whether the ribeyes came up short — and that is the number worth having
    before the next steer goes in. */
+/* Anything typed in can be typed over.
+   The steer form fills blanks and never writes over what is already there,
+   which is right when stock quietly creates a row but wrong the moment a
+   weight goes in with a digit missing. This is the way back to it. */
+async function openSteerEdit() {
+  const id = $('inBatch').value;
+  if (!id || id === NEW_BATCH) return toast('Pick a steer first.', 'bad');
+  openSheet(id, 'Reading it back…', '<p class="muted">One moment.</p>');
+  let d;
+  try { d = await api('steerGet', { id }); }
+  catch (e) { return openSheet(id, '', '<p class="muted">' + esc(e.message) + '</p>'); }
+  if (!d || !d.ok) {
+    return openSheet(id, '', '<p class="muted">' +
+      esc((d && d.error) || 'Nothing to show.') + '</p>' +
+      '<button class="ghost" style="margin-top:12px" onclick="closeSheet()">Close</button>');
+  }
+  const v = x => esc(x === null || x === undefined ? '' : String(x));
+  openSheet(id, 'Change anything on this steer',
+    '<div class="row" style="margin-top:10px">' +
+      '<div><label>Tag number</label><input id="seTag" value="' + v(d.tag) + '"></div>' +
+      '<div><label>Grade / BMS</label><input id="seGrade" value="' + v(d.grade) + '"></div>' +
+    '</div>' +
+    '<label style="margin-top:9px">Butcher</label>' +
+    '<input id="seButcher" value="' + v(d.butcher) + '">' +
+    '<div class="row" style="margin-top:9px">' +
+      '<div><label>Kill date</label><input type="date" id="seKill" value="' + v(d.killDate) + '"></div>' +
+      '<div><label>Pack date</label><input type="date" id="sePack" value="' + v(d.packDate) + '"></div>' +
+    '</div>' +
+    '<h3 style="margin:16px 0 6px">Weights</h3>' +
+    '<div class="row">' +
+      '<div><label>Live weight (lb)</label>' +
+        '<input type="number" inputmode="decimal" step="0.1" id="seLive" value="' + v(d.liveWeight) + '"></div>' +
+      '<div><label>Hanging / carcass (lb)</label>' +
+        '<input type="number" inputmode="decimal" step="0.1" id="seHang" value="' + v(d.hangingWeight) + '"></div>' +
+    '</div>' +
+    '<h3 style="margin:16px 0 6px">What it cost</h3>' +
+    '<div class="row">' +
+      '<div><label>The animal</label>' +
+        '<input type="number" inputmode="decimal" step="0.01" id="seBuy" value="' + v(d.purchaseCost) + '"></div>' +
+      '<div><label>Butcher</label>' +
+        '<input type="number" inputmode="decimal" step="0.01" id="seKillCost" value="' + v(d.butcherCost) + '"></div>' +
+      '<div><label>Other</label>' +
+        '<input type="number" inputmode="decimal" step="0.01" id="seOther" value="' + v(d.otherCost) + '"></div>' +
+    '</div>' +
+    '<p class="muted" style="margin:10px 0 0">Emptying a box clears it on the sheet.</p>' +
+    '<button style="margin-top:11px" id="seSave" onclick="saveSteerEdit(' +
+      JSON.stringify(id).replace(/"/g, '&quot;') + ')">Save</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Cancel</button>');
+}
+
+async function saveSteerEdit(id) {
+  const btn = $('seSave');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    const r = await api('steerSave', { id, fields: {
+      tag: $('seTag').value.trim(), grade: $('seGrade').value.trim(),
+      butcher: $('seButcher').value.trim(),
+      killDate: $('seKill').value, packDate: $('sePack').value,
+      liveWeight: $('seLive').value, hangingWeight: $('seHang').value,
+      purchaseCost: $('seBuy').value, butcherCost: $('seKillCost').value,
+      otherCost: $('seOther').value
+    } });
+    closeSheet();
+    toast((r.changed || []).length ? 'Saved.' : 'Nothing was different.', 'ok');
+    await sync(true);
+    renderSteerNumbers();
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+    toast(e.message, 'bad');
+  }
+}
+
+/* A line on the list could only be thrown away and typed again. Three
+   packages entered as thirty is a tap to fix, not a re-entry. */
+function editIntakeLine(i) {
+  const l = intakeCart[i];
+  if (!l) return;
+  const fOpts = (data.freezers || []).filter(f => f.active !== false)
+    .map(f => '<option value="' + esc(f.id) + '"' +
+      (f.id === l.freezer ? ' selected' : '') + '>' + esc(f.name || f.id) + '</option>').join('');
+  const p = (data.products || []).find(x => x.sku === l.sku) || {};
+  const sizes = String(p.sizes || '').split(',').map(x => x.trim()).filter(Boolean);
+  const sizeSel = '<select id="elSize"><option value="">' +
+    (sizes.length ? '— pick a size —' : '— one size —') + '</option>' +
+    sizes.map(x => '<option' + (x === l.size ? ' selected' : '') + '>' + esc(x) + '</option>').join('') +
+    '</select>';
+  const grades = ['Gold', 'Silver', 'Bronze'];
+  const gradeSel = '<select id="elGrade"><option value="">— product default —</option>' +
+    grades.map(g => '<option' + (g === l.grade ? ' selected' : '') + '>' + g + '</option>').join('') +
+    '</select>';
+
+  openSheet(l.label, 'Change this line',
+    '<div class="row" style="margin-top:10px">' +
+      '<div><label>Packages</label><input type="number" inputmode="numeric" min="1" step="1" ' +
+        'id="elQty" value="' + esc(String(l.packages)) + '"></div>' +
+      '<div><label>Total weight (lb)</label>' +
+        '<input type="number" inputmode="decimal" step="0.01" id="elWeight" value="' +
+        esc(l.weight === null || l.weight === undefined ? '' : String(l.weight)) +
+        '" placeholder="blank, add later"></div>' +
+    '</div>' +
+    '<div class="row" style="margin-top:9px">' +
+      '<div><label>Size</label>' + sizeSel + '</div>' +
+      '<div><label>Grade</label>' + gradeSel + '</div>' +
+    '</div>' +
+    '<label style="margin-top:9px">Into freezer</label>' +
+    '<select id="elFreezer">' + fOpts + '</select>' +
+    '<button style="margin-top:12px" onclick="saveIntakeLine(' + i + ')">Save</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Cancel</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="dropIntakeLine(' + i +
+      ')">Take this line off</button>');
+}
+
+function saveIntakeLine(i) {
+  const l = intakeCart[i];
+  if (!l) return closeSheet();
+  const qty = Number($('elQty').value);
+  if (!qty || qty <= 0) return toast('Enter how many packages.', 'bad');
+  const p = (data.products || []).find(x => x.sku === l.sku) || {};
+  l.packages = qty;
+  l.weight = $('elWeight').value === '' ? null : Number($('elWeight').value);
+  l.size = $('elSize').value;
+  l.grade = $('elGrade').value || p.grade || '';
+  l.freezer = $('elFreezer').value;
+  l.label = (p.product || l.sku) + (l.size ? ' · ' + l.size : '') +
+            ($('elGrade').value ? ' · ' + $('elGrade').value : '');
+  closeSheet();
+  renderCart('intake');
+  toast('Line changed.', 'ok');
+}
+
+function dropIntakeLine(i) {
+  closeSheet();
+  dropLine('intake', i);
+}
+
 async function openSteerYield() {
   const batch = $('inBatch').value;
   if (!batch || batch === NEW_BATCH) return toast('Pick a steer first.', 'bad');
@@ -8049,7 +8186,8 @@ function renderCart(which) {
   if (which === 'order') return renderOrderCart();
   if (!cart.length) { el.innerHTML = '<div class="muted" style="padding:2px 4px 8px">No lines yet.</div>'; return; }
   el.innerHTML = cart.map((l, i) =>
-    '<div class="line"><div class="top"><b>' + esc(l.label) + '</b>' +
+    '<div class="line"><div class="top">' +
+    '<b onclick="editIntakeLine(' + i + ')" style="cursor:pointer">' + esc(l.label) + '</b>' +
     '<span class="muted">' + l.packages + ' pkg' +
       (l.weight ? ' · ' + round2(l.weight) + ' lb' : '') +
       (which === 'intake' && l.freezer ? ' · ' + esc(l.freezer) : '') + '</span>' +

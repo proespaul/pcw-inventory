@@ -1133,6 +1133,26 @@ console.log('\nthe wholesale screen: ordered, waiting, past');
     [by.RIBEYE.share, by.RIBEYE.usual, by.RIBEYE.off], [8, 20, 'low']);
   check('a cut well over it is flagged high',
     [by.GROUND.share, by.GROUND.usual, by.GROUND.off], [72, 60, 'high']);
+  // Correcting a mistake is a different job from filling a blank, and the
+  // app could only do the second: a hanging weight typed as 2000 was stuck.
+  check('a steer can be read back as it stands',
+    [c.steerGet_({ id: 'S4' }).hangingWeight, c.steerGet_({ id: 'S4' }).ok], [200, true]);
+  check('and a wrong weight can be written over',
+    c.steerSave_({ id: 'S4', fields: { hangingWeight: 250 } }).changed,
+    ['Hanging weight (lb)']);
+  check('which the yield is worked out from straight away',
+    c.steerYield_({ batch: 'S4' }).hanging, 250);
+  check('a field sent unchanged is not reported as a change',
+    c.steerSave_({ id: 'S4', fields: { hangingWeight: 250 } }).changed, []);
+  check('a value can be cleared back to empty',
+    [c.steerSave_({ id: 'S4', fields: { liveWeight: '' } }).ok,
+     c.steerGet_({ id: 'S4' }).liveWeight], [true, null]);
+  check('a steer that is not there cannot be written to',
+    [c.steerSave_({ id: 'NOPE', fields: { liveWeight: 1 } }).ok,
+     c.steerGet_({ id: 'NOPE' }).ok], [false, false]);
+  // Put it back for the checks below.
+  c.steerSave_({ id: 'S4', fields: { hangingWeight: 200 } });
+
   check('completing a steer that stock created reports what it filled',
     c.addSteer_({ steer: { id: 'S4', hangingWeight: 999, butcher: 'Simard' } }).completed,
     ['Butcher']);

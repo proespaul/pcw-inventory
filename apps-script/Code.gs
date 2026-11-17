@@ -6902,7 +6902,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-17 16:11 UTC';
+var BACKEND_BUILD = '2026-11-17 16:21 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -8457,6 +8457,8 @@ function handle_(e, body) {
       case 'waitlistSave': return json_(waitlistSave_(req));
       case 'addSteer':    return json_(addSteer_(req));
       case 'steerYield':  return json_(steerYield_(req));
+      case 'steerGet':    return json_(steerGet_(req));
+      case 'steerSave':   return json_(steerSave_(req));
       case 'model':       return json_({ ok: true, model: modelFor_(num_(req.railWeight)) });
       case 'sweepWeb':    return json_({ ok: true, made: sweepWebsiteOrders_() });
       case 'importSales': return json_(importFromSalesSheet_());
@@ -9947,6 +9949,57 @@ function steerYield_(req) {
     unweighed: cuts.filter(function (c) { return !c.weight; }).length,
     cuts: cuts
   };
+}
+
+/* Filling a blank and correcting a mistake are two different things, and
+   the app could only do the first. A hanging weight typed as 2000 instead of
+   200 was then stuck: addSteer_ leaves anything already entered alone, on
+   purpose, so nothing in the app could put it right and the yield stayed
+   wrong until somebody opened the sheet. This is the other half — it writes
+   what it is given over whatever is there, and it is only ever reached from
+   a form that showed the current values first. */
+
+function steerGet_(req) {
+  var id = str_(req && (req.id || req.steer || req.batch));
+  if (!id) return { ok: false, error: 'Which steer?' };
+  var row = steerRowFor_(id);
+  if (!row) return { ok: false, error: 'No steer called ' + id + ' on the sheet.' };
+  var sh = sheet_(TABS.STEERS);
+  var head = ensureHeaders_(TABS.STEERS, HEADERS.STEERS);
+  var values = sh.getRange(row, 1, 1, head.length).getValues()[0];
+  var out = { ok: true, id: id, row: row };
+  STEER_FIELDS.forEach(function (f) {
+    var at = head.indexOf(f[1]);
+    if (at === -1) return;
+    var v = values[at];
+    out[f[0]] = STEER_NUMBERS[f[0]] ? (num_(v) || null) : str_(v);
+  });
+  return out;
+}
+
+function steerSave_(req) {
+  var id = str_(req && req.id);
+  if (!id) return { ok: false, error: 'Which steer?' };
+  var row = steerRowFor_(id);
+  if (!row) return { ok: false, error: 'No steer called ' + id + ' on the sheet.' };
+
+  var f = req.fields || {};
+  var sh = sheet_(TABS.STEERS);
+  var head = ensureHeaders_(TABS.STEERS, HEADERS.STEERS);
+  var changed = [];
+  STEER_FIELDS.forEach(function (fd) {
+    var key = fd[0], header = fd[1];
+    if (!Object.prototype.hasOwnProperty.call(f, key)) return;
+    var at = head.indexOf(header);
+    if (at === -1) return;
+    var want = STEER_NUMBERS[key] ? (str_(f[key]) === '' ? '' : num_(f[key])) : str_(f[key]);
+    var cell = sh.getRange(row, at + 1);
+    if (str_(cell.getValue()) === str_(want)) return;
+    cell.setValue(want);
+    changed.push(header);
+  });
+  rebuildSteers_();
+  return { ok: true, id: id, changed: changed };
 }
 
 /** The sheet row a steer sits on, or 0. */
