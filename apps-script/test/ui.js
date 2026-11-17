@@ -290,8 +290,10 @@ check('an empty list leaves no count hanging in its title',
    as thirty cost the whole line. */
 {
   w.eval('closeSheet(); intakeCart = [];' +
-    'data.products = [{ sku: "RIBEYE", product: "Ribeye", sizes: "S,M,L", content: "2 steaks",' +
-    '                   grade: "Gold", active: true }];' +
+    'data.products = [{ sku: "RIBEYE", product: "Ribeye", category: "Steak",' +
+    '                   sizes: "", content: "", grade: "Gold", active: true },' +
+    '                 { sku: "GB", product: "Ground beef", category: "Ground",' +
+    '                   content: "1 lb", sizes: "", active: true }];' +
     'data.freezers = [{ id: "MAIN", active: true }, { id: "SHOP", active: true }];' +
     'data.stock = [{ sku: "RIBEYE", freezer: "SHOP", packages: 9 }];' +
     'fillSelects();' +
@@ -302,8 +304,23 @@ check('an empty list leaves no count hanging in its title',
     JSON.parse(w.eval('JSON.stringify(intakeCart.map(l => l.size))')), ['']);
   check('and the grade it carries is the Gold the form defaults to',
     JSON.parse(w.eval('JSON.stringify(intakeCart.map(l => l.grade))')), ['Gold']);
-  check('the packs box says what one pack holds, so it is not read as steaks',
-    text('inPackWhat'), 'How many packs, not how many steaks — one pack is 2 steaks.');
+  check('a steak is one to a pack, so the box is counting steaks',
+    text('inPackWhat'), 'One steak to a pack, so this is how many steaks.');
+  w.eval('document.getElementById("inProduct").value = "GB"; renderInSizes();');
+  check('a pack of ground beef is a weight, and says so',
+    text('inPackWhat'), 'One pack is 1 lb, so this is how many packs.');
+  w.eval('document.getElementById("inProduct").value = "RIBEYE"; renderInSizes();');
+
+  // Only Picanha has sizes in the catalogue, and steaks are the cut that
+  // most needs sorting, so a steak without them still gets a list.
+  check('a steak the catalogue says nothing about still has sizes to sort into',
+    JSON.parse(w.eval('JSON.stringify(sizeList({ category: "Steak", sizes: "" }))')),
+    ['Small', 'Medium', 'Large']);
+  check('and the catalogue wins wherever it has an opinion',
+    JSON.parse(w.eval('JSON.stringify(sizeList({ category: "Steak",' +
+      ' sizes: "Small / Medium / Large" }))')), ['Small', 'Medium', 'Large']);
+  check('a cut that is not a steak is not given bands it does not have',
+    JSON.parse(w.eval('JSON.stringify(sizeList({ category: "Ground", sizes: "" }))')), []);
 
   w.eval('editIntakeLine(0);');
   check('the editor opens on that line with what it says',

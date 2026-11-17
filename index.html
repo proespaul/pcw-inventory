@@ -1246,7 +1246,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-17 16:27 UTC';
+const APP_BUILD = '2026-11-17 16:35 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -2499,9 +2499,23 @@ function renderInSizes() {
   const p = data.products.find(x => x.sku === $('inProduct').value) || {};
   const el = $('inPackWhat');
   if (!el) return;
-  el.textContent = !p.sku ? ''
-    : p.content ? 'How many packs, not how many steaks — one pack is ' + p.content + '.'
-    : 'How many packs, not how many steaks.';
+  el.textContent = !p.sku ? '' : packsMean(p);
+}
+
+/* What the number in that box counts.
+   A pack of ground beef is a weight and a pack of ribeye is one steak, so
+   "how many packs, not how many steaks" is right for the first and wrong
+   for the second — the steaks are packed one to a pack, which makes the
+   pack count the steak count. The catalogue says so where Content is
+   filled in; steaks have it blank, and one to a pack is what they are. */
+function packsMean(p) {
+  if (p.content) return 'One pack is ' + p.content + ', so this is how many packs.';
+  if (singlySacked(p)) return 'One steak to a pack, so this is how many steaks.';
+  return 'How many packs, not how many pieces.';
+}
+
+function singlySacked(p) {
+  return String((p || {}).category || '').trim().toLowerCase() === 'steak';
 }
 
 /* ───────── 1. Orders ───────── */
@@ -4632,9 +4646,20 @@ function bandCard(sku) {
       'group a box from one band and this is what one in it weighs.</p></div>';
 }
 
-/** The sizes a product is cut into, as the catalogue lists them. */
+/**
+ * The sizes a product is sorted into.
+ *
+ * The catalogue decides, and for steaks it mostly says nothing — only
+ * Picanha has ever had its sizes filled in. Steaks are the cut that needs
+ * sorting most, so when the catalogue is silent on one they fall back to
+ * Picanha's own wording rather than to a box to type into, which is how two
+ * spellings of the same band end up holding half the steaks each.
+ */
 function sizeList(p) {
-  return String((p || {}).sizes || '').split(',').map(x => x.trim()).filter(Boolean);
+  const listed = String((p || {}).sizes || '').split(/[,/]/)
+    .map(x => x.trim()).filter(Boolean);
+  if (listed.length) return listed;
+  return singlySacked(p) ? ['Small', 'Medium', 'Large'] : [];
 }
 
 function openProduct(sku) {
