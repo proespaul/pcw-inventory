@@ -6905,7 +6905,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-17 17:01 UTC';
+var BACKEND_BUILD = '2026-11-17 17:03 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -9896,16 +9896,29 @@ function recordedCuts_(batch) {
   return out;
 }
 
+/**
+ * A nested value that may have arrived as text.
+ *
+ * Everything in a query string is text, so an action given a list or an
+ * object over GET receives the JSON of it rather than the thing itself, and
+ * the first method called on it fails with something unhelpful like
+ * "filter is not a function". Anything that takes a nested value runs it
+ * through here. Text that will not parse comes back flagged rather than as
+ * an empty object, so a caller cannot mistake a typo for "nothing given".
+ */
+function asObject_(v) {
+  if (typeof v !== 'string') return v;
+  var t = v.trim();
+  if (!t) return null;
+  try { return JSON.parse(t); }
+  catch (e) { return { error: e.message }; }
+}
+
 function steerCutsSave_(req) {
   var batch = str_(req && req.batch);
   if (!batch) return { ok: false, error: 'Which steer?' };
-  /* Over a query string a list arrives as text, so it is parsed here rather
-     than leaving the caller to guess which shape this wants. */
-  var given = req.cuts;
-  if (typeof given === 'string') {
-    try { given = JSON.parse(given); }
-    catch (e) { return { ok: false, error: 'The cuts could not be read: ' + e.message }; }
-  }
+  var given = asObject_(req.cuts);
+  if (given && given.error) return { ok: false, error: 'The cuts could not be read.' };
   if (!given || !given.length) return { ok: false, error: 'No cuts to record.' };
   var rows = given.filter(function (c) { return str_(c.sku) || str_(c.product); });
   if (!rows.length) return { ok: false, error: 'No cuts to record.' };
@@ -10128,7 +10141,8 @@ function steerSave_(req) {
   var row = steerRowFor_(id);
   if (!row) return { ok: false, error: 'No steer called ' + id + ' on the sheet.' };
 
-  var f = req.fields || {};
+  var f = asObject_(req.fields) || {};
+  if (f.error) return { ok: false, error: 'The fields could not be read.' };
   var sh = sheet_(TABS.STEERS);
   var head = ensureHeaders_(TABS.STEERS, HEADERS.STEERS);
   var changed = [];
@@ -10191,7 +10205,8 @@ function steerFill_(row, s) {
 }
 
 function addSteer_(req) {
-  var s = req.steer || {};
+  var s = asObject_(req.steer) || {};
+  if (s.error && !s.id) return { ok: false, error: 'The steer could not be read.' };
   var id = str_(s.id);
   if (!id) return { ok: false, error: 'A steer needs an ID (for example 2026-09-STEER-02).' };
 

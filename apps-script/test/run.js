@@ -1220,6 +1220,18 @@ console.log('\nthe wholesale screen: ordered, waiting, past');
     // Re-recording replaces, so a corrected sheet can just be sent again.
     j.steerCutsSave_({ batch: 'JUNE-2026',
       cuts: [{ sku: 'RIBEYE', weight: 30 }, { sku: 'GROUND', weight: 380.5 }] });
+    check('a steer that arrives as text over the query string is read all the same',
+      j.addSteer_({ steer: JSON.stringify({ id: 'TEXT-STEER', liveWeight: 900 }) }).ok, true);
+    check('and its figures landed',
+      j.steerGet_({ id: 'TEXT-STEER' }).liveWeight, 900);
+    check('an edit sent as text works the same way',
+      [j.steerSave_({ id: 'TEXT-STEER',
+        fields: JSON.stringify({ hangingWeight: 500 }) }).ok,
+       j.steerGet_({ id: 'TEXT-STEER' }).hangingWeight], [true, 500]);
+    check('and text that will not parse is refused, not read as nothing given',
+      [j.addSteer_({ steer: 'not json' }).ok,
+       j.steerSave_({ id: 'TEXT-STEER', fields: 'not json' }).ok], [false, false]);
+
     check('a list that arrives as text over the query string is read all the same',
       j.steerCutsSave_({ batch: 'TEXT-1',
         cuts: JSON.stringify([{ sku: 'RIBEYE', weight: 4 }]) }).recorded, 1);
