@@ -1216,6 +1216,15 @@ console.log('\nthe wholesale screen: ordered, waiting, past');
       by2.RIBEYE.share, 5.25);
     /* The ID gets typed by hand on the record, on the performance tab and on
        a batch; one of them in a different case is not a different steer. */
+    /* A spreadsheet reads "JUNE-2026" as a date. Written plain it became
+       Mon Jun 01 2026 and the steer stopped matching its own ID. */
+    check('an ID a spreadsheet turned into a date still finds its steer',
+      [j.sameSteer_(new Date(2026, 5, 1), 'JUNE-2026'),
+       j.sameSteer_(new Date(2026, 5, 1), 'june-2026')], [true, true]);
+    check('and is not mistaken for a different month or year',
+      [j.sameSteer_(new Date(2026, 6, 1), 'JUNE-2026'),
+       j.sameSteer_(new Date(2025, 5, 1), 'JUNE-2026')], [false, false]);
+
     check('the breakdown is found however the ID was capitalised',
       [j.steerYield_({ batch: 'june-2026' }).ok,
        j.steerYield_({ batch: 'June-2026' }).weight], [true, 401.6]);

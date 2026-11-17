@@ -49,6 +49,7 @@ class FakeRange {
 class FakeSheet {
   constructor(name) { this.name = name; this.data = []; }
   getName() { return this.name; }
+  getMaxRows() { return Math.max(this.data.length, 1000); }
   /* A stable fake gid, so code that builds a deep link to a row runs here. */
   getSheetId() {
     let h = 0;

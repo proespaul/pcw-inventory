@@ -6905,7 +6905,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-17 17:11 UTC';
+var BACKEND_BUILD = '2026-11-17 17:13 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -9885,7 +9885,22 @@ function countsInYield_(sku, name, category) {
    was enough for the breakdown and the animal to stop being the same steer.
    Case never distinguishes two of ours, so it never decides a match. */
 function sameSteer_(a, b) {
-  return str_(a).trim().toLowerCase() === str_(b).trim().toLowerCase();
+  return steerKey_(a) === steerKey_(b);
+}
+
+/* An ID written before the column was kept as text is sitting in the sheet
+   as a date. "JUNE-2026" went in and "Mon Jun 01 2026 00:00:00 GMT-0600"
+   comes back, which matches nothing. Read as the month and year it was
+   turned into, so those rows still find their steer. */
+function steerKey_(v) {
+  // Not instanceof: a date handed over from the Sheets side is a Date from
+  // another realm, where instanceof answers false. Its shape is the test.
+  if (v && typeof v.getMonth === 'function' && typeof v.getFullYear === 'function') {
+    var months = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY',
+                  'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
+    return (months[v.getMonth()] + '-' + v.getFullYear()).toLowerCase();
+  }
+  return str_(v).trim().toLowerCase();
 }
 
 function recordedCuts_(batch) {
@@ -9931,6 +9946,11 @@ function steerCutsSave_(req) {
 
   var sh = sheet_(TABS.STEERCUTS);
   ensureHeaders_(TABS.STEERCUTS, HEADERS.STEERCUTS);
+  /* "JUNE-2026" is a date as far as a spreadsheet is concerned: written
+     plain it became Mon Jun 01 2026, displayed back as "June-2026", and the
+     steer stopped matching its own ID everywhere else. The column is kept
+     as text so an ID is whatever was typed. */
+  sh.getRange(1, 1, sh.getMaxRows(), 1).setNumberFormat('@');
 
   /* Writing the same steer twice replaces what was there, so a corrected
      sheet can simply be sent again. The rows for one steer need not be
@@ -10017,7 +10037,7 @@ function steerYield_(req) {
   try {
     readTable_(TABS.STEERCUTS).forEach(function (r) {
       var b = str_(r['Steer ID']);
-      if (b) recordedFor[b] = true;
+      if (b) recordedFor[steerKey_(r['Steer ID'])] = true;
     });
   } catch (e) { recordedFor = {}; recordError = str_(e && e.message) || String(e); }
   Object.keys(recordedFor).forEach(function (b) {
@@ -10255,7 +10275,9 @@ function addSteer_(req) {
                  'supplied was already filled in.' };
   }
 
-  sheet_(TABS.STEERS).appendRow([
+  var steerSheet = sheet_(TABS.STEERS);
+  steerSheet.getRange(1, 1, steerSheet.getMaxRows(), 1).setNumberFormat('@');
+  steerSheet.appendRow([
     id, str_(s.tag), str_(s.outfit) || 'PCW', str_(s.butcher), str_(s.killDate), str_(s.packDate),
     str_(s.grade), num_(s.liveWeight), num_(s.hangingWeight),
     num_(s.purchaseCost), num_(s.butcherCost), num_(s.otherCost),
