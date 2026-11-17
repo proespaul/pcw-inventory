@@ -319,6 +319,19 @@ check('an empty list leaves no count hanging in its title',
   check('and the catalogue wins wherever it has an opinion',
     JSON.parse(w.eval('JSON.stringify(sizeList({ category: "Steak",' +
       ' sizes: "Small / Medium / Large" }))')), ['Small', 'Medium', 'Large']);
+
+  /* The Sizes column also holds how a thing is sold. Shanks are packed one
+     to a pack and merely go out in pairs, and ground beef bundles are bag
+     counts — neither is a band to sort steaks into. */
+  check('a selling bundle is not offered as a band to sort into',
+    JSON.parse(w.eval('JSON.stringify(sizeList({ category: "Steak",' +
+      ' sizes: "2 steaks / 4 steaks" }))')), ['Small', 'Medium', 'Large']);
+  check('nor are the website bag bundles',
+    JSON.parse(w.eval('JSON.stringify(sizeList({ category: "Ground",' +
+      ' sizes: "4 lb / 10 lb / 20 lb (website bundles of 2 lb packs)" }))')), []);
+  check('a band that merely sits beside a bundle still comes through',
+    JSON.parse(w.eval('JSON.stringify(sizeList({ category: "Steak",' +
+      ' sizes: "Small / Large / 4 lb" }))')), ['Small', 'Large']);
   check('a cut that is not a steak is not given bands it does not have',
     JSON.parse(w.eval('JSON.stringify(sizeList({ category: "Ground", sizes: "" }))')), []);
 

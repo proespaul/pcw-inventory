@@ -1246,7 +1246,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-17 16:35 UTC';
+const APP_BUILD = '2026-11-17 16:39 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -4647,17 +4647,24 @@ function bandCard(sku) {
 }
 
 /**
- * The sizes a product is sorted into.
+ * The bands a product is sorted into once it is all in.
  *
- * The catalogue decides, and for steaks it mostly says nothing — only
- * Picanha has ever had its sizes filled in. Steaks are the cut that needs
- * sorting most, so when the catalogue is silent on one they fall back to
- * Picanha's own wording rather than to a box to type into, which is how two
- * spellings of the same band end up holding half the steaks each.
+ * The Sizes column does two jobs. On Picanha it holds size bands — Small,
+ * Medium, Large. On Shank Steak it holds "2 steaks / 4 steaks" and on
+ * Ground Beef 2 lb "4 lb / 10 lb / 20 lb", which are how those are sold,
+ * not how they are sorted: the shanks are packed one to a pack like every
+ * other steak and merely go out in pairs. Offered as bands they would put
+ * "4 lb" in a list for sorting steaks, so anything carrying a quantity is
+ * read as a selling bundle and left out of this.
+ *
+ * What is left is the real bands. A steak with none falls back to Picanha's
+ * wording, because steaks are the cut that needs sorting and most of them
+ * have the column empty.
  */
 function sizeList(p) {
   const listed = String((p || {}).sizes || '').split(/[,/]/)
-    .map(x => x.trim()).filter(Boolean);
+    .map(x => x.trim()).filter(Boolean)
+    .filter(x => !/\d/.test(x) && !/\b(lb|lbs|kg|g|oz|pack|packs|steaks?)\b/i.test(x));
   if (listed.length) return listed;
   return singlySacked(p) ? ['Small', 'Medium', 'Large'] : [];
 }
