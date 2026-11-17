@@ -6905,7 +6905,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-17 17:03 UTC';
+var BACKEND_BUILD = '2026-11-17 17:06 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -9880,11 +9880,19 @@ function countsInYield_(sku, name, category) {
    sold, and booking it would put hundreds of pounds into the freezer that
    are not there. When a steer has a record like this it is what the yield
    screen reads, instead of whatever happens to carry its batch tag. */
+/* A steer ID is typed by hand in several places — on the performance tab,
+   on a cut record, on a batch — and "JUNE-2026" written once as "June-2026"
+   was enough for the breakdown and the animal to stop being the same steer.
+   Case never distinguishes two of ours, so it never decides a match. */
+function sameSteer_(a, b) {
+  return str_(a).trim().toLowerCase() === str_(b).trim().toLowerCase();
+}
+
 function recordedCuts_(batch) {
   var out = [];
   try {
     readTable_(TABS.STEERCUTS).forEach(function (r) {
-      if (str_(r['Steer ID']) !== batch) return;
+      if (!sameSteer_(r['Steer ID'], batch)) return;
       var name = str_(r['Cut']);
       if (!name && !str_(r['SKU'])) return;
       var flag = str_(r['In the yield']).toLowerCase();
@@ -9935,7 +9943,7 @@ function steerCutsSave_(req) {
   if (last > 1) {
     sh.getRange(2, 1, last - 1, HEADERS.STEERCUTS.length).getValues()
       .forEach(function (row) {
-        if (str_(row[0]) !== batch && String(row.join('')).trim() !== '') kept.push(row);
+        if (!sameSteer_(row[0], batch) && String(row.join('')).trim() !== '') kept.push(row);
       });
     sh.getRange(2, 1, last - 1, HEADERS.STEERCUTS.length).clearContent();
     if (kept.length) {
@@ -10011,7 +10019,9 @@ function steerYield_(req) {
     });
   } catch (e) { recordedFor = {}; }
   Object.keys(recordedFor).forEach(function (b) {
-    delete byBatch[b];
+    Object.keys(byBatch).forEach(function (had) {
+      if (sameSteer_(had, b)) delete byBatch[had];
+    });
     recordedCuts_(b).forEach(function (c) {
       var counts = c.counts === null
         ? countsInYield_(c.sku, c.product, cats[c.sku]) : c.counts;
@@ -10020,13 +10030,18 @@ function steerYield_(req) {
   });
 
   var mine = byBatch[batch];
+  if (!mine) {
+    Object.keys(byBatch).forEach(function (had) {
+      if (!mine && sameSteer_(had, batch)) { mine = byBatch[had]; batch = had; }
+    });
+  }
   if (!mine) return { ok: false, error: 'Nothing has been booked in against ' + batch + ' yet.' };
 
   /* The usual share of each cut, averaged over the other steers. A steer
      with no weights recorded has no shares to contribute, so it is left
      out rather than counted as zero. */
   var others = Object.keys(byBatch).filter(function (b) {
-    return b !== batch && byBatch[b].weight > 0;
+    return !sameSteer_(b, batch) && byBatch[b].weight > 0;
   });
   var usual = {}, usualCount = {};
   others.forEach(function (b) {
@@ -10073,7 +10088,7 @@ function steerYield_(req) {
 
   var row = null;
   readTable_(TABS.STEERS).forEach(function (r) {
-    if (str_(r['Steer ID']) === batch) row = r;
+    if (sameSteer_(r['Steer ID'], batch)) row = r;
   });
   var hanging = row ? num_(row['Hanging weight (lb)']) : 0;
   var live = row ? num_(row['Live weight (lb)']) : 0;
@@ -10083,7 +10098,7 @@ function steerYield_(req) {
   var pastYields = [];
   others.forEach(function (b) {
     var r2 = null;
-    readTable_(TABS.STEERS).forEach(function (r) { if (str_(r['Steer ID']) === b) r2 = r; });
+    readTable_(TABS.STEERS).forEach(function (r) { if (sameSteer_(r['Steer ID'], b)) r2 = r; });
     var h = r2 ? num_(r2['Hanging weight (lb)']) : 0;
     if (h && byBatch[b].weight) pastYields.push(byBatch[b].weight / h * 100);
   });
@@ -10168,7 +10183,7 @@ function steerRowFor_(id) {
   if (last < 2) return 0;
   var col = sh.getRange(2, 1, last - 1, 1).getValues();
   for (var i = 0; i < col.length; i++) {
-    if (str_(col[i][0]) === id) return i + 2;
+    if (sameSteer_(col[i][0], id)) return i + 2;
   }
   return 0;
 }

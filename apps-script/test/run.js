@@ -1214,6 +1214,17 @@ console.log('\nthe wholesale screen: ordered, waiting, past');
        by2['Fat / Tallow'].share], [259.1, false, null]);
     check('and a real cut is a share of the saleable meat',
       by2.RIBEYE.share, 5.25);
+    /* The ID gets typed by hand on the record, on the performance tab and on
+       a batch; one of them in a different case is not a different steer. */
+    check('the breakdown is found however the ID was capitalised',
+      [j.steerYield_({ batch: 'june-2026' }).ok,
+       j.steerYield_({ batch: 'June-2026' }).weight], [true, 401.6]);
+    check('and the steer row is found the same way',
+      j.steerGet_({ id: 'june-2026' }).liveWeight, 1290.8);
+    check('so the same animal is never added twice under two spellings',
+      j.addSteer_({ steer: { id: 'june-2026', butcher: 'Simard' } }).completed,
+      ['Butcher']);
+
     check('the screen is told the figures came off a written record',
       y2.fromRecord, true);
 
