@@ -16,7 +16,7 @@ check('all tabs created', Object.keys(ss.sheets).sort(),
   ['ALERTS','BATCHES','BOX RECIPES','CUSTOMERS','CUT WAITLIST','CUT YIELD MODEL','FOLLOW-UPS',
    'FREEZER TEMPS','FREEZERS','INVENTORY',
    'MOVEMENTS','ORDER ITEMS','ORDERS','PRICE CHANGES','PRODUCTS','SALES HISTORY','SCANS','SETTINGS',
-   'SIGN-IN LOG','STAFF','STEER PERFORMANCE',
+   'SIGN-IN LOG','STAFF','STEER CUT RECORD','STEER PERFORMANCE',
    'STOCK BY PRODUCT','WHOLESALE']);
 check('freezers seeded', ctx.indexFreezers_().map(f => f.id), ['MAIN','SHOP','TRUCK']);
 check('token generated', typeof ctx.PropertiesService.getScriptProperties().getProperty('API_TOKEN'), 'string');
@@ -1180,6 +1180,48 @@ console.log('\nthe wholesale screen: ordered, waiting, past');
       by.DENVER.share, null);
     check('the screen is told how much of the steer those shares cover',
       [m.weighedPackages, m.packages, m.sharesCover], [14, 33, 42.42]);
+  }
+
+  /* A steer butchered before the app, written up on paper. Booking it in as
+     stock would put hundreds of pounds into the freezer that are not there,
+     so its breakdown is recorded instead and the yield reads that. */
+  {
+    const j = buildContext();
+    j.setup();
+    j.addProduct_({ product: 'Ribeye', content: '1 steak', avgWeight: 1, price: 63 });
+    j.addProduct_({ product: 'Ground', content: '1 lb', avgWeight: 1, price: 13 });
+    const before = j.currentStock_().length;
+
+    const saved = j.steerCutsSave_({ batch: 'JUNE-2026', source: 'June profit sheet',
+      cuts: [{ sku: 'RIBEYE', weight: 21.1 }, { sku: 'GROUND', weight: 380.5 },
+             { product: 'Fat / Tallow', weight: 259.1 },
+             { product: 'Scraps', weight: 61.4 }] });
+    check('the breakdown is recorded', saved.recorded, 4);
+    check('and not one package enters the freezer',
+      j.currentStock_().length, before);
+
+    j.addSteer_({ steer: { id: 'JUNE-2026', liveWeight: 1290.8, hangingWeight: 775 } });
+    const y2 = j.steerYield_({ batch: 'JUNE-2026' });
+    check('tallow and scraps are kept out of the weight the yield is figured on',
+      [y2.weight, y2.aside], [401.6, 320.5]);
+    check('so the yield is of saleable meat, not of everything that came off',
+      y2.yieldPct, 51.82);
+
+    const by2 = {};
+    y2.cuts.forEach(x => { by2[x.sku || x.product] = x; });
+    check('they are still listed, with their weight and marked as outside it',
+      [by2['Fat / Tallow'].weight, by2['Fat / Tallow'].counts,
+       by2['Fat / Tallow'].share], [259.1, false, null]);
+    check('and a real cut is a share of the saleable meat',
+      by2.RIBEYE.share, 5.25);
+    check('the screen is told the figures came off a written record',
+      y2.fromRecord, true);
+
+    // Re-recording replaces, so a corrected sheet can just be sent again.
+    j.steerCutsSave_({ batch: 'JUNE-2026',
+      cuts: [{ sku: 'RIBEYE', weight: 30 }, { sku: 'GROUND', weight: 380.5 }] });
+    check('sending it again replaces what was there rather than doubling it',
+      j.steerYield_({ batch: 'JUNE-2026' }).weight, 410.5);
   }
 
   // The very first steer has nothing to be measured against, and says so

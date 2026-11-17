@@ -1246,7 +1246,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-17 16:43 UTC';
+const APP_BUILD = '2026-11-17 16:59 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -8106,6 +8106,8 @@ async function openSteerYield() {
     '<div class="card" style="margin:10px 0 0">' +
       '<div class="kv"><span>Packages cut</span><b>' + y.packages + '</b></div>' +
       '<div class="kv"><span>Saleable weight</span><b>' + round2(y.weight) + ' lb</b></div>' +
+      (y.aside ? '<div class="kv"><span>Tallow, scraps, boxes</span><b>' +
+        round2(y.aside) + ' lb, outside the yield</b></div>' : '') +
       (y.hanging ? '<div class="kv"><span>Hanging weight</span><b>' +
         round2(y.hanging) + ' lb</b></div>' : '') +
       '<div class="kv big"><span>Yield</span><b>' + pc(y.yieldPct) + '</b></div>' +

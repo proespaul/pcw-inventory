@@ -31,6 +31,7 @@ var TABS = {
   SCANS:     'SCANS',
   BOXES:     'BOX RECIPES',
   STEERS:    'STEER PERFORMANCE',
+  STEERCUTS: 'STEER CUT RECORD',
   CUSTOMERS: 'CUSTOMERS',
   WHOLESALE: 'WHOLESALE',
   WAITLIST:  'CUT WAITLIST',
@@ -130,6 +131,8 @@ var HEADERS = {
   // Feast is 4.2 lb of sirloin and nobody counted the steaks.
   BOXES:    ['Box SKU', 'Box', 'Component SKU', 'Component', 'Packages per box', 'Notes',
              'Weight each (lb)', 'Weight in the box (lb)'],
+  STEERCUTS:['Steer ID', 'SKU', 'Cut', 'Weight (lb)', 'Packages', 'In the yield',
+             'Where it came from', 'Notes'],
   STEERS:   ['Steer ID', 'Tag', 'Outfit', 'Butcher', 'Kill date', 'Pack date', 'Grade (BMS)',
              'Live weight (lb)', 'Hanging weight (lb)', 'Purchase cost', 'Butcher cost',
              'Other cost', 'Total cost', 'Packages cut', 'Saleable weight (lb)', 'Yield %',
@@ -6902,7 +6905,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-17 16:43 UTC';
+var BACKEND_BUILD = '2026-11-17 16:59 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -8459,6 +8462,7 @@ function handle_(e, body) {
       case 'steerYield':  return json_(steerYield_(req));
       case 'steerGet':    return json_(steerGet_(req));
       case 'steerSave':   return json_(steerSave_(req));
+      case 'steerCuts':   return json_(steerCutsSave_(req));
       case 'model':       return json_({ ok: true, model: modelFor_(num_(req.railWeight)) });
       case 'sweepWeb':    return json_({ ok: true, made: sweepWebsiteOrders_() });
       case 'importSales': return json_(importFromSalesSheet_());
@@ -9855,28 +9859,145 @@ function wholesaleAgain_(req) {
 var CUT_OFF_RELATIVE = 0.2;      // a fifth away from the usual share
 var CUT_OFF_FLOOR = 2.0;         // and at least two points of the animal
 
+/* Not everything that comes off an animal is meat you sell.
+   Tallow and scraps are real and worth recording — on the June steer they
+   were 320 lb between them, a third of what was weighed — but counted into
+   the yield they drag every cut's share down and make the animal look like
+   it produced less than it did. A box is worse: it is made out of cuts
+   already counted, so counting it again counts that meat twice. */
+var NOT_IN_YIELD_CATEGORIES = ['tallow', 'box'];
+var NOT_IN_YIELD_WORDS = /\b(tallow|fat|scrap|scraps|bone|bones|hide|offal)\b/i;
+
+function countsInYield_(sku, name, category) {
+  var cat = str_(category).toLowerCase().trim();
+  if (NOT_IN_YIELD_CATEGORIES.indexOf(cat) !== -1) return false;
+  if (NOT_IN_YIELD_WORDS.test(str_(name)) || NOT_IN_YIELD_WORDS.test(str_(sku))) return false;
+  return true;
+}
+
+/* A steer butchered before the app existed, or recorded on paper, has its
+   breakdown written here rather than booked in as stock — the meat is long
+   sold, and booking it would put hundreds of pounds into the freezer that
+   are not there. When a steer has a record like this it is what the yield
+   screen reads, instead of whatever happens to carry its batch tag. */
+function recordedCuts_(batch) {
+  var out = [];
+  try {
+    readTable_(TABS.STEERCUTS).forEach(function (r) {
+      if (str_(r['Steer ID']) !== batch) return;
+      var name = str_(r['Cut']);
+      if (!name && !str_(r['SKU'])) return;
+      var flag = str_(r['In the yield']).toLowerCase();
+      out.push({ sku: str_(r['SKU']), product: name || str_(r['SKU']),
+                 weight: num_(r['Weight (lb)']), packages: num_(r['Packages']),
+                 counts: flag === '' ? null : (flag !== 'no' && flag !== 'false') });
+    });
+  } catch (e) { return []; }
+  return out;
+}
+
+function steerCutsSave_(req) {
+  var batch = str_(req && req.batch);
+  if (!batch) return { ok: false, error: 'Which steer?' };
+  var rows = (req.cuts || []).filter(function (c) {
+    return str_(c.sku) || str_(c.product);
+  });
+  if (!rows.length) return { ok: false, error: 'No cuts to record.' };
+
+  var sh = sheet_(TABS.STEERCUTS);
+  ensureHeaders_(TABS.STEERCUTS, HEADERS.STEERCUTS);
+
+  /* Writing the same steer twice replaces what was there, so a corrected
+     sheet can simply be sent again. The rows for one steer need not be
+     together, so the tab is rewritten without them rather than picked at
+     row by row. */
+  var kept = [];
+  var last = sh.getLastRow();
+  if (last > 1) {
+    sh.getRange(2, 1, last - 1, HEADERS.STEERCUTS.length).getValues()
+      .forEach(function (row) {
+        if (str_(row[0]) !== batch && String(row.join('')).trim() !== '') kept.push(row);
+      });
+    sh.getRange(2, 1, last - 1, HEADERS.STEERCUTS.length).clearContent();
+    if (kept.length) {
+      sh.getRange(2, 1, kept.length, HEADERS.STEERCUTS.length).setValues(kept);
+    }
+  }
+
+  var products = {};
+  readTable_(TABS.PRODUCTS).forEach(function (p) {
+    products[str_(p['SKU'])] = { name: str_(p['Product']), category: str_(p['Category']) };
+  });
+
+  var added = rows.map(function (c) {
+    var sku = str_(c.sku);
+    var known = products[sku] || {};
+    var name = str_(c.product) || known.name || sku;
+    var counts = (c.counts === undefined || c.counts === null)
+      ? countsInYield_(sku, name, known.category) : !!c.counts;
+    return [batch, sku, name, num_(c.weight), num_(c.packages),
+            counts ? 'yes' : 'no', str_(req.source), str_(c.notes)];
+  });
+  sh.getRange(kept.length + 2, 1, added.length, HEADERS.STEERCUTS.length)
+    .setValues(added);
+  return { ok: true, batch: batch, recorded: added.length };
+}
+
 function steerYield_(req) {
   var batch = str_(req && (req.batch || req.steer));
   if (!batch) return { ok: false, error: 'Which steer?' };
 
-  var products = {};
+  var products = {}, cats = {};
   readTable_(TABS.PRODUCTS).forEach(function (p) {
-    products[str_(p['SKU'])] = str_(p['Product']) || str_(p['SKU']);
+    var sku = str_(p['SKU']);
+    products[sku] = str_(p['Product']) || sku;
+    cats[sku] = str_(p['Category']);
   });
 
   /* Everything booked in, by steer and by cut. One pass: this animal's
-     breakdown and every other animal's shares come from the same rows. */
+     breakdown and every other animal's shares come from the same rows.
+     Weight is split in two — what counts towards the yield, and tallow,
+     scraps and boxes, which are recorded but kept out of it. */
   var byBatch = {};
+  var into_ = function (b) {
+    return byBatch[b] || (byBatch[b] = { cuts: {}, weight: 0, packages: 0, aside: 0 });
+  };
+  var add_ = function (b, sku, name, pk, wt, counts) {
+    var into = into_(b);
+    var c = into.cuts[sku] || (into.cuts[sku] =
+      { sku: sku, product: name, packages: 0, weight: 0, counts: counts });
+    c.packages += pk; c.weight += wt;
+    into.packages += pk;
+    if (counts) into.weight += wt; else into.aside += wt;
+  };
+
   readTable_(TABS.MOVEMENTS).forEach(function (m) {
     if (str_(m['Type']) !== 'INTAKE') return;
     var b = str_(m['Batch']);
     if (!b) return;
     var sku = str_(m['SKU']);
-    var into = byBatch[b] || (byBatch[b] = { cuts: {}, weight: 0, packages: 0 });
-    var c = into.cuts[sku] || (into.cuts[sku] = { sku: sku, packages: 0, weight: 0 });
-    var pk = num_(m['Packages']), wt = num_(m['Weight (lb)']);
-    c.packages += pk; c.weight += wt;
-    into.packages += pk; into.weight += wt;
+    var name = products[sku] || sku;
+    add_(b, sku, name, num_(m['Packages']), num_(m['Weight (lb)']),
+         countsInYield_(sku, name, cats[sku]));
+  });
+
+  /* A steer with a written record overrides whatever carries its batch tag:
+     the record is the whole animal, the tags are whatever happened to be
+     booked in. Mixing the two would count some cuts twice. */
+  var recordedFor = {};
+  try {
+    readTable_(TABS.STEERCUTS).forEach(function (r) {
+      var b = str_(r['Steer ID']);
+      if (b) recordedFor[b] = true;
+    });
+  } catch (e) { recordedFor = {}; }
+  Object.keys(recordedFor).forEach(function (b) {
+    delete byBatch[b];
+    recordedCuts_(b).forEach(function (c) {
+      var counts = c.counts === null
+        ? countsInYield_(c.sku, c.product, cats[c.sku]) : c.counts;
+      add_(b, c.sku || c.product, c.product, c.packages, c.weight, counts);
+    });
   });
 
   var mine = byBatch[batch];
@@ -9892,6 +10013,7 @@ function steerYield_(req) {
   others.forEach(function (b) {
     var o = byBatch[b];
     Object.keys(o.cuts).forEach(function (sku) {
+      if (o.cuts[sku].counts === false) return;
       var share = o.cuts[sku].weight / o.weight * 100;
       usual[sku] = (usual[sku] || 0) + share;
       usualCount[sku] = (usualCount[sku] || 0) + 1;
@@ -9909,7 +10031,8 @@ function steerYield_(req) {
        than saying nothing: on a steer where only the ground beef has been
        weighed it put the ground beef at 100% of the animal and every steak
        at none, which is the opposite of what happened. */
-    var share = (mine.weight && c.weight) ? c.weight / mine.weight * 100 : null;
+    var share = (mine.weight && c.weight && c.counts !== false)
+      ? c.weight / mine.weight * 100 : null;
     /* A cut this steer has and the others did not is averaged over all of
        them, not over the one that happened to have it — otherwise a single
        appearance reads as the norm. */
@@ -9921,9 +10044,10 @@ function steerYield_(req) {
         off = gap > 0 ? 'high' : 'low';
       }
     }
-    return { sku: sku, product: products[sku] || sku,
+    return { sku: sku, product: c.product || products[sku] || sku,
              packages: round2_(c.packages), weight: round2_(c.weight),
              each: c.packages ? round2_(c.weight / c.packages) : null,
+             counts: c.counts !== false,
              share: share === null ? null : round2_(share),
              usual: avg === null ? null : round2_(avg), off: off };
   }).sort(function (a, b) { return b.weight - a.weight; });
@@ -9957,6 +10081,8 @@ function steerYield_(req) {
     needsHanging: !hanging,
     unweighed: cuts.filter(function (c) { return !c.weight; }).length,
     weighedPackages: round2_(weighedPacks),
+    aside: round2_(mine.aside),
+    fromRecord: !!recordedFor[batch],
     /* Shares worked out over a fraction of the animal are not shares of the
        animal. The screen says so rather than drawing them as if they were. */
     sharesCover: mine.packages ? round2_(weighedPacks / mine.packages * 100) : 0,
