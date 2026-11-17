@@ -6902,7 +6902,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-17 15:11 UTC';
+var BACKEND_BUILD = '2026-11-17 16:11 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -8456,6 +8456,7 @@ function handle_(e, body) {
       case 'wholesaleAgain': return json_(wholesaleAgain_(req));
       case 'waitlistSave': return json_(waitlistSave_(req));
       case 'addSteer':    return json_(addSteer_(req));
+      case 'steerYield':  return json_(steerYield_(req));
       case 'model':       return json_({ ok: true, model: modelFor_(num_(req.railWeight)) });
       case 'sweepWeb':    return json_({ ok: true, made: sweepWebsiteOrders_() });
       case 'importSales': return json_(importFromSalesSheet_());
@@ -9833,12 +9834,185 @@ function wholesaleAgain_(req) {
 }
 
 /** A steer coming back from the butcher: the animal's own numbers. */
+/* ═══════════════════ WHAT CAME OFF THE STEER ═══════════════════
+ *
+ * The performance tab carries the totals — packages cut, saleable weight,
+ * yield — but not what the animal actually broke down into. "63% yield" does
+ * not tell anyone whether the ribeyes came up short, and that is the number
+ * worth knowing before the next one goes in.
+ *
+ * So: every cut, what it weighed, how many packs, and what share of the
+ * animal it was — set against the same share on the steers before it. There
+ * is no published table of what a Wagyu steer ought to break into, and ours
+ * are cut to our own order, so the only honest yardstick is our own history.
+ * With nothing to compare against yet it says so rather than inventing a
+ * range.
+ * ============================================================== */
+
+/** How much a share has to differ from our own average before it is worth a look. */
+var CUT_OFF_RELATIVE = 0.2;      // a fifth away from the usual share
+var CUT_OFF_FLOOR = 2.0;         // and at least two points of the animal
+
+function steerYield_(req) {
+  var batch = str_(req && (req.batch || req.steer));
+  if (!batch) return { ok: false, error: 'Which steer?' };
+
+  var products = {};
+  readTable_(TABS.PRODUCTS).forEach(function (p) {
+    products[str_(p['SKU'])] = str_(p['Product']) || str_(p['SKU']);
+  });
+
+  /* Everything booked in, by steer and by cut. One pass: this animal's
+     breakdown and every other animal's shares come from the same rows. */
+  var byBatch = {};
+  readTable_(TABS.MOVEMENTS).forEach(function (m) {
+    if (str_(m['Type']) !== 'INTAKE') return;
+    var b = str_(m['Batch']);
+    if (!b) return;
+    var sku = str_(m['SKU']);
+    var into = byBatch[b] || (byBatch[b] = { cuts: {}, weight: 0, packages: 0 });
+    var c = into.cuts[sku] || (into.cuts[sku] = { sku: sku, packages: 0, weight: 0 });
+    var pk = num_(m['Packages']), wt = num_(m['Weight (lb)']);
+    c.packages += pk; c.weight += wt;
+    into.packages += pk; into.weight += wt;
+  });
+
+  var mine = byBatch[batch];
+  if (!mine) return { ok: false, error: 'Nothing has been booked in against ' + batch + ' yet.' };
+
+  /* The usual share of each cut, averaged over the other steers. A steer
+     with no weights recorded has no shares to contribute, so it is left
+     out rather than counted as zero. */
+  var others = Object.keys(byBatch).filter(function (b) {
+    return b !== batch && byBatch[b].weight > 0;
+  });
+  var usual = {}, usualCount = {};
+  others.forEach(function (b) {
+    var o = byBatch[b];
+    Object.keys(o.cuts).forEach(function (sku) {
+      var share = o.cuts[sku].weight / o.weight * 100;
+      usual[sku] = (usual[sku] || 0) + share;
+      usualCount[sku] = (usualCount[sku] || 0) + 1;
+    });
+  });
+
+  var cuts = Object.keys(mine.cuts).map(function (sku) {
+    var c = mine.cuts[sku];
+    var share = mine.weight ? c.weight / mine.weight * 100 : null;
+    /* A cut this steer has and the others did not is averaged over all of
+       them, not over the one that happened to have it — otherwise a single
+       appearance reads as the norm. */
+    var avg = usualCount[sku] ? usual[sku] / others.length : null;
+    var off = '';
+    if (share !== null && avg !== null && others.length >= 2) {
+      var gap = share - avg;
+      if (Math.abs(gap) >= CUT_OFF_FLOOR && Math.abs(gap) >= avg * CUT_OFF_RELATIVE) {
+        off = gap > 0 ? 'high' : 'low';
+      }
+    }
+    return { sku: sku, product: products[sku] || sku,
+             packages: round2_(c.packages), weight: round2_(c.weight),
+             each: c.packages ? round2_(c.weight / c.packages) : null,
+             share: share === null ? null : round2_(share),
+             usual: avg === null ? null : round2_(avg), off: off };
+  }).sort(function (a, b) { return b.weight - a.weight; });
+
+  var row = null;
+  readTable_(TABS.STEERS).forEach(function (r) {
+    if (str_(r['Steer ID']) === batch) row = r;
+  });
+  var hanging = row ? num_(row['Hanging weight (lb)']) : 0;
+  var live = row ? num_(row['Live weight (lb)']) : 0;
+  var yieldPct = hanging && mine.weight ? mine.weight / hanging * 100 : null;
+
+  /* The same yardstick for the animal as a whole. */
+  var pastYields = [];
+  others.forEach(function (b) {
+    var r2 = null;
+    readTable_(TABS.STEERS).forEach(function (r) { if (str_(r['Steer ID']) === b) r2 = r; });
+    var h = r2 ? num_(r2['Hanging weight (lb)']) : 0;
+    if (h && byBatch[b].weight) pastYields.push(byBatch[b].weight / h * 100);
+  });
+  var usualYield = pastYields.length
+    ? pastYields.reduce(function (a, b) { return a + b; }, 0) / pastYields.length : null;
+
+  return {
+    ok: true, batch: batch,
+    live: live || null, hanging: hanging || null,
+    packages: round2_(mine.packages), weight: round2_(mine.weight),
+    yieldPct: yieldPct === null ? null : round2_(yieldPct),
+    usualYield: usualYield === null ? null : round2_(usualYield),
+    comparedWith: others.length,
+    needsHanging: !hanging,
+    unweighed: cuts.filter(function (c) { return !c.weight; }).length,
+    cuts: cuts
+  };
+}
+
+/** The sheet row a steer sits on, or 0. */
+function steerRowFor_(id) {
+  var sh = sheet_(TABS.STEERS);
+  var last = sh.getLastRow();
+  if (last < 2) return 0;
+  var col = sh.getRange(2, 1, last - 1, 1).getValues();
+  for (var i = 0; i < col.length; i++) {
+    if (str_(col[i][0]) === id) return i + 2;
+  }
+  return 0;
+}
+
+var STEER_FIELDS = [
+  ['tag', 'Tag'], ['outfit', 'Outfit'], ['butcher', 'Butcher'],
+  ['killDate', 'Kill date'], ['packDate', 'Pack date'], ['grade', 'Grade (BMS)'],
+  ['liveWeight', 'Live weight (lb)'], ['hangingWeight', 'Hanging weight (lb)'],
+  ['purchaseCost', 'Purchase cost'], ['butcherCost', 'Butcher cost'],
+  ['otherCost', 'Other cost'], ['notes', 'Notes']
+];
+var STEER_NUMBERS = { liveWeight: true, hangingWeight: true, purchaseCost: true,
+                      butcherCost: true, otherCost: true };
+
+/** Fills the blanks on an existing steer row. Returns what it filled. */
+function steerFill_(row, s) {
+  var sh = sheet_(TABS.STEERS);
+  var head = ensureHeaders_(TABS.STEERS, HEADERS.STEERS);
+  var done = [];
+  STEER_FIELDS.forEach(function (f) {
+    var key = f[0], header = f[1];
+    var given = s[key];
+    if (given === undefined || given === null || str_(given) === '') return;
+    var at = head.indexOf(header);
+    if (at === -1) return;
+    var cell = sh.getRange(row, at + 1);
+    var now = cell.getValue();
+    // A zero is a value somebody entered; only a truly empty cell is a blank.
+    if (str_(now) !== '') return;
+    cell.setValue(STEER_NUMBERS[key] ? num_(given) : str_(given));
+    done.push(header);
+  });
+  return done;
+}
+
 function addSteer_(req) {
   var s = req.steer || {};
   var id = str_(s.id);
   if (!id) return { ok: false, error: 'A steer needs an ID (for example 2026-09-STEER-02).' };
-  if (readTable_(TABS.STEERS).some(function (r) { return str_(r['Steer ID']) === id; })) {
-    return { ok: false, error: 'Steer ' + id + ' is already on the sheet.' };
+
+  /* Booking meat against a steer nobody has entered yet creates its row by
+     itself, with the weights and costs empty — and then adding the steer
+     properly was refused as a duplicate, so there was nowhere left to put
+     the hanging weight and the yield stayed blank for good. An existing row
+     gets completed instead: blanks filled, anything already entered left
+     exactly as it is. */
+  var at = steerRowFor_(id);
+  if (at) {
+    var filled = steerFill_(at, s);
+    rebuildSteers_();
+    return { ok: true, steerId: id, completed: filled,
+             note: filled.length
+               ? 'Steer ' + id + ' was already on the sheet; filled in ' +
+                 filled.join(', ') + '.'
+               : 'Steer ' + id + ' is already on the sheet, and everything ' +
+                 'supplied was already filled in.' };
   }
 
   sheet_(TABS.STEERS).appendRow([

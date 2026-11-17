@@ -1081,10 +1081,14 @@
       <select id="inBatch"></select>
       <button class="ghost small" style="margin-top:7px" id="btnNewBatch">+ New steer</button>
       <div class="row" style="margin-top:9px">
-        <div><label>Into freezer</label><select id="inFreezer"></select></div>
         <div><label>Date received</label><input type="date" id="inDate"></div>
+        <div><label>Freezer for new cuts</label><select id="inFreezer"></select></div>
       </div>
+      <p class="muted" style="margin:7px 0 0">Each cut goes back to the freezer it
+        already lives in. This one is only used for a cut that has never been stocked.</p>
       <div id="steerNumbers"></div>
+      <button class="ghost small" style="margin-top:9px"
+              onclick="openSteerYield()">What came off this steer</button>
     </div>
 
     <h3>Packages in</h3>
@@ -1103,6 +1107,9 @@
           <select id="inGrade"><option value="">— product default —</option>
             <option>Gold</option><option>Silver</option><option>Bronze</option></select></div>
       </div>
+      <label style="margin-top:9px">Into freezer</label>
+      <select id="inLineFreezer"></select>
+      <p class="muted" id="inFreezerWhy" style="margin:6px 0 0"></p>
       <button style="margin-top:11px" id="btnAddInLine">Add to list</button>
     </div>
     <button id="btnSubmitIntake">Record what came in</button>
@@ -1236,7 +1243,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-17 15:09 UTC';
+const APP_BUILD = '2026-11-17 16:11 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -2449,6 +2456,8 @@ function fillSelects() {
   sf.innerHTML = '<option value="">All freezers</option>' + fOpts; keep(sf, sfv);
   const inF = $('inFreezer'), inFv = inF.value || data.settings.DEFAULT_FREEZER || '';
   inF.innerHTML = fOpts; keep(inF, inFv);
+  const inLF = $('inLineFreezer');
+  if (inLF) { const was = inLF.value; inLF.innerHTML = fOpts; keep(inLF, was); }
 
   const inB = $('inBatch'), inBv = inB.value;
   inB.innerHTML = batchOptions('').map(b => opt(b.id, b.name)).join('') +
@@ -4578,6 +4587,43 @@ function freezerName(id) {
   return (f && (f.name || f.id)) || id || '';
 }
 
+/* What a size band actually weighs.
+   Steaks off one animal are all different, so a box is made up by putting
+   similar ones together and the price follows the weight. The bands are the
+   only grouping the app keeps, so this is what they come to: packs, total
+   weight, and what one of them weighs on average. Lots with no weight yet
+   are counted separately rather than dragging the average down to nothing. */
+function sizeBands(sku) {
+  const bands = {};
+  (data.stock || []).filter(l => l.sku === sku && l.packages > 0).forEach(l => {
+    const k = l.size || '';
+    const b = bands[k] || (bands[k] = { size: k, packages: 0, weight: 0, weighed: 0 });
+    b.packages += Number(l.packages) || 0;
+    if (l.weight) { b.weight += Number(l.weight); b.weighed += Number(l.packages) || 0; }
+  });
+  return Object.keys(bands).sort().map(k => {
+    const b = bands[k];
+    b.each = b.weighed ? b.weight / b.weighed : null;
+    return b;
+  });
+}
+
+function bandCard(sku) {
+  const bands = sizeBands(sku);
+  if (!bands.length || (bands.length === 1 && !bands[0].size && bands[0].each === null)) return '';
+  const rows = bands.map(b =>
+    '<div class="kv"><span>' + esc(b.size || 'no size') + ' · ' + b.packages +
+      (b.packages === 1 ? ' pack' : ' packs') + '</span><b>' +
+      (b.each === null ? 'not weighed'
+        : round2(b.each) + ' lb each' +
+          (b.weighed < b.packages ? ' (' + b.weighed + ' of ' + b.packages + ' weighed)' : '')) +
+    '</b></div>').join('');
+  return '<h3 style="margin:16px 0 6px">By size</h3>' +
+    '<div class="card" style="margin:0">' + rows +
+    '<p class="muted" style="margin:8px 0 0">An average, not each steak — ' +
+      'group a box from one band and this is what one in it weighs.</p></div>';
+}
+
 function openProduct(sku) {
   // Anyone arriving here any other way came off the product screen.
   if (!editingPriceFrom) editingPriceFrom = 'Product screen';
@@ -4605,6 +4651,7 @@ function openProduct(sku) {
             (l.grade ? ' · ' + esc(l.grade) : '') +
             (l.size ? ' · ' + esc(l.size) : '') +
             ' · ' + (l.weight ? round2(l.weight) + ' lb' : 'no weight') +
+            (l.weight && l.packages ? ' · ' + round2(l.weight / l.packages) + ' lb each' : '') +
             (pend ? ' · <b>sending…</b>' : '') + '</span>' +
         '</div>' +
         '<div class="stepper">' +
@@ -4788,6 +4835,7 @@ function openProduct(sku) {
             'onclick="showCut(\'' + esc(sku) + '\', true)">' : '') +
     '<label>In the freezer</label>' +
     '<div class="card list" style="margin:0 0 4px">' + lotRows + '</div>' +
+    bandCard(sku) +
     '<p class="muted" style="margin:2px 0 14px">− and + ask how many and why. ' +
       'Tap a line to fix the freezer, batch, grade or weight.</p>' +
 
@@ -7852,6 +7900,72 @@ async function acceptIdea(i) {
 }
 
 /* ───────── meat coming in ───────── */
+/* What the animal broke down into.
+   The performance tab carries the totals, but "63% yield" does not say
+   whether the ribeyes came up short — and that is the number worth having
+   before the next steer goes in. */
+async function openSteerYield() {
+  const batch = $('inBatch').value;
+  if (!batch || batch === NEW_BATCH) return toast('Pick a steer first.', 'bad');
+  openSheet(batch, 'Working it out…', '<p class="muted">One moment.</p>');
+  let y;
+  try { y = await api('steerYield', { batch }); }
+  catch (e) { return openSheet(batch, '', '<p class="muted">' + esc(e.message) + '</p>'); }
+  if (!y || !y.ok) {
+    return openSheet(batch, '', '<p class="muted">' +
+      esc((y && y.error) || 'Nothing to show yet.') + '</p>' +
+      '<button class="ghost" style="margin-top:12px" onclick="closeSheet()">Close</button>');
+  }
+
+  const pc = v => v === null ? '—' : round2(v) + '%';
+  const head =
+    '<div class="card" style="margin:10px 0 0">' +
+      '<div class="kv"><span>Packages cut</span><b>' + y.packages + '</b></div>' +
+      '<div class="kv"><span>Saleable weight</span><b>' + round2(y.weight) + ' lb</b></div>' +
+      (y.hanging ? '<div class="kv"><span>Hanging weight</span><b>' +
+        round2(y.hanging) + ' lb</b></div>' : '') +
+      '<div class="kv big"><span>Yield</span><b>' + pc(y.yieldPct) + '</b></div>' +
+      (y.usualYield !== null
+        ? '<div class="kv"><span>Usually</span><b>' + pc(y.usualYield) + ' over ' +
+          y.comparedWith + ' steer' + (y.comparedWith === 1 ? '' : 's') + '</b></div>'
+        : '') +
+    '</div>' +
+    (y.needsHanging
+      ? '<p class="muted" style="margin:8px 0 0">No hanging weight on this steer, ' +
+        'so the yield cannot be worked out. Add it under “+ New steer” with the ' +
+        'same ID and it will fill the blank in.</p>' : '') +
+    (y.unweighed
+      ? '<p class="muted" style="margin:8px 0 0">' + y.unweighed +
+        (y.unweighed === 1 ? ' cut has' : ' cuts have') + ' no weight yet, so the ' +
+        'shares below are of what has been weighed.</p>' : '');
+
+  const rows = y.cuts.map(c => {
+    const tag = c.off === 'high' ? '<span class="tag">more than usual</span>'
+              : c.off === 'low' ? '<span class="tag warn">less than usual</span>' : '';
+    return '<div class="item"><div class="name"><b>' + esc(c.product) + tag + '</b>' +
+      '<span>' + c.packages + (c.packages === 1 ? ' pack' : ' packs') +
+        (c.weight ? ' · ' + round2(c.weight) + ' lb' : ' · not weighed') +
+        (c.each ? ' · ' + c.each + ' lb each' : '') +
+        (c.usual !== null ? ' · usually ' + round2(c.usual) + '%' : '') +
+      '</span></div>' +
+      '<div class="qty"><b>' + (c.share === null ? '—' : round2(c.share) + '%') +
+        '</b><span>of the meat</span></div></div>';
+  }).join('');
+
+  openSheet(batch, 'What came off this steer',
+    head +
+    '<h3 style="margin:16px 0 6px">Cut by cut</h3>' +
+    '<div class="card list" style="margin:0;padding:0;box-shadow:none">' + rows + '</div>' +
+    (y.comparedWith < 2
+      ? '<p class="muted" style="margin:10px 0 0">Nothing is flagged yet — that ' +
+        'needs a couple of steers to compare against. There ' +
+        (y.comparedWith === 1 ? 'is one' : 'are none') + ' so far.</p>'
+      : '<p class="muted" style="margin:10px 0 0">Flagged against the average of ' +
+        y.comparedWith + ' earlier steers, not a published table — ours are cut ' +
+        'to our own order.</p>') +
+    '<button class="ghost" style="margin-top:12px" onclick="closeSheet()">Close</button>');
+}
+
 function renderSteerNumbers() {
   const id = $('inBatch').value;
   const cost = Number((data.steerCosts || {})[id] || 0);
@@ -7862,6 +7976,36 @@ function renderSteerNumbers() {
       'the only extra typing is the animal\'s weights and costs on the STEER PERFORMANCE tab.</p>';
 }
 
+/* Each cut goes back where that cut already lives, because the freezers are
+   organised by cut and a steer's packs get split across them as they are put
+   away. One freezer for the whole animal meant picking the wrong one for
+   most of it and moving stock afterwards to put the counts right. */
+function freezerForSku(sku) {
+  const held = {};
+  (data.stock || []).forEach(l => {
+    if (l.sku !== sku || !l.freezer || !(l.packages > 0)) return;
+    held[l.freezer] = (held[l.freezer] || 0) + Number(l.packages);
+  });
+  const best = Object.keys(held).sort((a, b) => held[b] - held[a])[0];
+  return best || '';
+}
+
+/* A cut nobody has stocked before has nowhere to go back to, so it falls to
+   whatever the Which-steer card is set to. */
+function setLineFreezer() {
+  const sel = $('inLineFreezer');
+  if (!sel) return;
+  const sku = $('inProduct').value;
+  const lives = freezerForSku(sku);
+  sel.value = lives || $('inFreezer').value || '';
+  const note = $('inFreezerWhy');
+  if (note) {
+    note.textContent = !sku ? ''
+      : lives ? 'Where the rest of this cut is kept.'
+      : 'This cut has not been in a freezer before.';
+  }
+}
+
 function addIntakeLine() {
   const sku = $('inProduct').value;
   const qty = Number($('inQty').value);
@@ -7870,8 +8014,10 @@ function addIntakeLine() {
   const p = data.products.find(x => x.sku === sku) || {};
   const w = $('inWeight').value === '' ? null : Number($('inWeight').value);
   const size = $('inSize').value;
+  const freezer = ($('inLineFreezer') || {}).value || $('inFreezer').value || '';
+  if (!freezer) return toast('Pick a freezer for this cut.', 'bad');
   intakeCart.push({
-    sku, product: p.product, content: p.content, size,
+    sku, product: p.product, content: p.content, size, freezer,
     grade: $('inGrade').value || p.grade || '', packages: qty, weight: w,
     label: (p.product || sku) + (size ? ' · ' + size : '') + ($('inGrade').value ? ' · ' + $('inGrade').value : '')
   });
@@ -7881,13 +8027,14 @@ function addIntakeLine() {
 
 function submitIntake() {
   if (!intakeCart.length) return toast('Add at least one line.', 'bad');
-  const batch = $('inBatch').value, freezer = $('inFreezer').value;
+  const batch = $('inBatch').value;
   if (!batch) return toast('Pick or add the steer first.', 'bad');
-  if (!freezer) return toast('Pick a freezer.', 'bad');
+  const missing = intakeCart.filter(l => !l.freezer).length;
+  if (missing) return toast('One of the lines has no freezer.', 'bad');
   const ts = stampFor($('inDate').value);
   enqueue(intakeCart.map(l => ({
     type: 'INTAKE', sku: l.sku, product: l.product, content: l.content, size: l.size, grade: l.grade,
-    batch, freezer, packages: l.packages, weight: l.weight === null ? '' : l.weight,
+    batch, freezer: l.freezer, packages: l.packages, weight: l.weight === null ? '' : l.weight,
     party: 'From the butcher', timestamp: ts
   })));
   intakeCart = [];
@@ -7903,7 +8050,9 @@ function renderCart(which) {
   if (!cart.length) { el.innerHTML = '<div class="muted" style="padding:2px 4px 8px">No lines yet.</div>'; return; }
   el.innerHTML = cart.map((l, i) =>
     '<div class="line"><div class="top"><b>' + esc(l.label) + '</b>' +
-    '<span class="muted">' + l.packages + ' pkg' + (l.weight ? ' · ' + round2(l.weight) + ' lb' : '') + '</span>' +
+    '<span class="muted">' + l.packages + ' pkg' +
+      (l.weight ? ' · ' + round2(l.weight) + ' lb' : '') +
+      (which === 'intake' && l.freezer ? ' · ' + esc(l.freezer) : '') + '</span>' +
     '<button class="x" onclick="dropLine(\'' + which + '\',' + i + ')">✕</button></div></div>').join('');
 }
 
@@ -8565,22 +8714,73 @@ async function newProduct() {
   } catch (e) { toast(e.message, 'bad'); }
 }
 
-async function newBatch() {
-  const id = prompt('Steer ID (e.g. 2026-09-STEER-02)');
-  if (!id) return;
-  const tag = prompt('Tag number (optional)') || '';
-  const butcher = prompt('Butcher (optional)') || '';
-  const killDate = prompt('Kill date (YYYY-MM-DD)') || '';
-  const packDate = prompt('Pack date (YYYY-MM-DD)', todayISO()) || '';
-  const grade = prompt('Grade / BMS') || '';
-  const hanging = prompt('Hanging weight in lb (optional)') || '';
+/* Seven browser prompts in a row, no way back, and the live and hanging
+   weights were never among them — so the yield had nothing to divide by
+   until somebody opened the sheet. One form, everything optional but the
+   ID, and the weights where they are actually needed. */
+function newBatch() {
+  const guess = new Date().toISOString().slice(0, 7) + '-STEER-';
+  openSheet('New steer', 'Only the ID is needed — the rest can wait',
+    '<label style="margin-top:10px">Steer ID</label>' +
+    '<input id="nsId" autocomplete="off" placeholder="' + esc(guess) + '01">' +
+    '<div class="row" style="margin-top:9px">' +
+      '<div><label>Tag number</label><input id="nsTag" autocomplete="off"></div>' +
+      '<div><label>Grade / BMS</label><input id="nsGrade" autocomplete="off"></div>' +
+    '</div>' +
+    '<label style="margin-top:9px">Butcher</label>' +
+    '<input id="nsButcher" autocomplete="off">' +
+    '<div class="row" style="margin-top:9px">' +
+      '<div><label>Kill date</label><input type="date" id="nsKill"></div>' +
+      '<div><label>Pack date</label><input type="date" id="nsPack" value="' +
+        esc(todayISO()) + '"></div>' +
+    '</div>' +
+    '<h3 style="margin:16px 0 6px">Weights</h3>' +
+    '<p class="muted" style="margin:0 0 8px">The yield is worked out from these ' +
+      'against what you book in, so it stays blank until the hanging weight is here.</p>' +
+    '<div class="row">' +
+      '<div><label>Live weight (lb)</label>' +
+        '<input type="number" inputmode="decimal" step="0.1" id="nsLive"></div>' +
+      '<div><label>Hanging / carcass (lb)</label>' +
+        '<input type="number" inputmode="decimal" step="0.1" id="nsHang"></div>' +
+    '</div>' +
+    '<h3 style="margin:16px 0 6px">What it cost</h3>' +
+    '<div class="row">' +
+      '<div><label>The animal</label>' +
+        '<input type="number" inputmode="decimal" step="0.01" id="nsBuy"></div>' +
+      '<div><label>Butcher</label>' +
+        '<input type="number" inputmode="decimal" step="0.01" id="nsKillCost"></div>' +
+      '<div><label>Other</label>' +
+        '<input type="number" inputmode="decimal" step="0.01" id="nsOther"></div>' +
+    '</div>' +
+    '<button style="margin-top:12px" id="nsSave" onclick="saveNewSteer()">Add the steer</button>' +
+    '<button class="ghost" style="margin-top:8px" onclick="closeSheet()">Cancel</button>');
+  setTimeout(() => { const el = $('nsId'); if (el) el.focus(); }, 320);
+}
+
+async function saveNewSteer() {
+  const id = $('nsId').value.trim();
+  if (!id) return toast('A steer needs an ID.', 'bad');
+  const btn = $('nsSave');
+  if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
   try {
-    await api('addSteer', { steer: { id, tag, butcher, killDate, packDate, grade, hangingWeight: hanging } });
+    await api('addSteer', { steer: {
+      id, tag: $('nsTag').value.trim(), butcher: $('nsButcher').value.trim(),
+      killDate: $('nsKill').value, packDate: $('nsPack').value,
+      grade: $('nsGrade').value.trim(),
+      liveWeight: $('nsLive').value, hangingWeight: $('nsHang').value,
+      purchaseCost: $('nsBuy').value, butcherCost: $('nsKillCost').value,
+      otherCost: $('nsOther').value
+    } });
+    closeSheet();
     toast('Steer added.', 'ok');
     await sync(true);
-    $('inBatch').value = id;
+    const sel = $('inBatch');
+    if (sel) sel.value = id;
     renderSteerNumbers();
-  } catch (e) { toast(e.message, 'bad'); }
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Add the steer'; }
+    toast(e.message, 'bad');
+  }
 }
 
 /* ───────── photos ───────── */
@@ -8945,6 +9145,7 @@ function showView(name, opts) {
   if (name === 'neworder') paintOrderMode();
   if (name === 'calendar') loadSchedule(true);
   if (name === 'sales') renderSales();
+  if (name === 'steer') setLineFreezer();
   if (name === 'calnew' && !$('cnDate').value) $('cnDate').value = todayISO();
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('on', v.id === 'view-' + name));
   document.querySelectorAll('nav button').forEach(b =>
@@ -9060,7 +9261,7 @@ document.querySelectorAll('#calcUnit button').forEach(b => b.addEventListener('c
 $('btnCalcPhoto').addEventListener('click', () => $('calcPhoto').click());
 $('calcPhoto').addEventListener('change', e => { addPhotos(e.target.files, true); e.target.value = ''; });
 
-$('inProduct').addEventListener('change', renderInSizes);
+$('inProduct').addEventListener('change', () => { renderInSizes(); setLineFreezer(); });
 $('inBatch').addEventListener('change', function () {
   if (this.value === NEW_BATCH) { batchPicked(this); return; }
   this.dataset.was = this.value;

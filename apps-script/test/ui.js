@@ -79,8 +79,13 @@ const LINES = [
 
 /* Whatever the app would have sent to the backend, caught instead. */
 w.eval('window.__sent = [];');
+/* A check can set __reply to the answer it wants the backend to give for
+   one action, which is how the screens built from a reply get exercised. */
+const replies = {};
+const replyWith = (action, body) => { replies[action] = body; };
 w.api = function (action, payload) {
   w.__sent.push({ action, payload });
+  if (replies[action]) return Promise.resolve(replies[action]);
   return Promise.resolve({ ok: true, wholesale: [], waitlist: [], customers: [] });
 };
 
@@ -280,6 +285,84 @@ check('an empty list leaves no count hanging in its title',
   [text('whOrderedCount'), text('whWaitingCount')], ['', '']);
 
 
+/* ───────── what a size band weighs ─────────
+   A box is made up by putting similar steaks together and the price follows
+   the weight, so the band has to say what one of them weighs. */
+{
+  w.eval('closeSheet(); data.stock = [' +
+    '{ sku: "RIBEYE", size: "L", grade: "Gold", batch: "S4", freezer: "MAIN", packages: 6, weight: 11.4 },' +
+    '{ sku: "RIBEYE", size: "L", grade: "Gold", batch: "S5", freezer: "SHOP", packages: 4, weight: 7.4 },' +
+    '{ sku: "RIBEYE", size: "M", grade: "Gold", batch: "S4", freezer: "MAIN", packages: 5, weight: 0 },' +
+    '{ sku: "RIBEYE", size: "S", grade: "Gold", batch: "S4", freezer: "MAIN", packages: 3, weight: 3.6 }];');
+
+  const bands = JSON.parse(w.eval('JSON.stringify(sizeBands("RIBEYE"))'));
+  check('the bands come out in order with their packs',
+    bands.map(b => [b.size, b.packages]), [['L', 10], ['M', 5], ['S', 3]]);
+  check('a band spanning two lots averages across both',
+    Math.round(bands[0].each * 100) / 100, 1.88);
+  check('a band nobody has weighed says so rather than averaging to nothing',
+    bands[1].each, null);
+
+  w.eval('document.getElementById("sheetBody").innerHTML = bandCard("RIBEYE");');
+  body = text('sheetBody');
+  check('the card reads as weight per steak',
+    [/L · 10 packs/.test(body), /1\.88 lb each/.test(body), /M · 5 packs/.test(body),
+     /not weighed/.test(body)],
+    [true, true, true, true]);
+
+  // Half a band weighed is worth saying, because the average is only of that half.
+  w.eval('data.stock.push({ sku: "RIBEYE", size: "S", grade: "Gold", batch: "S5",' +
+         ' freezer: "MAIN", packages: 2, weight: 0 });' +
+         'document.getElementById("sheetBody").innerHTML = bandCard("RIBEYE");');
+  check('a part-weighed band says how much of it the average covers',
+    /3 of 5 weighed/.test(text('sheetBody')), true);
+}
+
+/* ───────── each cut goes back where that cut lives ─────────
+   The freezers are organised by cut, so one freezer for a whole animal was
+   wrong for most of it and the stock had to be moved afterwards. */
+{
+  w.eval('closeSheet(); intakeCart = [];' +
+    'data.products = [{ sku: "RIBEYE", product: "Ribeye", active: true },' +
+    '                 { sku: "OXTAIL", product: "Oxtail", active: true }];' +
+    'data.freezers = [{ id: "MAIN", active: true }, { id: "SHOP", active: true }];' +
+    'data.stock = [{ sku: "RIBEYE", freezer: "SHOP", packages: 9 },' +
+    '              { sku: "RIBEYE", freezer: "MAIN", packages: 2 }];' +
+    'fillSelects();');
+
+  w.eval('document.getElementById("inFreezer").value = "MAIN";' +
+         'document.getElementById("inProduct").value = "RIBEYE"; setLineFreezer();');
+  check('a cut goes back to the freezer most of it is already in',
+    doc.getElementById('inLineFreezer').value, 'SHOP');
+  check('and says why', text('inFreezerWhy'), 'Where the rest of this cut is kept.');
+
+  w.eval('document.getElementById("inProduct").value = "OXTAIL"; setLineFreezer();');
+  check('a cut nobody has stocked falls back to the one on the steer card',
+    [doc.getElementById('inLineFreezer').value, text('inFreezerWhy')],
+    ['MAIN', 'This cut has not been in a freezer before.']);
+
+  // Two cuts, two freezers, one submission.
+  w.eval('document.getElementById("inProduct").value = "RIBEYE"; setLineFreezer();' +
+         'document.getElementById("inQty").value = "12"; addIntakeLine();' +
+         'document.getElementById("inProduct").value = "OXTAIL"; setLineFreezer();' +
+         'document.getElementById("inQty").value = "3"; addIntakeLine();');
+  check('each line keeps its own freezer',
+    JSON.parse(w.eval('JSON.stringify(intakeCart.map(l => [l.sku, l.freezer]))')),
+    [['RIBEYE', 'SHOP'], ['OXTAIL', 'MAIN']]);
+  check('and the list shows which freezer each is bound for',
+    [text('inLines').indexOf('SHOP') > -1, text('inLines').indexOf('MAIN') > -1],
+    [true, true]);
+
+  // The steer has to be an option on the select before it can be chosen.
+  w.eval('var b = document.getElementById("inBatch");' +
+         'b.innerHTML = "<option>2026-11-STEER-04</option>";' +
+         'b.value = "2026-11-STEER-04"; queue.length = 0; submitIntake();');
+  check('and the entries go to the freezer the cut lives in, not one for the lot',
+    JSON.parse(w.eval('JSON.stringify(queue.filter(o => o.type === "INTAKE")' +
+      '.map(o => [o.sku, o.freezer, o.packages]))')),
+    [['RIBEYE', 'SHOP', 12], ['OXTAIL', 'MAIN', 3]]);
+}
+
 /* ───────── two numbers are two buttons ─────────
    Picking the first for him is how a second number stayed invisible. */
 {
@@ -378,5 +461,57 @@ w.eval('data.lists.waitlist = []; renderWaitlist();');
 check('an empty list says so rather than going blank',
   text('waitlistList'), 'Nobody waiting on a cut.');
 
-console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll browser checks passed.\n');
-process.exit(failures ? 1 : 0);
+/* The screens built from a backend reply finish in a promise, so their
+   checks have to wait for it. They run last, inside an async wrapper: a
+   top-level await would turn this file into an ES module and the requires
+   above would stop resolving. */
+const pause = () => new Promise(r => setTimeout(r, 0));
+
+(async () => {
+  /* ───────── what came off the steer ─────────
+     The yield number alone does not say whether a cut came up short. */
+  {
+    replyWith('steerYield', { ok: true, batch: 'S4', packages: 60, weight: 100,
+      hanging: 200, live: 320, yieldPct: 50, usualYield: 56, comparedWith: 3,
+      needsHanging: false, unweighed: 0, cuts: [
+        { sku: 'GROUND', product: 'Ground beef', packages: 50, weight: 72, each: 1.44,
+          share: 72, usual: 60, off: 'high' },
+        { sku: 'RIBEYE', product: 'Ribeye', packages: 5, weight: 8, each: 1.6,
+          share: 8, usual: 20, off: 'low' },
+        { sku: 'BRISKET', product: 'Brisket', packages: 5, weight: 20, each: 4,
+          share: 20, usual: 20, off: '' }] });
+    w.eval('closeSheet(); var b = document.getElementById("inBatch");' +
+           'b.innerHTML = "<option>S4</option>"; b.value = "S4"; openSteerYield();');
+    await pause();
+    body = text('sheetBody');
+    check('the yield is shown against what the steers before it did',
+      [/Yield/.test(body), /50%/.test(body), /56% over 3 steers/.test(body)],
+      [true, true, true]);
+    check('every cut is listed with its packs, weight and share',
+      [/Ground beef/.test(body), /50 packs · 72 lb · 1.44 lb each/.test(body),
+       /72%/.test(body)], [true, true, true]);
+    check('a cut off its usual share is called out, in the right direction',
+      [/Ground beef.*more than usual/.test(body), /Ribeye.*less than usual/.test(body),
+       /Brisket.*than usual/.test(body)], [true, true, false]);
+
+    // Nothing to compare against yet must not read as "everything is normal".
+    replyWith('steerYield', { ok: true, batch: 'FIRST', packages: 10, weight: 20,
+      hanging: 0, live: 0, yieldPct: null, usualYield: null, comparedWith: 0,
+      needsHanging: true, unweighed: 0, cuts: [{ sku: 'RIBEYE', product: 'Ribeye',
+        packages: 10, weight: 20, each: 2, share: 100, usual: null, off: '' }] });
+    // Closing the panel re-renders, which empties the steer select, so the
+  // steer has to be put back before asking again.
+  w.eval('closeSheet(); var b2 = document.getElementById("inBatch");' +
+         'b2.innerHTML = "<option>FIRST</option>"; b2.value = "FIRST";' +
+         'openSteerYield();');
+    await pause();
+    body = text('sheetBody');
+    check('the first steer says it has nothing to be compared with',
+      /needs a couple of steers/.test(body), true);
+    check('and a missing hanging weight says where to put it',
+      [/No hanging weight/.test(body), /New steer/.test(body)], [true, true]);
+  }
+
+  console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll browser checks passed.\n');
+  process.exit(failures ? 1 : 0);
+})();

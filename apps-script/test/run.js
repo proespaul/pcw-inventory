@@ -1086,6 +1086,88 @@ console.log('\nthe wholesale screen: ordered, waiting, past');
   check('nor is anybody merely on the waiting list', !!fu['Ivan Wiebe'], false);
 }
 
+/* ---- what came off the steer ----
+   "63% yield" does not say whether the ribeyes came up short, and there is
+   no published table for a Wagyu steer cut to our own order, so the only
+   yardstick is our own past animals. */
+{
+  const c = buildContext();
+  c.setup();
+  // A movement is only accepted against a product that exists.
+  c.addProduct_({ product: 'Ribeye', content: '2 steaks', avgWeight: 2, price: 44 });
+  c.addProduct_({ product: 'Ground', content: '1 lb', avgWeight: 1.5, price: 14 });
+  c.addProduct_({ product: 'Brisket', content: 'whole', avgWeight: 4, price: 60 });
+  let bk = 0;
+  const book = (batch, sku, packs, weight) => c.submit_({ ops: [{
+    clientKey: 'y' + (++bk),
+    type: 'INTAKE', sku: sku, product: sku, batch: batch, freezer: 'MAIN',
+    packages: packs, weight: weight, party: 'From the butcher' }] });
+
+  // Three steers that broke down much the same way.
+  [['S1', 100], ['S2', 100], ['S3', 100]].forEach(([b]) => {
+    book(b, 'RIBEYE', 10, 20);
+    book(b, 'GROUND', 40, 60);
+    book(b, 'BRISKET', 5, 20);
+  });
+  // The fourth is light on ribeye and heavy on ground.
+  book('S4', 'RIBEYE', 5, 8);
+  book('S4', 'GROUND', 50, 72);
+  book('S4', 'BRISKET', 5, 20);
+
+  c.addSteer_({ steer: { id: 'S4', hangingWeight: 200 } });
+  ['S1', 'S2', 'S3'].forEach(id => c.addSteer_({ steer: { id: id, hangingWeight: 200 } }));
+
+  const y = c.steerYield_({ batch: 'S4' });
+  check('every cut comes back, heaviest first',
+    y.cuts.map(x => x.sku), ['GROUND', 'BRISKET', 'RIBEYE']);
+  check('with its packs, weight and what one weighs',
+    [y.cuts[2].packages, y.cuts[2].weight, y.cuts[2].each], [5, 8, 1.6]);
+  check('the yield is the meat against the hanging weight',
+    [y.weight, y.hanging, y.yieldPct], [100, 200, 50]);
+  check('and is set against what the steers before it did',
+    [y.usualYield, y.comparedWith], [50, 3]);
+
+  const by = {};
+  y.cuts.forEach(x => { by[x.sku] = x; });
+  check('a cut well under its usual share is flagged low',
+    [by.RIBEYE.share, by.RIBEYE.usual, by.RIBEYE.off], [8, 20, 'low']);
+  check('a cut well over it is flagged high',
+    [by.GROUND.share, by.GROUND.usual, by.GROUND.off], [72, 60, 'high']);
+  check('completing a steer that stock created reports what it filled',
+    c.addSteer_({ steer: { id: 'S4', hangingWeight: 999, butcher: 'Simard' } }).completed,
+    ['Butcher']);
+  check('and never writes over a weight that was already there',
+    c.steerYield_({ batch: 'S4' }).hanging, 200);
+  check('and one that came out normal is not flagged at all',
+    [by.BRISKET.share, by.BRISKET.off], [20, '']);
+
+  // The very first steer has nothing to be measured against, and says so
+  // rather than inventing a range for it.
+  {
+    const f = buildContext();
+    f.setup();
+    f.addProduct_({ product: 'Ribeye', content: '2 steaks', avgWeight: 2, price: 44 });
+    f.submit_({ ops: [{ clientKey: 'f1', type: 'INTAKE', sku: 'RIBEYE', product: 'Ribeye',
+      batch: 'FIRST', freezer: 'MAIN', packages: 10, weight: 20 }] });
+    const lone = f.steerYield_({ batch: 'FIRST' });
+    check('the first steer is compared with nothing and flags nothing',
+      [lone.comparedWith, lone.cuts.every(x => x.off === ''), lone.cuts[0].usual],
+      [0, true, null]);
+  }
+
+  check('a steer nothing has been booked against says so',
+    c.steerYield_({ batch: 'S9' }).ok, false);
+  check('and asking for no steer at all is refused',
+    c.steerYield_({}).ok, false);
+
+  // A missing hanging weight is the one number the yield cannot do without.
+  c.addSteer_({ steer: { id: 'S5' } });
+  book('S5', 'RIBEYE', 4, 9);
+  const noHang = c.steerYield_({ batch: 'S5' });
+  check('without a hanging weight the yield is blank and says why',
+    [noHang.yieldPct, noHang.needsHanging], [null, true]);
+}
+
 /* ---- telling one customer from another ----
    Real pairs out of the books. The first two are one person spelled two
    ways; the third is two different people whose surnames are a letter
