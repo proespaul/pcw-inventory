@@ -1448,5 +1448,98 @@ console.log('\nthe wholesale screen: ordered, waiting, past');
   }
 }
 
+
+console.log('\na client with two numbers');
+/* The sales sheet and Contacts always kept both answers. The app's own book
+   held one to a cell, so the second was dropped here and the books drifted
+   apart on paper. Evelyn and Robert Dennis had both numbers typed into the one
+   cell as "867-445-5513 and 780-925-2231", which read as a single number that
+   dialled nowhere and was reported as a disagreement on every sweep. */
+{
+  const c = buildContext();
+  c.setup();
+  const sh = c.sheet_(c.TABS.CUSTOMERS);
+  const head = sh.getRange(1, 1, 1, c.HEADERS.CUSTOMERS.length).getValues()[0];
+  check('the app book has somewhere to keep a second answer',
+    [head.indexOf('Email 2') > -1, head.indexOf('Phone 2') > -1], [true, true]);
+
+  check('two numbers written with "and" are two numbers',
+    c.splitCell_('867-445-5513 and 780-925-2231'), ['867-445-5513', '780-925-2231']);
+  check('and written with "&"',
+    c.splitCell_('780-555-0100 & 780-555-0199'), ['780-555-0100', '780-555-0199']);
+  check('a lone number is still one number',
+    c.splitCell_('867-445-5513'), ['867-445-5513']);
+
+  sh.appendRow(['Evelyn and Robert Dennis', '', '867-445-5513 and 780-925-2231', '',
+                '', '', 0, 1, 0, 0, 0, 'Paul', '', '']);
+  const out = c.syncCustomers_({ only: 'Evelyn and Robert Dennis' });
+  const row = () => sh.getRange(2, 1, 1, c.HEADERS.CUSTOMERS.length).getValues()[0];
+  const at = (h) => c.HEADERS.CUSTOMERS.indexOf(h);
+  check('the pair is separated, first where it was and second beside it',
+    [out.ok, row()[at('Phone')], row()[at('Phone 2')]],
+    [true, '867-445-5513', '780-925-2231']);
+  check('and it is reported as a second answer kept, not a blank filled',
+    out.appSecond, 1);
+}
+
+/* A number typed in by hand is an answer too. Overwriting it would make the
+   app the one book Paul cannot correct, and everything he enters has to stay
+   editable afterwards. */
+{
+  const c = buildContext();
+  c.setup();
+  const sh = c.sheet_(c.TABS.CUSTOMERS);
+  const at = (h) => c.HEADERS.CUSTOMERS.indexOf(h);
+  const line = c.HEADERS.CUSTOMERS.map(() => '');
+  line[at('Customer')] = 'Sheila Wegreen';
+  line[at('Email')] = 'nwegreen@hotmail.com, sheila.wegreen@usask.ca';
+  line[at('Email 2')] = 'typed.by.hand@example.com';
+  sh.appendRow(line);
+
+  c.syncCustomers_({ only: 'Sheila Wegreen' });
+  const row = sh.getRange(2, 1, 1, c.HEADERS.CUSTOMERS.length).getValues()[0];
+  check('a second answer entered by hand is left exactly alone',
+    row[at('Email 2')], 'typed.by.hand@example.com');
+  check('and the cell holding the pair is not taken apart around it',
+    row[at('Email')], 'nwegreen@hotmail.com, sheila.wegreen@usask.ca');
+}
+
+/* With no column to put it in, the pair stays whole. Halving the cell and
+   dropping the second number would be worse than leaving it ugly. */
+{
+  const c = buildContext();
+  c.setup();
+  const sh = c.sheet_(c.TABS.CUSTOMERS);
+  const at = (h) => c.HEADERS.CUSTOMERS.indexOf(h);
+  sh.appendRow(['Evelyn and Robert Dennis', '', '867-445-5513 and 780-925-2231', '',
+                '', '', 0, 1, 0, 0, 0, 'Paul', '', '']);
+  sh.getRange(1, at('Phone 2') + 1).setValue('');   // take the column away
+
+  const out = c.syncCustomers_({ only: 'Evelyn and Robert Dennis' });
+  check('with nowhere to keep it, the pair is left whole rather than halved',
+    [out.ok, out.appSecond,
+     sh.getRange(2, at('Phone') + 1, 1, 1).getValues()[0][0]],
+    [true, 0, '867-445-5513 and 780-925-2231']);
+}
+
+/* A second answer typed into the app has to count as something the app says,
+   or it would never reach the sales sheet or Contacts. */
+{
+  const c = buildContext();
+  c.setup();
+  const sh = c.sheet_(c.TABS.CUSTOMERS);
+  const at = (h) => c.HEADERS.CUSTOMERS.indexOf(h);
+  const line = c.HEADERS.CUSTOMERS.map(() => '');
+  line[at('Customer')] = 'Jean and Val Sylvain';
+  line[at('Email')] = 'jvalsyl@telus.net';
+  line[at('Email 2')] = 'jvalsylv@gmail.com';
+  sh.appendRow(line);
+
+  const card = c.customerWhere_('Jean and Val Sylvain');
+  check('both of the app’s emails are answers the card knows about',
+    card.known.email.map(v => v.value).sort(),
+    ['jvalsyl@telus.net', 'jvalsylv@gmail.com']);
+}
+
 console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll checks passed.\n');
 process.exit(failures ? 1 : 0);

@@ -140,7 +140,8 @@ var HEADERS = {
              'Sold so far', 'Still in the freezer', 'Variance vs model', 'Notes'],
   CUSTOMERS:['Customer', 'Email', 'Phone', 'Town', 'First order', 'Last order', 'Orders',
              'Orders before the app', 'Packages', 'Spend', 'Spend before the app',
-             'Source', 'In Google Contacts', 'Bought before', 'Notes'],
+             'Source', 'In Google Contacts', 'Bought before', 'Notes',
+             'Email 2', 'Phone 2'],
   WHOLESALE:['Customer', 'Phone', 'Email', 'Wants', 'Status', 'Priority', 'Wanted by',
              'Deposit', 'Weight (lb)', 'Price', 'Invoice', 'Paid', 'Added', 'Notes'],
   WAITLIST: ['Customer', 'Phone', 'Email', 'Waiting for', 'Their words', 'Size', 'Grade',
@@ -6132,6 +6133,7 @@ function appCustomerRows_() {
       if (!name) return;
       rows.push({ row: i + 2, name: name,
                   email: str_(r[at['Email']]), phone: str_(r[at['Phone']]),
+                  email2: str_(r[at['Email 2']]), phone2: str_(r[at['Phone 2']]),
                   town: str_(r[at['Town']]), notes: str_(r[at['Notes']]),
                   inContacts: str_(r[at['In Google Contacts']]) });
     });
@@ -6161,6 +6163,8 @@ function appAdd_(book, person) {
     if (h === 'Customer') return person.name;
     if (h === 'Email') return str_(person.email);
     if (h === 'Phone') return str_(person.phone);
+    if (h === 'Email 2') return str_(person.email2);
+    if (h === 'Phone 2') return str_(person.phone2);
     if (h === 'Town') return str_(person.town);
     if (h === 'Notes') return str_(person.notes);
     if (h === 'Source') return str_(person.source) || 'Sales sheet';
@@ -6169,7 +6173,8 @@ function appAdd_(book, person) {
   });
   book.sheet.getRange(row, 1, 1, HEADERS.CUSTOMERS.length).setValues([line]);
   book.rows.push({ row: row, name: person.name, email: str_(person.email),
-                   phone: str_(person.phone), town: str_(person.town), notes: '',
+                   phone: str_(person.phone), email2: str_(person.email2),
+                   phone2: str_(person.phone2), town: str_(person.town), notes: '',
                    inContacts: '' });
   return row;
 }
@@ -6177,7 +6182,7 @@ function appAdd_(book, person) {
 /* ─────────────────── what the three books say about one person ─────── */
 
 /* Two numbers in one cell are written "a / b", "a; b", "a, b" or "a or b". */
-var CELL_SPLIT = /\s*(?:\/|;|,| or )\s*/i;
+var CELL_SPLIT = /\s*(?:\/|;|,| or | and | & )\s*/i;
 
 /* An address is not a list, and it is full of commas. Splitting one on its
    commas turned "Peace River, AB T8S 1A6" into two separate towns, wrote the
@@ -6188,8 +6193,10 @@ var CELL_SPLIT = /\s*(?:\/|;|,| or )\s*/i;
 var TOWN_SPLIT = /\s*(?:\/|;)\s*/;
 
 var WHERE_FIELDS = [
-  { key: 'phone', header: 'Phone', cell: 'phone', many: 'phones', same: samePhone_ },
-  { key: 'email', header: 'Email', cell: 'email', many: 'emails', same: sameMail_ },
+  { key: 'phone', header: 'Phone', second: 'Phone 2', key2: 'phone2',
+    cell: 'phone', many: 'phones', same: samePhone_ },
+  { key: 'email', header: 'Email', second: 'Email 2', key2: 'email2',
+    cell: 'email', many: 'emails', same: sameMail_ },
   { key: 'town',  header: 'Town',  cell: 'town',  many: 'towns',  same: sameText_,
     split: TOWN_SPLIT }
 ];
@@ -6339,7 +6346,7 @@ function customerWhere_(name, pre) {
   var card = {
     ok: true, name: mine ? mine.name : (theirs ? theirs.name : who),
     app: mine ? { row: mine.row, phone: mine.phone, email: mine.email, town: mine.town,
-                  notes: mine.notes,
+                  phone2: mine.phone2, email2: mine.email2, notes: mine.notes,
                   url: app.url + '&range=A' + mine.row } : null,
     appUrl: app.url,
     sales: theirs ? { row: theirs.row, phone: theirs.phone, email: theirs.email,
@@ -6399,6 +6406,7 @@ function customerWhere_(name, pre) {
   WHERE_FIELDS.forEach(function (f) {
     var says = [
       { where: 'app', value: card.app ? card.app[f.key] : '' },
+      { where: 'app', value: card.app && f.key2 ? card.app[f.key2] : '' },
       { where: 'sales sheet', value: card.sales ? card.sales[f.key] : '' },
       { where: 'contacts', value: card.contact
           ? joinCell_(card.contact[f.many] || []) : '' }
@@ -6530,7 +6538,8 @@ function customerSave_(req) {
 function syncCustomers_(opt) {
   opt = opt || {};
   var app = appCustomerRows_(), book = salesBook_();
-  var out = { ok: true, checked: 0, appFilled: 0, appAdded: 0, salesFilled: 0,
+  var out = { ok: true, checked: 0, appFilled: 0, appSecond: 0, appAdded: 0,
+              salesFilled: 0,
               salesAdded: 0, contactsMade: 0, contactsFilled: 0, bothKept: 0,
               salesError: book.ok ? '' : str_(book.error), contactsError: '', extras: [] };
 
@@ -6549,6 +6558,8 @@ function syncCustomers_(opt) {
       if (!k || known[k]) return;
       appAdd_(app, { name: r.name, phone: splitCell_(r.phone)[0] || '',
                      email: splitCell_(r.email)[0] || '',
+                     phone2: splitCell_(r.phone)[1] || '',
+                     email2: splitCell_(r.email)[1] || '',
                      town: splitCell_(r.town, TOWN_SPLIT)[0] || '',
                      source: 'Sales sheet' });
       known[k] = true;
@@ -6571,6 +6582,7 @@ function syncCustomers_(opt) {
     WHERE_FIELDS.forEach(function (f) {
       all[f.key] = gatherValues_([
         { where: 'app', value: mine[f.key] },
+        { where: 'app', value: f.key2 ? mine[f.key2] : '' },
         { where: 'sales sheet', value: theirs ? theirs[f.key] : '' },
         { where: 'contacts', value: hit ? joinCell_(hit[f.many] || []) : '' }
       ], f.same, f.split).map(function (v) { return v.value; });
@@ -6587,6 +6599,49 @@ function syncCustomers_(opt) {
       appWrite_(app, mine.row, f.header, all[f.key][0]);
       mine[f.key] = all[f.key][0];
       out.appFilled++;
+    });
+
+    /* A client with two numbers is not a disagreement to be settled, and the
+       sales sheet and Contacts have always kept both. The app's own book held
+       one to a cell, so the second answer was simply dropped here and the two
+       books drifted apart on paper. It now goes in the column beside it.
+
+       Only ever written when that column is empty: a number typed in by hand
+       is an answer too, and overwriting it would make the app the one book
+       Paul cannot correct. */
+    WHERE_FIELDS.forEach(function (f) {
+      if (!f.second || all[f.key].length < 2) return;
+      if (str_(mine[f.key2])) return;
+
+      /* No column to put it in: leave the cell exactly as it is. Separating a
+         pair with nowhere for the second half to go would quietly throw half
+         a client's contact details out of the app's own book. */
+      if (app.at[f.second] === undefined) return;
+
+      /* The app's own cell sometimes holds the pair on its own — "867-445-5513
+         and 780-925-2231", typed by whoever took the call. Left alone it reads
+         as one number that dials nowhere, so the pair is separated: the first
+         number stays where it was and the second moves next door. A cell that
+         holds a single answer is never rewritten, whatever the other books say
+         about it. */
+      if (splitCell_(mine[f.key], f.split).length > 1 &&
+          str_(mine[f.key]) !== all[f.key][0] &&
+          appWrite_(app, mine.row, f.header, all[f.key][0])) {
+        mine[f.key] = all[f.key][0];
+        out.appFilled++;
+      }
+
+      var first = str_(mine[f.key]), spare = null;
+      all[f.key].forEach(function (v) {
+        if (spare || !str_(v)) return;
+        if (first && (f.same(v, first) || str_(v) === first)) return;
+        spare = v;
+      });
+      if (!spare) return;
+      if (appWrite_(app, mine.row, f.second, spare)) {
+        mine[f.key2] = spare;
+        out.appSecond++;
+      }
     });
 
     /* the sales book: every answer, written the way a person reads it */
@@ -6905,7 +6960,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-17 17:13 UTC';
+var BACKEND_BUILD = '2026-11-17 17:16 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
