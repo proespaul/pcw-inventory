@@ -6905,7 +6905,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-17 17:09 UTC';
+var BACKEND_BUILD = '2026-11-17 17:11 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -10038,8 +10038,14 @@ function steerYield_(req) {
     });
   }
   if (!mine) {
-    return { ok: false, error: 'Nothing has been booked in against ' + batch + ' yet.' +
-      (recordError ? ' The cut record could not be read: ' + recordError : '') };
+    return { ok: false,
+      error: 'Nothing has been booked in against ' + batch + ' yet.' +
+        (recordError ? ' The cut record could not be read: ' + recordError : ''),
+      /* Which steers the app can actually see, so a mistyped ID or a record
+         that did not land is visible from the answer instead of guessed at. */
+      knownSteers: Object.keys(byBatch),
+      recordedSteers: Object.keys(recordedFor),
+      recordError: recordError };
   }
 
   /* The usual share of each cut, averaged over the other steers. A steer
