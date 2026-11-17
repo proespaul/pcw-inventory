@@ -611,6 +611,108 @@ const pause = () => new Promise(r => setTimeout(r, 0));
       [/No hanging weight/.test(body), /New steer/.test(body)], [true, true]);
   }
 
+  /* ───────── the two screens that went ─────────
+     Inventory status listed what the stock screen already tags, and Price
+     changes was an audit trail of a two-person shop. Both are off the menu;
+     the gathering the first one did is now a line on the stock screen. */
+  {
+    const menu = doc.getElementById('view-menu').innerHTML;
+    check('the menu no longer offers a separate stock-status screen',
+      /Inventory status/.test(menu), false);
+    check('nor a price-changes screen',
+      /Price changes/.test(menu), false);
+    check('market day is still there, called what it does',
+      /Market day/.test(menu) && /Ring up sales/.test(menu), true);
+    check('and no dead screens were left behind',
+      [!!doc.getElementById('view-status'), !!doc.getElementById('view-pricelog')],
+      [false, false]);
+  }
+
+  /* ───────── what is short, gathered on the stock screen ───────── */
+  {
+    w.eval('invKind = "cuts";' +
+      'data.products = [' +
+      '{sku:"RIBEYE", product:"Ribeye Steak", price:63, kind:"Steak"},' +
+      '{sku:"TALLOW", product:"Whipped Tallow", price:30, kind:"Other"},' +
+      '{sku:"JERKY",  product:"Jerky", price:12, kind:"Other"}];' +
+      // productTotals reads the stock lines, so they are what decides status.
+      'window.productTotals = function () { return [' +
+      '{sku:"RIBEYE", product:"Ribeye Steak", content:"", packages:40, weight:40,' +
+      ' value:0, committed:0, available:40, status:"ok", days:1, lines:[]},' +
+      '{sku:"TALLOW", product:"Whipped Tallow", content:"", packages:-3, weight:0,' +
+      ' value:0, committed:0, available:-3, status:"oversold", days:1, lines:[]},' +
+      '{sku:"JERKY", product:"Jerky", content:"", packages:1, weight:1,' +
+      ' value:0, committed:0, available:1, status:"low", days:1, lines:[]}];};' +
+      'document.getElementById("stockSearch").value = "";' +
+      'invTrouble = false; renderStock();');
+
+    check('the stock screen says how many need looking at',
+      /2 to look at/.test(text('stockTrouble')), true);
+    check('and names what is wrong with them',
+      [/promised more than we have/.test(text('stockTrouble')),
+       /running low/.test(text('stockTrouble'))], [true, true]);
+    check('everything is listed until it is asked to narrow',
+      names('stockList').length, 3);
+
+    w.eval('toggleTrouble();');
+    const narrowed = names('stockList');
+    check('tapping it leaves only those two',
+      [narrowed.length, narrowed.indexOf('Ribeye Steak')], [2, -1]);
+    check('and it says it is narrowed, with a way back',
+      [/Showing 2 to look at/.test(text('stockTrouble')),
+       /\ball\b/.test(text('stockTrouble'))], [true, true]);
+    /* The card at the top counts the freezer, not the narrowed list. Counted
+       after narrowing it read "−2 packages" — the shortfall, shown as
+       everything there is. */
+    check('the totals still count the whole freezer, not the two shown',
+      /38 packages/.test(text('stockTotals')), true);
+
+    w.eval('toggleTrouble();');
+    check('tapping again puts everything back', names('stockList').length, 3);
+
+    // Nothing wrong anywhere: the line goes rather than reading "0 to look at".
+    w.eval('window.productTotals = function () { return [' +
+      '{sku:"RIBEYE", product:"Ribeye Steak", content:"", packages:40, weight:40,' +
+      ' value:0, committed:0, available:40, status:"ok", days:1, lines:[]}];};' +
+      'renderStock();');
+    check('with nothing short, no line appears at all',
+      doc.getElementById('stockTrouble').innerHTML, '');
+  }
+
+  /* ───────── customers, filed by surname ─────────
+     Alphabetical by last name, which is the last word of it — except where
+     the last word is not a surname, and then the 'File as' column decides. */
+  {
+    w.eval('data.lists.customers = ' + JSON.stringify([
+      { customer: 'Neil Fehr', phone: '780-555-0101', email: '', last: '2026-11-01' },
+      { customer: 'What The Chuck', phone: '', email: '', fileAs: 'What The Chuck' },
+      { customer: 'Abby Redman', phone: '', email: 'abby@example.com', last: '2026-01-04' },
+      { customer: 'Cameron & Faith Beaudoin', phone: '', email: '' },
+      { customer: 'Angelica', phone: '', email: '' }
+    ]) + '; document.getElementById("clientSearch").value = ""; renderClients();');
+
+    check('the list runs A to Z by surname, not by who ordered last',
+      names('clientList'),
+      ['Angelica', 'Cameron & Faith Beaudoin', 'Neil Fehr', 'Abby Redman', 'What The Chuck']);
+    check('each letter is written once above its names',
+      Array.from(doc.querySelectorAll('#clientList .kindhead')).map(h => h.textContent),
+      ['A', 'B', 'F', 'R', 'W']);
+    check('and the count is said out loud',
+      /5 customers/.test(text('clientCount')), true);
+
+    // Searching is looking for one person, so the letters get out of the way.
+    w.eval('document.getElementById("clientSearch").value = "abby"; renderClients();');
+    check('a search drops the letters and leaves the match',
+      [doc.querySelectorAll('#clientList .kindhead').length, names('clientList')],
+      [0, ['Abby Redman']]);
+    w.eval('document.getElementById("clientSearch").value = ""; renderClients();');
+
+    check('the three books are no longer a thing to manage above the list',
+      /three books/i.test(doc.getElementById('clientBooks').innerHTML), false);
+    check('squaring them up still is',
+      /syncBooks/.test(doc.getElementById('clientBooks').innerHTML), true);
+  }
+
   console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll browser checks passed.\n');
   process.exit(failures ? 1 : 0);
 })();

@@ -851,6 +851,12 @@
     </div>
 
     <div class="card" id="stockTotals"></div>
+    <!-- What used to be the Inventory status screen. Out, low and oversold are
+         already tagged on the rows below, so a second screen listing them was
+         the same list twice; what it alone could do was gather them. It gathers
+         them here, in the list he is already looking at. -->
+    <div id="stockTrouble"></div>
+    <div id="stockNotes"></div>
     <div class="list cells" id="stockList"></div>
     <div class="list cells" id="boxList" style="display:none"></div>
     <p class="muted" style="text-align:center" id="invHint">Tap − or + to change a count. Tap the product for sizes, batches and freezers.</p>
@@ -972,16 +978,6 @@
     <div class="card" id="freezerRecord"></div>
   </section>
 
-  <section class="view" id="view-pricelog">
-    <div class="card">
-      <h2 style="margin:0 0 2px">Price changes</h2>
-      <p class="muted" style="margin:0">Every change to the price list itself — made on
-        the Price tab or typed into the sheet. A price agreed on one order is an
-        arrangement with that customer and is not here.</p>
-    </div>
-    <div class="card flush list" id="priceLogList"></div>
-  </section>
-
   <section class="view" id="view-menu">
     <div class="menu">
       <button onclick="showView('wholesale')"><span class="ic">🤝</span>
@@ -996,21 +992,15 @@
         <span class="grow">Customers<small>Everyone who has ordered</small></span>
         <span class="count" id="cClients"></span></button>
       <button onclick="showView('market')"><span class="ic">⛺</span>
-        <span class="grow">Market day<small>Fast tally at the table — no names, no typing</small></span></button>
+        <span class="grow">Market day<small>Ring up sales at the table — no names, no typing</small></span></button>
       <button onclick="showView('boxes')"><span class="ic">📦</span>
         <span class="grow">Boxes<small>What you can build, and ideas worth making</small></span></button>
       <button onclick="showView('sales')"><span class="ic">💰</span>
         <span class="grow">Sales, year to date<small>Everything delivered since April, and who still owes</small></span>
         <span class="count" id="cOwing"></span></button>
-      <button onclick="showView('status')"><span class="ic">📉</span>
-        <span class="grow">Inventory status<small>What is out, oversold or running low</small></span>
-        <span class="count" id="cStatus"></span></button>
       <button onclick="showView('freezers')"><span class="ic">🌡️</span>
         <span class="grow">Freezer temps<small>What each freezer last read, and the days behind it</small></span>
         <span class="count" id="cFreezers"></span></button>
-      <button onclick="showView('pricelog')"><span class="ic">🏷️</span>
-        <span class="grow">Price changes<small>What the price list used to say, and who changed it</small></span>
-        <span class="count" id="cPriceLog"></span></button>
       <button onclick="openSettings()"><span class="ic">⚙️</span>
         <span class="grow">Sync &amp; settings<small>Connection, who's using this phone</small></span></button>
     </div>
@@ -1138,14 +1128,16 @@
       <input id="clientSearch" type="search" placeholder="Search customers…" autocomplete="off">
       <button class="mic" onclick="dictate('clientSearch',this,renderClients)">🎤</button>
     </div>
+    <!-- The three books used to be named up here, which made the split look
+         like something to manage. It is not: every number and address is
+         compiled onto the client's own card, and squaring up is the one
+         button that matters. -->
     <div class="card" id="clientBooks">
       <div class="item" style="border:0;padding:2px">
-        <div class="name"><b>The three books</b>
-          <span id="clientSyncLine">The app, the 2026 sales sheet and Google Contacts.</span></div>
-      </div>
-      <div class="row" style="margin-top:9px">
-        <button class="ghost small" onclick="syncBooks()">Square them up</button>
-        <button class="ghost small" onclick="openBookLinks()">Open a book</button>
+        <div class="name"><b id="clientCount">Customers</b>
+          <span id="clientSyncLine">Filed by surname. Everything known about each
+            one is on their card.</span></div>
+        <div class="qty"><button class="ghost small" onclick="syncBooks()">Square up</button></div>
       </div>
       <div id="clientExtras"></div>
     </div>
@@ -1169,18 +1161,6 @@
 
   <!-- Everything the freezer is short of, in one place, instead of popping up
        over whatever somebody was in the middle of doing. -->
-  <section class="view" id="view-status">
-    <div class="card" id="statusTotals"></div>
-    <div id="statusNotes"></div>
-    <h3>Nothing left</h3>
-    <div class="card list" id="statusOut"></div>
-    <h3>Running low</h3>
-    <div class="card list" id="statusLow"></div>
-    <h3>Promised more than we have</h3>
-    <div class="card list" id="statusOver"></div>
-    <p class="muted" style="text-align:center">Tap anything here to open it.</p>
-  </section>
-
   <section class="view" id="view-boxes">
     <h3>What you can build now</h3>
     <div class="card list" id="boxBuild"></div>
@@ -1246,7 +1226,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-17 16:59 UTC';
+const APP_BUILD = '2026-11-17 17:38 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -2154,8 +2134,8 @@ async function sync(quiet, force) {
       queue = queue.filter(o => !done.has(o.clientKey) && !badKeys.has(o.clientKey));
       save(LS.queue, queue);
       // Something that did not happen is worth interrupting for. The freezer
-      // running low is not — that belongs on the Inventory status screen,
-      // where it can be read when there is a moment, not while counting.
+      // running low is not — that sits on the stock screen under
+      // "to look at", to be read when there is a moment, not while counting.
       const refused = res.refused || (res.sessionDead ? [] : (res.warnings || []));
       stockNotes = (res.stockNotes || []).slice(0, 20);
       save(LS.notes, stockNotes);
@@ -2435,7 +2415,7 @@ function renderAll() {
   renderMenuCounts();
   renderFollowups();
   renderWholesale(); renderWaitlist(); renderClients(); renderSchedule(); renderCnLines();
-  renderMarketGrid(); renderBoxes(); renderStatus(); renderPriceLog(); renderAlerts();
+  renderMarketGrid(); renderBoxes(); renderAlerts();
   renderFreezers();
   renderSales();
   renderSteerNumbers();
@@ -3632,12 +3612,59 @@ function boxedLine(sku, name) {
   };
 }
 
+/* The gathering the old status screen did: everything the freezer is short
+   of, counted in one line. Tapping it narrows the list to those; tapping it
+   again puts everything back. Nothing interrupts a count to say this. */
+function renderTrouble(rows) {
+  const box = $('stockTrouble');
+  if (!box) return;
+  const out  = rows.filter(r => r.status === 'out' || (r.packages <= 0 && r.status !== 'oversold'));
+  const over = rows.filter(r => r.status === 'oversold');
+  const low  = rows.filter(r => r.status === 'low');
+  const n = out.length + over.length + low.length;
+
+  if (!n && !invTrouble) { box.innerHTML = ''; }
+  else {
+    const parts = [];
+    if (out.length)  parts.push(out.length + ' with none left');
+    if (over.length) parts.push(over.length + ' promised more than we have');
+    if (low.length)  parts.push(low.length + ' running low');
+    box.innerHTML = '<div class="card" style="margin:0 0 10px;padding:0">' +
+      '<div class="item" onclick="toggleTrouble()" style="border:0">' +
+      '<div class="name"><b>' + (invTrouble ? 'Showing ' + n + ' to look at'
+                                            : n + ' to look at') + '</b>' +
+      '<span>' + (parts.join(', ') || 'Nothing is out, low or oversold.') + '</span></div>' +
+      '<div class="qty"><b>' + (invTrouble ? '\u00d7' : '\u203a') + '</b>' +
+        '<span>' + (invTrouble ? 'all' : 'show') + '</span></div></div></div>';
+  }
+
+  // Anything the backend mentioned on the last send, kept rather than flashed.
+  $('stockNotes').innerHTML = (stockNotes && stockNotes.length)
+    ? '<div class="card" style="margin:0 0 10px"><b>From the last few entries</b>' +
+        stockNotes.map(x => '<p class="muted" style="margin:6px 0 0">' + esc(x) + '</p>').join('') +
+        '<button class="ghost small" style="margin-top:10px" onclick="clearStockNotes()">Clear these</button>' +
+      '</div>'
+    : '';
+}
+
+/* Showing only what needs looking at. Off by default: the freezer screen
+   answers "what have we got" far more often than "what are we short of". */
+let invTrouble = false;
+function toggleTrouble() { invTrouble = !invTrouble; renderStock(); }
+function clearStockNotes() { stockNotes = []; save(LS.notes, stockNotes); renderStock(); }
+
 function renderStock() {
   if (invKind === 'boxes') return renderBoxList();
   const q = $('stockSearch').value.trim().toLowerCase();
   const boxes = boxSkus();
   let rows = productTotals().filter(r => !boxes.has(r.sku));
   if (q) rows = rows.filter(r => (r.product + ' ' + r.content + ' ' + r.sku).toLowerCase().includes(q));
+  renderTrouble(rows);
+  /* The totals are what the freezer holds, so they are counted before the
+     list is narrowed. Counted after, "show these" turned the card at the top
+     into −1 packages — the shortfall, read as the whole freezer. */
+  const counted = rows;
+  if (invTrouble) rows = rows.filter(r => r.status !== 'ok' || r.packages <= 0);
 
   const sort = $('stockSort').value || 'kind';
   const prodIdx = Object.fromEntries((data.products || []).map(p => [p.sku, p]));
@@ -3652,11 +3679,11 @@ function renderStock() {
         String(a.product).localeCompare(String(b.product))
       : String(a.product).localeCompare(String(b.product)));
 
-  const totalPkg = rows.reduce((s, r) => s + r.packages, 0);
-  const totalWt = rows.reduce((s, r) => s + r.weight, 0);
-  const totalVal = rows.reduce((s, r) => s + (r.value > 0 ? r.value : 0), 0);
-  const totalCommitted = rows.reduce((s, r) => s + (r.committed || 0), 0);
-  const lowCount = rows.filter(r => r.status !== 'ok').length;
+  const totalPkg = counted.reduce((s, r) => s + r.packages, 0);
+  const totalWt = counted.reduce((s, r) => s + r.weight, 0);
+  const totalVal = counted.reduce((s, r) => s + (r.value > 0 ? r.value : 0), 0);
+  const totalCommitted = counted.reduce((s, r) => s + (r.committed || 0), 0);
+  const lowCount = counted.filter(r => r.status !== 'ok').length;
   $('stockTotals').innerHTML =
     '<div class="item" style="border:0;padding:2px"><div class="name">' +
     '<b>' + Math.round(totalPkg * 100) / 100 + ' packages</b>' +
@@ -3669,7 +3696,9 @@ function renderStock() {
     '<span>' + (totalVal ? 'at list · ' + lowCount + ' low' : 'low / out') + '</span></div></div>';
 
   if (!rows.length) {
-    $('stockList').innerHTML = '<div class="empty">Nothing here yet.<br>Menu ▸ Meat coming in.</div>';
+    $('stockList').innerHTML = '<div class="empty">' +
+      (invTrouble ? 'Nothing is out, low or oversold.'
+                  : 'Nothing here yet.<br>Menu ▸ Meat coming in.') + '</div>';
     return;
   }
 
@@ -5414,62 +5443,6 @@ function saveOffLine(id) {
   toast('Added ' + name + '.', 'ok');
 }
 
-/* ─────────── Inventory status ───────────
- * Everything the freezer is short of, gathered up. This exists so that
- * nothing about stock levels has to interrupt anybody: a count can be
- * finished without a message landing on top of it, and this screen is here
- * afterwards with the whole picture rather than one line of it.
- */
-function renderStatus() {
-  const boxes = boxSkus();
-  const rows = productTotals();
-  const out  = rows.filter(r => r.status === 'out' || (r.packages <= 0 && r.status !== 'oversold'));
-  const over = rows.filter(r => r.status === 'oversold');
-  const low  = rows.filter(r => r.status === 'low');
-
-  const line = r => '<div class="item" onclick="openProduct(\'' + esc(r.sku) + '\')">' +
-    (photoFor(r.sku) ? '<img class="cutpic" src="' + photoFor(r.sku) + '" alt="" loading="lazy">' : '') +
-    '<div class="name"><b>' + esc(r.product) + (boxes.has(r.sku) ? ' <span class="tag">box</span>' : '') + '</b>' +
-      '<span>' + esc(r.content || r.sku) +
-      (r.committed ? ' · ' + r.committed + ' promised' : '') +
-      // null is a third kind of nothing, and it printed as the word "null".
-      (r.reorder === '' || r.reorder === null || r.reorder === undefined
-        ? '' : ' · tell me below ' + r.reorder) +
-      '</span></div>' +
-    '<div class="qty"><b>' + (Math.round(r.packages * 100) / 100) + '</b>' +
-      '<span>' + (r.committed ? r.available + ' free' : 'on hand') + '</span></div></div>';
-
-  const fill = (id, list, empty) => {
-    $(id).innerHTML = list.length ? list.map(line).join('')
-                                  : '<div class="empty">' + empty + '</div>';
-  };
-  fill('statusOut', out, 'Nothing has run out.');
-  fill('statusLow', low, 'Nothing is running low.');
-  fill('statusOver', over, 'Nothing is oversold.');
-
-  $('statusTotals').innerHTML =
-    '<div class="item" style="border:0;padding:2px"><div class="name">' +
-    '<b>' + (out.length + low.length + over.length) + ' to look at</b>' +
-    '<span>' + out.length + ' out · ' + low.length + ' low · ' + over.length + ' oversold</span></div>' +
-    '<div class="qty"><b>' + rows.length + '</b><span>products</span></div></div>';
-
-  // Anything the backend mentioned on the last send, kept rather than flashed.
-  $('statusNotes').innerHTML = (stockNotes && stockNotes.length)
-    ? '<div class="card"><b>From the last few entries</b>' +
-        stockNotes.map(n => '<p class="muted" style="margin:6px 0 0">' + esc(n) + '</p>').join('') +
-        '<button class="ghost small" style="margin-top:10px" onclick="clearStockNotes()">Clear these</button>' +
-      '</div>'
-    : '';
-
-  const badge = $('cStatus');
-  if (badge) {
-    const n = out.length + over.length;
-    badge.textContent = n || '';
-    badge.style.display = n ? '' : 'none';
-  }
-}
-
-function clearStockNotes() { stockNotes = []; save(LS.notes, stockNotes); renderStatus(); }
 
 /* An opened box counts as somewhere you went, so the phone's back button
    shuts it again instead of leaving the tab — the same as closing a panel. */
@@ -6438,34 +6411,6 @@ function renderMenuCounts() {
   $('cWholesale').textContent = (L.wholesale || []).filter(x => x.stage !== 'past').length || '';
   $('cWaitlist').textContent = waiting(L.waitlist) || '';
   $('cClients').textContent = (L.customers || []).length || '';
-  // Only the recent ones are worth a badge; a tally of every change ever
-  // made would sit there as a number nobody acts on.
-  const since = Date.now() - 30 * 864e5;
-  $('cPriceLog').textContent =
-    (data.priceChanges || []).filter(c => Date.parse(c.when) >= since).length || '';
-}
-
-/* What the price list used to say.
- *
- * Paul's rule: a price is changed on the Price tab or typed into the sheet,
- * and that is the price for everybody. A price agreed with one customer is an
- * arrangement and lives on their order, so nothing from an order reaches this
- * screen. */
-function renderPriceLog() {
-  const rows = data.priceChanges || [];
-  const money0 = v => v === '' || v === null || v === undefined ? '—' : plain(v);
-  $('priceLogList').innerHTML = rows.length ? rows.map(c => {
-    const up = c.was !== '' && c.now !== '' && Number(c.now) > Number(c.was);
-    const down = c.was !== '' && c.now !== '' && Number(c.now) < Number(c.was);
-    return '<div class="item"><div class="name"><b>' + esc(c.product || c.sku) + '</b>' +
-      '<span>' + esc(c.which) + ' · ' + esc(c.where || 'unknown') +
-      (c.by ? ' · ' + esc(c.by) : '') +
-      (c.when ? ' · ' + esc(String(c.when).slice(0, 10)) : '') +
-      (c.why ? ' · ' + esc(c.why) : '') + '</span></div>' +
-      '<div class="lmoney"><b>' + money0(c.was) + ' → ' +
-        '<span style="color:' + (up ? 'var(--bad)' : down ? 'var(--ok)' : 'inherit') + '">' +
-        money0(c.now) + '</span></b></div></div>';
-  }).join('') : '<div class="empty">No price changes recorded yet.</div>';
 }
 
 /* ───────── wholesale: ordered, waiting, past ─────────
@@ -7087,16 +7032,42 @@ function wlEditSave(row) {
   } }, 'Saved.');
 }
 
+/* What the list files a customer under.
+ *
+ * The last word of the name, which is the surname for a person and the wrong
+ * word for a business — "What The Chuck" would file under C. So the CUSTOMERS
+ * tab has a 'File as' column: typed, it wins, and it can be typed from the
+ * client's own card. Nothing here guesses which kind of name it is looking at.
+ */
+function filedAs(c) {
+  const typed = String(c.fileAs || '').trim();
+  if (typed) return typed;
+  const words = String(c.customer || '').trim().split(/\s+/).filter(Boolean);
+  return words.length > 1 ? words[words.length - 1] : (words[0] || '');
+}
+
 function renderClients() {
   const q = $('clientSearch').value.trim().toLowerCase();
   let rows = (data.lists || {}).customers || [];
   if (q) rows = rows.filter(c =>
     (c.customer + ' ' + c.email + ' ' + c.phone + ' ' + (c.bought || '')).toLowerCase().includes(q));
+  /* Alphabetical by surname. localeCompare with sensitivity:'base' puts
+     Beaudoin next to Béaudoin rather than at the far end of the list. */
+  const cmp = (x, y) => String(x).localeCompare(String(y), undefined,
+                                                { sensitivity: 'base', numeric: true });
   rows = rows.slice().sort((a, b) =>
-    String(b.last).localeCompare(String(a.last)) ||
-    String(a.customer).localeCompare(String(b.customer)));
-  $('clientList').innerHTML = rows.length ? rows.map(c =>
-    '<div class="item" onclick="openCustomer(' +
+    cmp(filedAs(a), filedAs(b)) || cmp(a.customer, b.customer));
+
+  const count = $('clientCount');
+  if (count) count.textContent = rows.length +
+    (rows.length === 1 ? ' customer' : ' customers');
+
+  let letter = null;
+  $('clientList').innerHTML = rows.length ? rows.map(c => {
+    const first = (filedAs(c)[0] || '?').toUpperCase();
+    let head = '';
+    if (!q && first !== letter) { letter = first; head = '<div class="kindhead">' + esc(first) + '</div>'; }
+    return head + '<div class="item" onclick="openCustomer(' +
       JSON.stringify(c.customer).replace(/"/g, '&quot;') + ')">' +
     '<div class="name"><b>' + esc(c.customer) + '</b>' +
     '<span>' + esc(c.email || c.phone || '') + (c.last ? ' · last ordered ' + esc(c.last) : '') +
@@ -7105,7 +7076,8 @@ function renderClients() {
       // Everything they have ever spent with us, app or not.
       (((c.spend || 0) + (c.priorSpend || 0)) > 0
         ? money((c.spend || 0) + (c.priorSpend || 0)) + ' all time'
-        : 'orders') + '</span></div></div>').join('')
+        : 'orders') + '</span></div></div>';
+  }).join('')
     : '<div class="empty">No customers yet.</div>';
 }
 
@@ -7235,6 +7207,9 @@ function custEdit() {
     custBoxes('cuTown', 'Town', k.town, 'text') +
     '<label>Notes</label><input id="cuNotes" value="' +
       esc((w.app && w.app.notes) || '') + '">' +
+    '<label>File the list under</label><input id="cuFileAs" value="' +
+      esc((w.app && w.app.fileAs) || '') + '" placeholder="' +
+      esc(filedAs({ customer: w.name || '' })) + '">' +
     '<p class="muted" style="margin:10px 0 0">Google Contacts keeps every number ' +
       'and address. The two spreadsheets get them in the one cell, written ' +
       '“one / the other”.</p>' +
@@ -7250,7 +7225,8 @@ async function custSave() {
   const was = (custCard || {}).name || '';
   const body = { customer: $('cuName').value.trim() || was, was: was,
                  phones: custMany('cuPhone'), emails: custMany('cuMail'),
-                 towns: custMany('cuTown'), notes: $('cuNotes').value.trim() };
+                 towns: custMany('cuTown'), notes: $('cuNotes').value.trim(),
+                 fileAs: $('cuFileAs').value.trim() };
   if (!body.customer) return toast('They need a name.', 'bad');
   openSheet(body.customer, 'Writing it to all three…', '<p class="muted">One moment.</p>');
   try {
@@ -7315,23 +7291,6 @@ function renderExtras(r) {
     'and on the sales sheet. Open one only if a number looks wrong.</p>';
 }
 
-function openBookLinks() {
-  const w = custCard || {};
-  openSheet('The three books', 'Where a client’s details live',
-    '<div class="card list" style="margin:0;padding:0;box-shadow:none">' +
-    '<div class="item"><div class="name"><b>The app</b>' +
-      '<span>CUSTOMERS tab of the PCW Inventory sheet — what the app reads</span></div></div>' +
-    '<div class="item"><div class="name"><b>The sales sheet</b>' +
-      '<span>"Customers’ info" in 1. 2026 sales sheet — the book of record</span></div></div>' +
-    '<div class="item"><div class="name"><b>Google Contacts</b>' +
-      '<span>Labelled PCW Customers, so a name comes up when they ring</span></div></div>' +
-    '</div>' +
-    '<p class="muted" style="margin-top:10px">Open a client to jump straight to their line in ' +
-    'any of the three. Squaring them up puts every number and address into every ' +
-    'book — a client with two of something keeps both, and nothing is ever deleted ' +
-    'by it.</p>' +
-    '<button class="ghost" style="margin-top:12px" onclick="closeSheet()">Close</button>');
-}
 
 async function openCustomer(name) {
   openSheet(name, 'Looking them up…', '<p class="muted">One moment.</p>');
@@ -9317,14 +9276,14 @@ function discardQueue() {
 
 const SUBVIEWS = { order:'orders', neworder:'orders', followup:'orders',
                    wholesale:'menu', waitlist:'menu',
-                   steer:'menu', clients:'menu', market:'menu', boxes:'menu', status:'menu',
-                   sales:'menu', pricelog:'menu', freezers:'menu',
+                   steer:'menu', clients:'menu', market:'menu', boxes:'menu',
+                   sales:'menu', freezers:'menu',
                    calnew:'calendar' };
 const TITLES = { order:'Order', neworder:'New order', followup:'Follow up',
                  wholesale:'Wholesale',
                  waitlist:'Cut waiting list', steer:'Meat coming in', clients:'Customers',
-                 market:'Market day', boxes:'Boxes', status:'Inventory status',
-                 sales:'Sales, year to date', pricelog:'Price changes',
+                 market:'Market day', boxes:'Boxes',
+                 sales:'Sales, year to date',
                  freezers:'Freezer temps',
                  calendar:'Calendar', calnew:'Add to the calendar' };
 

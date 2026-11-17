@@ -141,7 +141,7 @@ var HEADERS = {
   CUSTOMERS:['Customer', 'Email', 'Phone', 'Town', 'First order', 'Last order', 'Orders',
              'Orders before the app', 'Packages', 'Spend', 'Spend before the app',
              'Source', 'In Google Contacts', 'Bought before', 'Notes',
-             'Email 2', 'Phone 2'],
+             'Email 2', 'Phone 2', 'File as'],
   WHOLESALE:['Customer', 'Phone', 'Email', 'Wants', 'Status', 'Priority', 'Wanted by',
              'Deposit', 'Weight (lb)', 'Price', 'Invoice', 'Paid', 'Added', 'Notes'],
   WAITLIST: ['Customer', 'Phone', 'Email', 'Waiting for', 'Their words', 'Size', 'Grade',
@@ -6135,6 +6135,7 @@ function appCustomerRows_() {
                   email: str_(r[at['Email']]), phone: str_(r[at['Phone']]),
                   email2: str_(r[at['Email 2']]), phone2: str_(r[at['Phone 2']]),
                   town: str_(r[at['Town']]), notes: str_(r[at['Notes']]),
+                  fileAs: str_(r[at['File as']]),
                   inContacts: str_(r[at['In Google Contacts']]) });
     });
   }
@@ -6347,6 +6348,7 @@ function customerWhere_(name, pre) {
     ok: true, name: mine ? mine.name : (theirs ? theirs.name : who),
     app: mine ? { row: mine.row, phone: mine.phone, email: mine.email, town: mine.town,
                   phone2: mine.phone2, email2: mine.email2, notes: mine.notes,
+                  fileAs: mine.fileAs,
                   url: app.url + '&range=A' + mine.row } : null,
     appUrl: app.url,
     sales: theirs ? { row: theirs.row, phone: theirs.phone, email: theirs.email,
@@ -6467,6 +6469,12 @@ function customerSave_(req) {
     });
     if (req.notes !== undefined && str_(mine.notes) !== want.notes) {
       put('Notes', want.notes, 'notes');
+    }
+    /* How the list files them. Left blank the app takes the last word of
+       the name, which is right for a person and wrong for a business, so
+       there is a box for it rather than a rule nobody can override. */
+    if (req.fileAs !== undefined && str_(mine.fileAs) !== str_(req.fileAs)) {
+      if (put('File as', str_(req.fileAs), 'filed as')) mine.fileAs = str_(req.fileAs);
     }
     if (refused.length) {
       return { ok: false, error: 'The customer tab has no ' +
@@ -6960,7 +6968,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-17 17:16 UTC';
+var BACKEND_BUILD = '2026-11-17 17:38 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -9653,6 +9661,7 @@ function lists_() {
                spend: num_(r['Spend']), priorSpend: num_(r['Spend before the app']),
                first: dateStr_(r['First order']),
                last: dateStr_(r['Last order']), source: str_(r['Source']),
+               fileAs: str_(r['File as']),
                bought: str_(r['Bought before']) };
     }).filter(function (r) { return r.customer; })
   };
