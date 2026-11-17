@@ -1220,6 +1220,12 @@ console.log('\nthe wholesale screen: ordered, waiting, past');
     // Re-recording replaces, so a corrected sheet can just be sent again.
     j.steerCutsSave_({ batch: 'JUNE-2026',
       cuts: [{ sku: 'RIBEYE', weight: 30 }, { sku: 'GROUND', weight: 380.5 }] });
+    check('a list that arrives as text over the query string is read all the same',
+      j.steerCutsSave_({ batch: 'TEXT-1',
+        cuts: JSON.stringify([{ sku: 'RIBEYE', weight: 4 }]) }).recorded, 1);
+    check('and text that is not a list is refused rather than half-written',
+      j.steerCutsSave_({ batch: 'TEXT-2', cuts: 'not json' }).ok, false);
+
     check('sending it again replaces what was there rather than doubling it',
       j.steerYield_({ batch: 'JUNE-2026' }).weight, 410.5);
   }

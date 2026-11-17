@@ -6905,7 +6905,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-17 16:59 UTC';
+var BACKEND_BUILD = '2026-11-17 17:01 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -9899,9 +9899,15 @@ function recordedCuts_(batch) {
 function steerCutsSave_(req) {
   var batch = str_(req && req.batch);
   if (!batch) return { ok: false, error: 'Which steer?' };
-  var rows = (req.cuts || []).filter(function (c) {
-    return str_(c.sku) || str_(c.product);
-  });
+  /* Over a query string a list arrives as text, so it is parsed here rather
+     than leaving the caller to guess which shape this wants. */
+  var given = req.cuts;
+  if (typeof given === 'string') {
+    try { given = JSON.parse(given); }
+    catch (e) { return { ok: false, error: 'The cuts could not be read: ' + e.message }; }
+  }
+  if (!given || !given.length) return { ok: false, error: 'No cuts to record.' };
+  var rows = given.filter(function (c) { return str_(c.sku) || str_(c.product); });
   if (!rows.length) return { ok: false, error: 'No cuts to record.' };
 
   var sh = sheet_(TABS.STEERCUTS);
