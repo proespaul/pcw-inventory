@@ -6905,7 +6905,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-17 17:06 UTC';
+var BACKEND_BUILD = '2026-11-17 17:09 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -9890,8 +9890,7 @@ function sameSteer_(a, b) {
 
 function recordedCuts_(batch) {
   var out = [];
-  try {
-    readTable_(TABS.STEERCUTS).forEach(function (r) {
+  readTable_(TABS.STEERCUTS).forEach(function (r) {
       if (!sameSteer_(r['Steer ID'], batch)) return;
       var name = str_(r['Cut']);
       if (!name && !str_(r['SKU'])) return;
@@ -9899,8 +9898,7 @@ function recordedCuts_(batch) {
       out.push({ sku: str_(r['SKU']), product: name || str_(r['SKU']),
                  weight: num_(r['Weight (lb)']), packages: num_(r['Packages']),
                  counts: flag === '' ? null : (flag !== 'no' && flag !== 'false') });
-    });
-  } catch (e) { return []; }
+  });
   return out;
 }
 
@@ -10011,13 +10009,17 @@ function steerYield_(req) {
   /* A steer with a written record overrides whatever carries its batch tag:
      the record is the whole animal, the tags are whatever happened to be
      booked in. Mixing the two would count some cuts twice. */
-  var recordedFor = {};
+  /* This read used to fail into an empty object, so a steer with a written
+     record looked exactly like a steer with nothing recorded and the screen
+     said nothing had ever been booked against it. Whatever goes wrong here
+     is carried back and shown. */
+  var recordedFor = {}, recordError = '';
   try {
     readTable_(TABS.STEERCUTS).forEach(function (r) {
       var b = str_(r['Steer ID']);
       if (b) recordedFor[b] = true;
     });
-  } catch (e) { recordedFor = {}; }
+  } catch (e) { recordedFor = {}; recordError = str_(e && e.message) || String(e); }
   Object.keys(recordedFor).forEach(function (b) {
     Object.keys(byBatch).forEach(function (had) {
       if (sameSteer_(had, b)) delete byBatch[had];
@@ -10035,7 +10037,10 @@ function steerYield_(req) {
       if (!mine && sameSteer_(had, batch)) { mine = byBatch[had]; batch = had; }
     });
   }
-  if (!mine) return { ok: false, error: 'Nothing has been booked in against ' + batch + ' yet.' };
+  if (!mine) {
+    return { ok: false, error: 'Nothing has been booked in against ' + batch + ' yet.' +
+      (recordError ? ' The cut record could not be read: ' + recordError : '') };
+  }
 
   /* The usual share of each cut, averaged over the other steers. A steer
      with no weights recorded has no shares to contribute, so it is left
@@ -10116,7 +10121,8 @@ function steerYield_(req) {
     unweighed: cuts.filter(function (c) { return !c.weight; }).length,
     weighedPackages: round2_(weighedPacks),
     aside: round2_(mine.aside),
-    fromRecord: !!recordedFor[batch],
+    fromRecord: Object.keys(recordedFor).some(function (b) { return sameSteer_(b, batch); }),
+    recordError: recordError,
     /* Shares worked out over a fraction of the animal are not shares of the
        animal. The screen says so rather than drawing them as if they were. */
     sharesCover: mine.packages ? round2_(weighedPacks / mine.packages * 100) : 0,
