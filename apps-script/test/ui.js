@@ -930,6 +930,58 @@ const pause = () => new Promise(r => setTimeout(r, 0));
       doc.getElementById('kBar').className, '');
   }
 
+  /* ───────── nothing worth showing should wait ─────────
+     A customer's name, town, what they have spent and the number to ring
+     have all been on the phone since the last sync. The card used to put
+     "Looking them up…" over the lot of them and go and read six tabs. */
+  {
+    w.eval('data.lists = data.lists || {}; data.lists.customers = ' + JSON.stringify([
+      { customer: 'Reene Beaudoin', email: 'reene@example.com', phone: '780-625-6963',
+        phone2: '780-555-0199', email2: '', town: 'Peace River, AB', notes: '',
+        orders: 1, prior: 2, spend: 188, priorSpend: 300, last: '2026-08-20' }
+    ]) + '; data.custCards = {}; data.orders = [];');
+
+    // Nothing answers 'customer' yet, so whatever is on screen came from here.
+    w.eval('openCustomer("Reene Beaudoin");');
+    const card = text('sheetBody');
+    check('the card is up before anything is asked of the script',
+      /780-625-6963/.test(card), true);
+    check('with both numbers, not just the first',
+      /780-555-0199/.test(card), true);
+    check('and what they are worth, straight away',
+      /488/.test(text('sheetSub')), true);
+    /* The order history genuinely does have to be fetched. It says so,
+       rather than showing an empty list that reads as "never bought
+       anything". */
+    check('the part still coming says so rather than reading as nothing',
+      [/Reading what they have bought/.test(card),
+       /Nothing recorded against them/.test(card)], [true, false]);
+
+    // Then the full card lands and replaces it.
+    replyWith('customer', { ok: true, name: 'Reene Beaudoin', email: 'reene@example.com',
+      phone: '780-625-6963', town: 'Peace River, AB', orderCount: 3, spend: 488,
+      last: '2026-08-20', notes: '', waiting: [],
+      lines: [{ date: '2026-08-20', what: '2x Steak Lovers Box', amount: 188,
+                kind: 'Sale', how: 'E-transfer' }],
+      where: { ok: true, name: 'Reene Beaudoin', app: null, alsoSpelled: ['Renee Beaudoin'],
+               known: { phone: [{ value: '780-625-6963', where: ['app'] }],
+                        email: [{ value: 'reene@example.com', where: ['app'] }], town: [] } } });
+    w.eval('openCustomer("Reene Beaudoin");');
+    await pause(); await pause();
+    check('what they have bought arrives underneath it',
+      /Steak Lovers Box/.test(text('sheetBody')), true);
+
+    /* And the second opening waits for nothing at all: the whole card was
+       kept the first time. */
+    delete replies.customer;      // nothing will answer it this time
+    w.eval('closeSheet(); openCustomer("Reene Beaudoin");');
+    check('opening them again is instant, history and all',
+      /Steak Lovers Box/.test(text('sheetBody')), true);
+    check('and the kept card is not still calling itself unfinished',
+      /Reading what they have bought/.test(text('sheetBody')), false);
+    w.eval('closeSheet();');
+  }
+
   console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll browser checks passed.\n');
   process.exit(failures ? 1 : 0);
 })();

@@ -1238,7 +1238,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-18 21:55 UTC';
+const APP_BUILD = '2026-11-18 22:05 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -2032,6 +2032,11 @@ function applyBoot(boot) {
     // Every animal and what it did, down with everything else so the tab
     // opens on it instead of going and asking.
     cattle: boot.cattle || null,
+    /* Cards already opened once. Not from the backend — the phone fills
+       these in as they are looked at, and keeps them across a sync so
+       something opened yesterday still opens instantly today. */
+    custCards: (data && data.custCards) || {},
+    steerCards: (data && data.steerCards) || {},
     steerCosts: boot.steerCosts || {},
     boxList: boot.boxList || [],
     // Cut SKU → the built boxes holding it, so the Cuts list can say that the
@@ -7343,11 +7348,73 @@ function renderExtras(r) {
 }
 
 
+/* ─────────────────── a customer, without the wait ───────────────────
+ *
+ * Opening a customer used to put "Looking them up…" on the screen and go
+ * and read six tabs. Everything above the order history — their name, where
+ * they are, what they have spent, the number to ring — is already on the
+ * phone and has been since the last sync. There was never a reason to wait
+ * for it.
+ *
+ * So the card is drawn from what is here, at once, and the parts only the
+ * script can answer — their order history, and the other spellings of their
+ * name in the sales sheet and Google Contacts — arrive underneath it a
+ * moment later. The last full card is kept, so the second time a customer
+ * is opened there is nothing left to wait for at all.
+ */
+function custLocal(name) {
+  const key = String(name || '').trim().toLowerCase();
+  return ((data.lists || {}).customers || [])
+    .filter(c => String(c.customer || '').trim().toLowerCase() === key)[0] || null;
+}
+
+/* The card as the phone can already tell it. Good enough to act on: it has
+   the number to ring and what they are worth. It is not the whole card, and
+   it says which part is still coming rather than pretending to be finished. */
+function custFromLocal(name) {
+  const c = custLocal(name);
+  if (!c) return null;
+  const one = v => v ? [{ value: v, where: ['app'] }] : [];
+  const two = (a, b) => one(a).concat(b && b !== a ? one(b) : []);
+  return {
+    ok: true, name: c.customer || name, email: c.email || '', phone: c.phone || '',
+    town: c.town || '', notes: c.notes || '', source: c.source || '',
+    orderCount: (c.orders || 0) + (c.prior || 0),
+    spend: (c.spend || 0) + (c.priorSpend || 0),
+    last: c.last || '', lines: [], waiting: [], stillReading: true,
+    where: { ok: true, name: c.customer || name, app: null,
+             known: { phone: two(c.phone, c.phone2), email: two(c.email, c.email2),
+                      town: one(c.town) } }
+  };
+}
+
 async function openCustomer(name) {
-  openSheet(name, 'Looking them up…', '<p class="muted">One moment.</p>');
+  const cached = (data.custCards || {})[String(name || '').trim().toLowerCase()];
+  const first = cached || custFromLocal(name);
+  if (first) custSheet(first);
+  else openSheet(name, 'Looking them up…', '<p class="muted">One moment.</p>');
+
   let f;
   try { f = await api('customer', { customer: name, where: true }); }
-  catch (e) { return openSheet(name, '', '<p class="muted">' + esc(e.message) + '</p>'); }
+  catch (e) {
+    // Offline, or the script is asleep. What is on the screen is still true
+    // as far as it goes; only a blank card is worth replacing with the reason.
+    if (!first) openSheet(name, '', '<p class="muted">' + esc(e.message) + '</p>');
+    return;
+  }
+  /* Kept, so the second opening of a customer waits for nothing at all.
+     Capped, because this is a phone and the card carries their whole order
+     history: the forty most recently opened is more than anybody works
+     through in a day, and the oldest falls off the end. */
+  data.custCards = data.custCards || {};
+  data.custCards[String(name || '').trim().toLowerCase()] = f;
+  const keys = Object.keys(data.custCards);
+  if (keys.length > 40) delete data.custCards[keys[0]];
+  save(LS.data, data);
+  custSheet(f);
+}
+
+function custSheet(f) {
   /* If the backend could not reach the other two books, the card still
      works — it just knows only what the app knows. */
   const one = v => v ? [{ value: v, where: ['app'] }] : [];
@@ -7365,25 +7432,27 @@ async function openCustomer(name) {
   const buttons = (phones.length || mails.length)
     ? '<div class="row"' + tight + '>' +
         phones.map(p => '<a class="btnlike" href="tel:' +
-          esc(String(p).replace(/[^\d+]/g, '')) + '">📞 ' + esc(p) + '</a>').join('') +
-        mails.map(m => '<a class="btnlike ghost" href="mailto:' + esc(m) + '">✉️ ' +
+          esc(String(p).replace(/[^\d+]/g, '')) + '">\ud83d\udcde ' + esc(p) + '</a>').join('') +
+        mails.map(m => '<a class="btnlike ghost" href="mailto:' + esc(m) + '">\u2709\ufe0f ' +
           esc(m) + '</a>').join('') +
       '</div>'
     : '<p class="muted">No phone or email on file for them.</p>';
 
   const lines = (f.lines || []).length
     ? (f.lines || []).map(l =>
-        '<div class="item"><div class="name"><b>' + esc(l.what || '—') +
+        '<div class="item"><div class="name"><b>' + esc(l.what || '\u2014') +
         (l.kind && l.kind !== 'Sale' ? '<span class="tag">' + esc(l.kind) + '</span>' : '') +
         '</b><span>' + esc(l.date || 'no date') +
-        (l.how ? ' · ' + esc(l.how) : '') +
-        (l.invoice ? ' · invoice ' + esc(l.invoice) : '') +
-        (l.weight ? ' · ' + esc(l.weight) + ' lb' : '') +
-        (l.status ? ' · ' + esc(l.status) : '') +
+        (l.how ? ' \u00b7 ' + esc(l.how) : '') +
+        (l.invoice ? ' \u00b7 invoice ' + esc(l.invoice) : '') +
+        (l.weight ? ' \u00b7 ' + esc(l.weight) + ' lb' : '') +
+        (l.status ? ' \u00b7 ' + esc(l.status) : '') +
         (l.note ? '<br>' + esc(l.note) : '') + '</span></div>' +
         (l.amount ? '<div class="qty"><b>' + money(l.amount) + '</b><span></span></div>' : '') +
         '</div>').join('')
-    : '<div class="empty">Nothing recorded against them yet.</div>';
+    : (f.stillReading
+        ? '<div class="empty">Reading what they have bought\u2026</div>'
+        : '<div class="empty">Nothing recorded against them yet.</div>');
 
   const waiting = (f.waiting || []).length
     ? '<h3 style="margin:16px 0 6px">Waiting on</h3><ul style="margin:0;padding-left:20px">' +
@@ -7393,8 +7462,8 @@ async function openCustomer(name) {
   openSheet(f.name,
     [f.town, f.orderCount ? f.orderCount + ' order' + (f.orderCount === 1 ? '' : 's') : '',
      f.spend ? money(f.spend) + ' all time' : '',
-     f.last ? 'last bought ' + f.last : ''].filter(Boolean).join(' · '),
-    buttons + custDetails(f.where) + waiting +
+     f.last ? 'last bought ' + f.last : ''].filter(Boolean).join(' \u00b7 '),
+    buttons + (f.stillReading ? '' : custDetails(f.where)) + waiting +
     '<h3 style="margin:16px 0 6px">What they have ordered</h3>' +
     '<div class="card list" style="margin:0;padding:0;box-shadow:none">' + lines + '</div>' +
     (f.notes ? '<p class="muted" style="margin-top:12px">' + esc(f.notes) + '</p>' : '') +
@@ -8166,11 +8235,46 @@ async function openSteerYield() {
 /* The same card from two places: off the steer picker on "Meat coming in",
    and off a name on the Cattle performance list. backTo says which, so
    closing goes back where it came from. */
+/* The same bargain as the customer card: show what is already known at
+   once, and let the part that has to be worked out arrive underneath. The
+   herd list carries every figure in the top half of this card — the
+   weights, the yield, what was set aside — so the only thing worth
+   waiting for is the cut-by-cut. */
 async function openSteerBreakdown(batch, backTo) {
-  openSheet(batch, 'Working it out…', '<p class="muted">One moment.</p>');
+  const known = ((data.cattle || {}).steers || [])
+    .filter(x => String(x.id).toLowerCase() === String(batch).toLowerCase())[0];
+  const cached = (data.steerCards || {})[String(batch).toLowerCase()];
+  if (cached) steerSheet(cached, backTo);
+  else if (known) {
+    steerSheet({ ok: true, batch: known.id, live: known.live, hanging: known.hanging,
+      hung: known.hung, packages: known.packages, weight: known.meat,
+      recordedWeight: known.meat, partial: false, covers: known.covers,
+      aside: known.aside, yieldPct: known.yieldPct, cutYield: known.cutYield,
+      takeYield: known.takeYield, yieldKind: known.yieldKind,
+      usualYield: null, comparedWith: 0, needsHanging: false,
+      needsCarcass: !known.hanging, unweighed: 0, weighedPackages: 0,
+      sharesCover: 0, cuts: [], stillReading: true }, backTo);
+  } else {
+    openSheet(batch, 'Working it out…', '<p class="muted">One moment.</p>');
+  }
+
   let y;
   try { y = await api('steerYield', { batch }); }
-  catch (e) { return openSheet(batch, '', '<p class="muted">' + esc(e.message) + '</p>'); }
+  catch (e) {
+    if (!cached && !known) openSheet(batch, '', '<p class="muted">' + esc(e.message) + '</p>');
+    return;
+  }
+  if (y && y.ok) {
+    data.steerCards = data.steerCards || {};
+    data.steerCards[String(batch).toLowerCase()] = y;
+    save(LS.data, data);
+  }
+  return steerSheet(y, backTo);
+}
+
+function steerSheet(y, backTo) {
+  // The steer's own name, whichever of the two paths got us here.
+  const batch = (y && y.batch) || '';
   if (!y || !y.ok) {
     return openSheet(batch, '', '<p class="muted">' +
       esc((y && y.error) || 'Nothing to show yet.') + '</p>' +
@@ -8214,7 +8318,7 @@ async function openSteerBreakdown(batch, backTo) {
           : '.') + '</p>' : '');
 
   const partial = !!y.partial;
-  const rows = y.cuts.map(c => {
+  const rows = (y.cuts || []).map(c => {
     const tag = c.off === 'high' ? '<span class="tag">more than usual</span>'
               : c.off === 'low' ? '<span class="tag warn">less than usual</span>' : '';
     /* Three different nothings, and they used to print the same. The fat
@@ -8239,6 +8343,8 @@ async function openSteerBreakdown(batch, backTo) {
   openSheet(batch, 'What came off this steer',
     head +
     '<h3 style="margin:16px 0 6px">Cut by cut</h3>' +
+    (y.stillReading
+      ? '<p class="muted" style="margin:0 0 8px">Reading what came off it…</p>' : '') +
     '<div class="card list" style="margin:0;padding:0;box-shadow:none">' + rows + '</div>' +
     (y.comparedWith < 2
       ? '<p class="muted" style="margin:10px 0 0">Nothing is flagged yet — that ' +

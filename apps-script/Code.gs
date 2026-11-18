@@ -7013,7 +7013,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-18 21:55 UTC';
+var BACKEND_BUILD = '2026-11-18 22:05 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -9774,6 +9774,11 @@ function lists_() {
                first: dateStr_(r['First order']),
                last: dateStr_(r['Last order']), source: str_(r['Source']),
                fileAs: str_(r['File as']),
+               /* The second number and the second address travel with the
+                  first, so the card can put both buttons up the moment it
+                  opens rather than after a trip to the script. */
+               phone2: str_(r['Phone 2']), email2: str_(r['Email 2']),
+               notes: str_(r['Notes']),
                bought: str_(r['Bought before']) };
     }).filter(function (r) { return r.customer; })
   };
