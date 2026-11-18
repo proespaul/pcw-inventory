@@ -1614,5 +1614,25 @@ console.log('\na client with two numbers');
     c.HEADERS.STEERS[c.HEADERS.STEERS.length - 1], 'Carcass weight (lb)');
 }
 
+/* ---- two yields, and they are not the same measurement ----
+   Meat over the carcass is what the butcher got out of a dressed animal.
+   Meat over the live weight is what we got out of the animal we paid for.
+   F2 was weighed on the hoof at 1,900 lb and never on the rail; the June
+   steer was weighed on the rail at 1,290.8 and never on the hoof. Averaged
+   together, a 41 and a 52 would read as one usual yield. */
+{
+  const c = buildContext();
+  const june = c.yieldsOf_(530.8, 1290.8, 0);
+  const f2 = c.yieldsOf_(996.9, 0, 1900);
+  check('a steer weighed on the rail gets a cutting yield and no other',
+    [june.cut, june.take], [41.12, null]);
+  check('and one weighed on the hoof gets a take-home yield and no other',
+    [f2.cut, f2.take], [null, 52.47]);
+  check('an animal weighed both ways gets both',
+    c.yieldsOf_(500, 1000, 1500), { cut: 50, take: 33.33 });
+  check('and one weighed neither way gets neither',
+    c.yieldsOf_(500, 0, 0), { cut: null, take: null });
+}
+
 console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll checks passed.\n');
 process.exit(failures ? 1 : 0);

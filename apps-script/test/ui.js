@@ -732,15 +732,22 @@ const pause = () => new Promise(r => setTimeout(r, 0));
      as "unavailable" — a zero would average into the yield, and a blank
      reads as though somebody forgot to type it. */
   {
-    replyWith('cattle', { ok: true, weighed: 2, usualYield: 46.79, steers: [
-      { id: 'June-2026', outfit: 'PCW', when: '2026-06-01', live: 1290.8, hanging: 1290.8,
-        meat: 530.8, aside: 362.5, packages: 0, yieldPct: 41.12,
+    /* June was weighed on the rail and F2 on the hoof, so their yields are
+       not the same measurement: 530.8 over a carcass against 996.9 over a
+       live weight. Averaged together they would read as one usual. */
+    replyWith('cattle', { ok: true, weighed: 2, usualCut: 41.12, usualTake: 52.47,
+      cutters: 1, takers: 1, steers: [
+      { id: 'June-2026', outfit: 'PCW', when: '2026-06-01', live: null, hanging: 1290.8,
+        hung: null, meat: 530.8, aside: 362.5, packages: 0, yieldPct: 41.12,
+        cutYield: 41.12, takeYield: null, yieldKind: 'carcass',
         covers: '', hasBreakdown: true, fromRecord: true, notes: '' },
-      { id: 'F2', outfit: 'PCW', when: '2026-03-31', live: null, hanging: 1900,
-        meat: 996.9, aside: 201.3, packages: 222, yieldPct: 52.47,
+      { id: 'F2', outfit: 'PCW', when: '2026-03-31', live: 1900, hanging: null,
+        hung: null, meat: 996.9, aside: 201.3, packages: 222, yieldPct: 52.47,
+        cutYield: null, takeYield: 52.47, yieldKind: 'live',
         covers: "PCW's own share only", hasBreakdown: true, fromRecord: true, notes: '' },
       { id: 'June-2026-Wholesale', outfit: 'Wholesale', when: '', live: 1154.2,
-        hanging: null, meat: null, aside: null, packages: null, yieldPct: null,
+        hanging: null, hung: null, meat: null, aside: null, packages: null,
+        yieldPct: null, cutYield: null, takeYield: null, yieldKind: '',
         covers: '', hasBreakdown: false, fromRecord: false, notes: '' }
     ]});
     w.eval('cattle = null; showView("cattle");');
@@ -763,8 +770,11 @@ const pause = () => new Promise(r => setTimeout(r, 0));
       /Wholesale/.test(doc.getElementById('cattleList').innerHTML), true);
     check('one with nothing recorded off it says that too',
       /nothing recorded off it/.test(body), true);
-    check('the usual yield is the average of the ones we could weigh',
-      /46.79%/.test(text('cattleTop')), true);
+    check('the two kinds of yield are averaged apart, not together',
+      [/41.12% of the carcass/.test(text('cattleTop')),
+       /52.47% of the live weight/.test(text('cattleTop'))], [true, true]);
+    check('and each animal says which of the two its own figure is',
+      [/of the carcass/.test(body), /of the live weight/.test(body)], [true, true]);
     check('and the count is on the menu', text('cCattle'), '3');
 
     // Tapping a name opens the cut-by-cut, and says what it covers when the

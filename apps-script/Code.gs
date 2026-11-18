@@ -6981,7 +6981,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-18 21:02 UTC';
+var BACKEND_BUILD = '2026-11-18 21:10 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -9986,6 +9986,22 @@ function sameSteer_(a, b) {
  * 1,900 — were carcass weights, so a blank carcass weight falls back to
  * it rather than reading those two as missing.
  */
+/* Two different yields, and they are not comparable.
+ *
+ * Meat over the carcass is the cutting yield: what the butcher got out of
+ * the animal once the plant had dressed it. Meat over the live weight is
+ * the take-home yield: what we got out of the animal we paid for. A steer
+ * with both weights has both numbers; most of ours have one weight and so
+ * one number, and averaging the two kinds together would compare a 41 to
+ * a 52 as though they measured the same thing.
+ */
+function yieldsOf_(meat, carcass, live) {
+  return {
+    cut: carcass && meat ? round2_(meat / carcass * 100) : null,
+    take: live && meat ? round2_(meat / live * 100) : null
+  };
+}
+
 function carcassOf_(row) {
   var c = num_(row['Carcass weight (lb)']);
   return c > 0 ? c : num_(row['Hanging weight (lb)']);
@@ -10153,6 +10169,8 @@ function cattle_() {
     var stated = num_(r['Saleable weight (lb)']);
     var meat = stated > 0 ? stated : from.weight;
     var hanging = carcassOf_(r);
+    var live = num_(r['Live weight (lb)']);
+    var y = yieldsOf_(meat, hanging, live);
     list.push({
       id: id,
       outfit: str_(r['Outfit']),
@@ -10160,7 +10178,7 @@ function cattle_() {
          number. The date is the kill date where there is one, and the pack
          date where there is not. */
       when: dateStr_(r['Kill date']) || dateStr_(r['Pack date']),
-      live: num_(r['Live weight (lb)']) || null,
+      live: live || null,
       hanging: hanging || null,
       /* Shown only where it was actually taken, and never as the yield
          basis: it is the carcass weight that drives that. */
@@ -10168,7 +10186,11 @@ function cattle_() {
       meat: meat > 0 ? round2_(meat) : null,
       aside: from.aside > 0 ? round2_(from.aside) : null,
       packages: from.packages || null,
-      yieldPct: (hanging && meat) ? round2_(meat / hanging * 100) : null,
+      cutYield: y.cut, takeYield: y.take,
+      /* Whichever one this animal has. Where it has both, the cutting
+         yield leads: it is the one the butcher can be held to. */
+      yieldPct: y.cut === null ? y.take : y.cut,
+      yieldKind: y.cut !== null ? 'carcass' : y.take !== null ? 'live' : '',
       covers: str_(r['Breakdown covers']),
       hasBreakdown: from.cuts > 0,
       fromRecord: !!recorded[key],
@@ -10189,7 +10211,8 @@ function cattle_() {
       meat: from.weight > 0 ? round2_(from.weight) : null,
       aside: from.aside > 0 ? round2_(from.aside) : null,
       packages: from.packages || null,
-      yieldPct: null, covers: '', hasBreakdown: from.cuts > 0,
+      yieldPct: null, cutYield: null, takeYield: null, yieldKind: '',
+      covers: '', hasBreakdown: from.cuts > 0,
       fromRecord: !!recorded[key], notes: '', noRow: true
     });
   });
@@ -10203,14 +10226,21 @@ function cattle_() {
     return String(b.when).localeCompare(String(a.when));
   });
 
-  var weighed = list.filter(function (x) { return x.yieldPct !== null; });
+  /* Averaged apart, because they are not the same measurement. */
+  var mean = function (xs) {
+    return xs.length
+      ? round2_(xs.reduce(function (a, b) { return a + b; }, 0) / xs.length) : null;
+  };
+  var cutters = list.filter(function (x) { return x.cutYield !== null; });
+  var takers = list.filter(function (x) { return x.takeYield !== null; });
   return {
     ok: true,
     steers: list,
-    usualYield: weighed.length
-      ? round2_(weighed.reduce(function (s2, x) { return s2 + x.yieldPct; }, 0) / weighed.length)
-      : null,
-    weighed: weighed.length
+    usualCut: mean(cutters.map(function (x) { return x.cutYield; })),
+    usualTake: mean(takers.map(function (x) { return x.takeYield; })),
+    cutters: cutters.length,
+    takers: takers.length,
+    weighed: list.filter(function (x) { return x.yieldPct !== null; }).length
   };
 }
 
@@ -10359,31 +10389,42 @@ function steerYield_(req) {
   var covers = row ? str_(row['Breakdown covers']) : '';
   var whole = stated > 0 ? stated : recorded;
   var partial = stated > 0 && recorded > 0 && Math.abs(stated - recorded) > 0.5;
-  var yieldPct = hanging && whole ? whole / hanging * 100 : null;
+  var mineY = yieldsOf_(whole, hanging, live);
+  var yieldPct = mineY.cut === null ? mineY.take : mineY.cut;
+  var yieldKind = mineY.cut !== null ? 'carcass' : mineY.take !== null ? 'live' : '';
 
-  /* The same yardstick for the animal as a whole. */
-  var pastYields = [];
+  /* The same yardstick for the animal as a whole, and only ever against
+     the same yardstick: a steer measured off its carcass is not compared
+     with one measured off its live weight. */
+  var pastCut = [], pastTake = [];
   others.forEach(function (b) {
     var r2 = null;
     readTable_(TABS.STEERS).forEach(function (r) { if (sameSteer_(r['Steer ID'], b)) r2 = r; });
-    var h = r2 ? carcassOf_(r2) : 0;
-    var w = r2 && num_(r2['Saleable weight (lb)']) > 0
+    if (!r2) return;
+    var w = num_(r2['Saleable weight (lb)']) > 0
       ? num_(r2['Saleable weight (lb)']) : byBatch[b].weight;
-    if (h && w) pastYields.push(w / h * 100);
+    var y2 = yieldsOf_(w, carcassOf_(r2), num_(r2['Live weight (lb)']));
+    if (y2.cut !== null) pastCut.push(y2.cut);
+    if (y2.take !== null) pastTake.push(y2.take);
   });
-  var usualYield = pastYields.length
-    ? pastYields.reduce(function (a, b) { return a + b; }, 0) / pastYields.length : null;
+  var same = yieldKind === 'live' ? pastTake : pastCut;
+  var usualYield = same.length
+    ? same.reduce(function (a, b) { return a + b; }, 0) / same.length : null;
 
   return {
     ok: true, batch: batch,
-    live: live || null, hanging: hanging || null,
+    live: live || null, hanging: hanging || null, hung: hung || null,
     packages: round2_(mine.packages), weight: round2_(whole),
     recordedWeight: round2_(recorded),
     partial: partial, covers: covers,
     yieldPct: yieldPct === null ? null : round2_(yieldPct),
+    cutYield: mineY.cut, takeYield: mineY.take, yieldKind: yieldKind,
     usualYield: usualYield === null ? null : round2_(usualYield),
-    comparedWith: others.length,
-    needsHanging: !hanging,
+    comparedWith: same.length,
+    /* "No carcass weight" is only worth saying where there is no live
+       weight either: with one of the two there is still a yield. */
+    needsHanging: !hanging && !live,
+    needsCarcass: !hanging,
     unweighed: cuts.filter(function (c) { return !c.weight; }).length,
     weighedPackages: round2_(weighedPacks),
     aside: round2_(mine.aside),

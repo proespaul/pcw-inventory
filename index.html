@@ -1224,7 +1224,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-18 21:02 UTC';
+const APP_BUILD = '2026-11-18 21:10 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -7832,14 +7832,21 @@ function renderCattle() {
   const c = cattle || {};
   const list = c.steers || [];
 
+  /* Two averages, kept apart. Meat over the carcass and meat over the live
+     weight are different measurements, and most of these animals were only
+     ever weighed once, one way or the other. Averaged together they would
+     put a 41 and a 52 in the same column and call it the usual. */
+  const usual = [];
+  if (c.cutters) usual.push(round2(c.usualCut) + '% of the carcass over ' +
+    c.cutters + (c.cutters === 1 ? ' animal' : ' animals'));
+  if (c.takers) usual.push(round2(c.usualTake) + '% of the live weight over ' +
+    c.takers + (c.takers === 1 ? ' animal' : ' animals'));
+
   $('cattleTop').innerHTML =
     '<div class="item" style="border:0;padding:2px"><div class="name">' +
     '<b>' + list.length + (list.length === 1 ? ' animal' : ' animals') + '</b>' +
-    '<span>' + (c.weighed
-      ? c.weighed + ' of them weighed, averaging ' + round2(c.usualYield) + '% of the carcass'
-      : 'None of them weighed yet') + '</span></div>' +
-    '<div class="qty"><b>' + (c.weighed ? round2(c.usualYield) + '%' : '—') +
-      '</b><span>usual yield</span></div></div>';
+    '<span>' + (usual.length ? 'Usually ' + usual.join('<br>Usually ')
+                             : 'None of them weighed yet') + '</span></div></div>';
 
   $('cattleList').innerHTML = list.length ? list.map(x => {
     /* The carcass weight is the one that matters — the yield is worked out
@@ -7863,7 +7870,8 @@ function renderCattle() {
       '<span>' + (x.when ? esc(x.when) : 'date unavailable') + ' · ' + weights +
         '<br>' + meat + '</span></div>' +
       '<div class="qty"><b>' + (x.yieldPct === null ? '—' : round2(x.yieldPct) + '%') +
-        '</b><span>' + (x.yieldPct === null ? 'unavailable' : 'of the carcass') +
+        '</b><span>' + (x.yieldPct === null ? 'unavailable'
+          : x.yieldKind === 'live' ? 'of the live weight' : 'of the carcass') +
         '</span></div></div>';
   }).join('') : '<div class="empty">No animals recorded yet.</div>';
 
