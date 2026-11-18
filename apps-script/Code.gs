@@ -7013,7 +7013,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-18 21:49 UTC';
+var BACKEND_BUILD = '2026-11-18 21:55 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -10116,6 +10116,29 @@ function steerKey_(v) {
   return str_(v).trim().toLowerCase();
 }
 
+/* What to call a steer on screen.
+ *
+ * A steer called JUNE-2026 is a date as far as Sheets is concerned, and it
+ * will quietly store one and format it back as "June-2026" — the cell
+ * looks untouched and reads as a Date. str_() on that gives "Mon Jun 01
+ * 2026 00:00:00 GMT-0600", which is what the Cattle performance tab put on
+ * the screen, beside a second entry for the same animal built from its cut
+ * record, where the ID really is text. Two of one steer, one of them named
+ * after a Monday.
+ *
+ * The columns are forced to text now, so this should not arise again. It is
+ * here because "should not" is not "cannot", and the tab is read by somebody
+ * who would have to ring me to find out what a Monday is doing in his herd.
+ */
+function steerName_(v) {
+  if (v && typeof v.getMonth === 'function' && typeof v.getFullYear === 'function') {
+    var months = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+                  'August', 'September', 'October', 'November', 'December'];
+    return months[v.getMonth()] + '-' + v.getFullYear();
+  }
+  return str_(v).trim();
+}
+
 function recordedCuts_(batch) {
   var out = [];
   readTable_(TABS.STEERCUTS).forEach(function (r) {
@@ -10224,10 +10247,11 @@ function cattle_() {
   var recorded = {};
   try {
     readTable_(TABS.STEERCUTS).forEach(function (r) {
-      var id = str_(r['Steer ID']) || (r['Steer ID'] ? steerKey_(r['Steer ID']) : '');
-      if (!id && !r['Steer ID']) return;
       var key = steerKey_(r['Steer ID']);
-      var into = recorded[key] || (recorded[key] = { weight: 0, aside: 0, packages: 0, cuts: 0 });
+      if (!key) return;
+      var into = recorded[key] ||
+        (recorded[key] = { weight: 0, aside: 0, packages: 0, cuts: 0,
+                           name: steerName_(r['Steer ID']) });
       var sku = str_(r['SKU']), name = str_(r['Cut']) || products[sku] || sku;
       var said = str_(r['In the yield']).toLowerCase();
       var counts = said === 'yes' ? true : said === 'no' ? false
@@ -10245,10 +10269,11 @@ function cattle_() {
   var booked = {};
   readTable_(TABS.MOVEMENTS).forEach(function (m) {
     if (str_(m['Type']) !== 'INTAKE') return;
-    var b = str_(m['Batch']);
-    if (!b) return;
+    var b = m['Batch'];
     var key = steerKey_(b);
-    var into = booked[key] || (booked[key] = { weight: 0, aside: 0, packages: 0, cuts: 0 });
+    if (!key) return;
+    var into = booked[key] ||
+      (booked[key] = { weight: 0, aside: 0, packages: 0, cuts: 0, name: steerName_(b) });
     var sku = str_(m['SKU']), name = products[sku] || sku;
     var wt = num_(m['Weight (lb)']);
     if (countsInYield_(sku, name, cats[sku])) into.weight += wt; else into.aside += wt;
@@ -10259,9 +10284,12 @@ function cattle_() {
   var seen = {};
   var list = [];
   readTable_(TABS.STEERS).forEach(function (r) {
-    var id = str_(r['Steer ID']);
+    /* Keyed and named off the raw cell, never off str_() of it. Keying the
+       stringified value is what split the June steer in two: the cut record
+       keyed "june-2026" and this row keyed "mon jun 01 2026 00:00:00…". */
+    var id = steerName_(r['Steer ID']);
     if (!id) return;
-    var key = steerKey_(id);
+    var key = steerKey_(r['Steer ID']);
     seen[key] = true;
     var from = recorded[key] || booked[key] || { weight: 0, aside: 0, packages: 0, cuts: 0 };
     var stated = num_(r['Saleable weight (lb)']);
@@ -10305,7 +10333,8 @@ function cattle_() {
     seen[key] = true;
     var from = recorded[key] || booked[key];
     list.push({
-      id: key, outfit: '', when: '', live: null, hanging: null,
+      // Its own name, not the lowercase key it is filed under.
+      id: from.name || key, outfit: '', when: '', live: null, hanging: null,
       meat: from.weight > 0 ? round2_(from.weight) : null,
       aside: from.aside > 0 ? round2_(from.aside) : null,
       packages: from.packages || null,

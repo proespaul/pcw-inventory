@@ -1662,5 +1662,43 @@ console.log('\na client with two numbers');
     c.num_(after['Yield %']), 64);
 }
 
+/* ---- a steer called June-2026 is a date, as far as Sheets is concerned ----
+   It stores one, formats it back as "June-2026", and the cell looks
+   untouched. Reading it with str_() gives "Mon Jun 01 2026 00:00:00…", so
+   the performance row keyed on that string while the cut record — where
+   the ID really is text — keyed on "june-2026". Two of one animal on the
+   Cattle performance tab, one of them named after a Monday. */
+{
+  const c = buildContext();
+  c.setup();
+  const asDate = new Date(2026, 5, 1);        // what Sheets hands back
+
+  check('a date and the text that made it file under the same name',
+    [c.steerKey_(asDate), c.steerKey_('June-2026'), c.steerKey_('JUNE-2026')],
+    ['june-2026', 'june-2026', 'june-2026']);
+  check('and it is shown as the name somebody typed, not as a Monday',
+    c.steerName_(asDate), 'June-2026');
+  check('an ordinary ID is left exactly as it is',
+    [c.steerName_('F2'), c.steerName_(' M26 ')], ['F2', 'M26']);
+
+  // The whole of it, through cattle_: one animal, not two.
+  const H = c.HEADERS.STEERS;
+  const line = H.map(() => '');
+  line[H.indexOf('Steer ID')] = asDate;        // the coerced cell
+  line[H.indexOf('Carcass weight (lb)')] = 1290.8;
+  line[H.indexOf('Saleable weight (lb)')] = 530.8;
+  c.sheet_(c.TABS.STEERS).appendRow(line);
+  c.sheet_(c.TABS.STEERCUTS)
+    .appendRow(['June-2026', 'RIBEYE', 'Ribeye', 21.1, 0, 'yes', 'sheet', '']);
+
+  const herd = c.cattle_().steers;
+  check('the herd holds one June steer, not two',
+    herd.filter(x => c.steerKey_(x.id) === 'june-2026').length, 1);
+  check('under the name it was given',
+    herd.filter(x => x.id === 'June-2026').length, 1);
+  check('and its yield is worked out, not lost between the two halves',
+    herd.filter(x => x.id === 'June-2026')[0].yieldPct, 41.12);
+}
+
 console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll checks passed.\n');
 process.exit(failures ? 1 : 0);
