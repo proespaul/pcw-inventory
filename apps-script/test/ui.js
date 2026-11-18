@@ -1050,6 +1050,43 @@ const settle = async () => { for (let i = 0; i < 8; i++) await pause(); };
     w.eval('closeSheet();');
   }
 
+  /* ───────── the wholesale card, with nothing left to wait for ─────────
+     The card itself was always instant. "Checking the other books…" under
+     it was not, and it was the last thing on that tab that made anybody
+     wait. The second number comes down with the customer list, so it can
+     be shown at once; only the other spellings of the name need asking. */
+  {
+    await settle();
+    w.eval('data.custCards = {};' +
+      'data.lists.customers = ' + JSON.stringify([
+        { customer: 'Ivan Wiebe', phone: '780-555-0188', phone2: '780-555-0202',
+          email: 'ivan@example.com', email2: 'ivan.wiebe@farm.ca', town: 'Grimshaw',
+          orders: 0, prior: 1, spend: 0, priorSpend: 0, last: '' }
+      ]) + '; data.lists.wholesale = ' + JSON.stringify([
+        { row: 3, customer: 'Ivan Wiebe', stage: 'ordered', wants: 'Half',
+          phone: '780-555-0188', email: 'ivan@example.com', added: '2026-04-01',
+          priority: 'Normal', notes: '' }
+      ]) + '; data.salesBook = []; data.orders = [];');
+
+    // Nothing is going to answer the script on this one.
+    const slow = new Promise(() => {});
+    replies.customer = () => slow;
+    w.eval('closeSheet(); openWholesale(3);');
+    const sheet = text('sheetBody');
+    check('the second number is under the line the moment it opens',
+      /780-555-0202/.test(sheet), true);
+    check('and the second address with it',
+      /ivan.wiebe@farm.ca/.test(sheet), true);
+    check('with nothing saying it is off looking',
+      /Checking the other books/.test(sheet), false);
+    /* The number already on the wholesale line itself is not repeated
+       underneath as though it were a second one. */
+    check('and the number already on the card is not listed twice',
+      (sheet.match(/780-555-0188/g) || []).length, 1);
+    w.eval('closeSheet();');
+    await settle();
+  }
+
   console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll browser checks passed.\n');
   process.exit(failures ? 1 : 0);
 })();

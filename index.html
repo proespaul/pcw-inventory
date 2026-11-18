@@ -1238,7 +1238,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-18 22:24 UTC';
+const APP_BUILD = '2026-11-18 22:31 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -6599,31 +6599,27 @@ function openWholesalePast() {
    what the line knows and this fills in the rest when the backend answers.
    ------------------------------------------------------------------- */
 
-function reachSlot() {
-  return '<div id="reachMore" class="muted" style="margin-top:10px">' +
-    'Checking the other books…</div>';
+/* What else is on file for somebody, under their wholesale line.
+ *
+ * This said "Checking the other books…" and went and asked, which on the
+ * wholesale tab was the only thing left on the card that made anybody
+ * wait. Most of what it has to say is already on the phone: the second
+ * number and the second address come down with the customer list, and if
+ * the card has been opened before, the whole answer was kept.
+ *
+ * So it is filled in from what is here, and the script is asked behind it
+ * for the one thing only the script knows — the other spellings of the
+ * name across the sales sheet and Google Contacts. Where there is nothing
+ * to add, it shows nothing rather than a sentence about looking. */
+function reachSlot(name, had) {
+  const cached = (data.custCards || {})[String(name || '').trim().toLowerCase()];
+  const local = cached || custFromLocal(name);
+  const inner = local && local.where ? reachHtml(local.where, had) : '';
+  return '<div id="reachMore">' + inner + '</div>';
 }
 
-function reachLinks(list, kind) {
-  return list.map(v => kind === 'tel'
-    ? '<a class="btnlike ghost small" href="tel:' +
-      esc(String(v.value).replace(/[^\d+]/g, '')) + '">📞 ' + esc(v.value) + '</a>' +
-      '<a class="btnlike ghost small" href="sms:' +
-      esc(String(v.value).replace(/[^\d+]/g, '')) + '">💬</a>'
-    : '<a class="btnlike ghost small" href="mailto:' + esc(v.value) + '">✉️ ' +
-      esc(v.value) + '</a>').join('');
-}
-
-async function loadReach(name, had) {
-  const slot = () => document.getElementById('reachMore');
-  if (!slot()) return;
-  let w;
-  try {
-    const f = await api('customer', { customer: name, where: true });
-    w = f.where;
-  } catch (e) { if (slot()) slot().textContent = ''; return; }
-  if (!slot() || !w || !w.ok) { if (slot()) slot().textContent = ''; return; }
-
+function reachHtml(w, had) {
+  if (!w || !w.ok) return '';
   const seen = (had || []).map(v => String(v).replace(/[^\da-z@.]/gi, '').toLowerCase());
   const fresh = kind => (w.known[kind] || []).filter(v =>
     seen.indexOf(String(v.value).replace(/[^\da-z@.]/gi, '').toLowerCase()) === -1);
@@ -6649,11 +6645,42 @@ async function loadReach(name, had) {
         JSON.stringify(n).replace(/"/g, '&quot;') + ');return false">' + esc(n) + '</a>')
         .join(' or ') + ' be the same person? Nothing of theirs is used here.</p>';
   }
-  if (!html && !phones.length && !mails.length) {
-    html = '<p class="muted" style="margin:8px 0 0">Nothing else on file for them ' +
-      'in the app or on the sales sheet.</p>';
+  return html;
+}
+
+function reachLinks(list, kind) {
+  return list.map(v => kind === 'tel'
+    ? '<a class="btnlike ghost small" href="tel:' +
+      esc(String(v.value).replace(/[^\d+]/g, '')) + '">📞 ' + esc(v.value) + '</a>' +
+      '<a class="btnlike ghost small" href="sms:' +
+      esc(String(v.value).replace(/[^\d+]/g, '')) + '">💬</a>'
+    : '<a class="btnlike ghost small" href="mailto:' + esc(v.value) + '">✉️ ' +
+      esc(v.value) + '</a>').join('');
+}
+
+async function loadReach(name, had) {
+  const slot = () => document.getElementById('reachMore');
+  if (!slot()) return;
+  const mine = sheetNow();
+  let f, w;
+  try {
+    f = await api('customer', { customer: name, where: true });
+    w = f.where;
+  } catch (e) { return; }           // what is already there stays
+  // The card may have been closed, or another opened, while that was in
+  // the post. A late answer does not get to write on somebody else's.
+  if (!sheetStill(mine) || !slot() || !w || !w.ok) return;
+  // Worth keeping: the next card for this person opens knowing all of it.
+  if (f && f.ok) {
+    data.custCards = data.custCards || {};
+    data.custCards[String(name || '').trim().toLowerCase()] = f;
+    save(LS.data, data);
   }
-  if (slot()) slot().outerHTML = html;
+
+  /* Drawn the one way, from whichever answer we have. The block keeps its
+     id so a second, better answer can replace what is in it. */
+  const html = reachHtml(w, had);
+  if (slot()) slot().innerHTML = html;
 }
 
 /* Panels share one element, so one has to shut before the next opens. */
@@ -6719,7 +6746,7 @@ function openWholesale(row) {
         '</div>'
       : '<p class="muted">No phone or email on file for them.</p>') +
     '<div class="card" style="margin:12px 0 0">' + rows + '</div>' +
-    reachSlot() +
+    reachSlot(r.customer, [phone, mail]) +
     (r.notes ? '<h3 style="margin:16px 0 6px">Notes</h3><p>' + esc(r.notes) + '</p>' : '') +
     move +
     '<button class="ghost" style="margin-top:8px" onclick="whEditForm(' + Number(r.row) +
@@ -7019,7 +7046,7 @@ function openWaitlist(row) {
         '</div>'
       : '<p class="muted">No phone or email on file for them.</p>') +
     '<div class="card" style="margin:12px 0 0">' + kv + '</div>' +
-    reachSlot() +
+    reachSlot(r.customer, [phone, mail]) +
     (r.notes ? '<h3 style="margin:16px 0 6px">Comment</h3><p>' + esc(r.notes) + '</p>' : '') +
     '<button style="margin-top:12px" onclick="wlEditForm(' + Number(r.row) +
       ')">Change the details</button>' +
