@@ -1634,5 +1634,33 @@ console.log('\na client with two numbers');
     c.yieldsOf_(500, 0, 0), { cut: null, take: null });
 }
 
+/* ---- the rebuild does not erase what it cannot work out ----
+   The June steer went out before the app existed, so no movement was ever
+   booked against it and the tally the rebuild does came to nothing. It
+   wrote that nothing over the saleable weight, and the Cattle performance
+   tab had no figure for the animal ten minutes after one was typed. */
+{
+  const c = buildContext();
+  c.setup();
+  const sh = c.sheet_(c.TABS.STEERS);
+  const H = c.HEADERS.STEERS;
+  const line = H.map(() => '');
+  line[H.indexOf('Steer ID')] = 'GONE-WHOLE';
+  line[H.indexOf('Carcass weight (lb)')] = 1000;
+  line[H.indexOf('Saleable weight (lb)')] = 640;   // typed by a person
+  line[H.indexOf('Packages cut')] = 210;
+  sh.appendRow(line);
+
+  c.rebuildSteers_();
+  const after = c.readTable_(c.TABS.STEERS)
+    .filter(r => String(r['Steer ID']) === 'GONE-WHOLE')[0];
+  check('a weight nobody can recompute survives the rebuild',
+    c.num_(after['Saleable weight (lb)']), 640);
+  check('and so does the package count',
+    c.num_(after['Packages cut']), 210);
+  check('and the yield is worked out from it',
+    c.num_(after['Yield %']), 64);
+}
+
 console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll checks passed.\n');
 process.exit(failures ? 1 : 0);

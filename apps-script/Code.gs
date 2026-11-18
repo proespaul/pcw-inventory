@@ -2621,6 +2621,7 @@ function rebuildSteers_() {
   if (lastRow < 2) return;
   var moves = readTable_(TABS.MOVEMENTS);
   var cut = {}, sold = {}, left = {}, weight = {}, revenue = {}, potential = {};
+  var recordWeight = {};
 
   moves.forEach(function (m) {
     var b = str_(m['Batch']);
@@ -2640,6 +2641,25 @@ function rebuildSteers_() {
     }
   });
 
+  /* A steer we only have a written record of — one that went out whole,
+     or was cut before the app existed — has no movements at all, so the
+     tally above comes to nothing for it. Its cut record is what it made.
+     Without this the rebuild wrote an empty cell over the June steer's
+     530.8 lb every time anything synced, and the Cattle performance tab
+     had no number for it ten minutes after it was typed. */
+  try {
+    readTable_(TABS.STEERCUTS).forEach(function (r) {
+      var b = str_(r['Steer ID']);
+      if (!b || weight[b] !== undefined) return;
+      var said = str_(r['In the yield']).toLowerCase();
+      var sku = str_(r['SKU']), nm = str_(r['Cut']) || sku;
+      var counts = said === 'yes' ? true : said === 'no' ? false
+        : countsInYield_(sku, nm, (products[sku] || {}).category);
+      if (!counts) return;
+      recordWeight[b] = (recordWeight[b] || 0) + num_(r['Weight (lb)']);
+    });
+  } catch (eCuts) { /* no cut record tab yet */ }
+
   currentStock_().forEach(function (l) {
     if (!l.batch) return;
     left[l.batch] = (left[l.batch] || 0) + l.packages;
@@ -2658,14 +2678,26 @@ function rebuildSteers_() {
     var id = str_(r[col('Steer ID')]);
     if (!id) return;
     var total = num_(r[col('Purchase cost')]) + num_(r[col('Butcher cost')]) + num_(r[col('Other cost')]);
-    var saleable = Math.round((weight[id] || 0) * 100) / 100;
+    /* What the stock says, else what the written record says, else what
+       is already in the cell. Blanking it was the bug: a figure nobody can
+       recompute is not a figure to throw away. */
+    /* This cell is the stock's, or a person's. It is never filled in from
+       the cut record: the record is read live wherever it is needed, and a
+       copy of it written here would be the stale one that wins — a steer
+       re-recorded with a corrected sheet would keep answering with the
+       figure from before the correction. Blanking it was the bug, so what
+       cannot be recomputed is left alone. */
+    var saleable = Math.round((weight[id] || num_(r[col('Saleable weight (lb)')]) || 0) * 100) / 100;
+    var packs = cut[id] || num_(r[col('Packages cut')]);
+    // For the sums below only: what the animal made, however that is known.
+    var made = saleable || recordWeight[id] || 0;
     var hanging = num_(r[col('Carcass weight (lb)')]) ||
                   num_(r[col('Hanging weight (lb)')]);
     r[col('Total cost')] = total || '';
-    r[col('Packages cut')] = cut[id] || '';
+    r[col('Packages cut')] = packs || '';
     r[col('Saleable weight (lb)')] = saleable || '';
-    r[col('Yield %')] = hanging && saleable ? Math.round((saleable / hanging) * 1000) / 10 : '';
-    r[col('Cost / saleable lb')] = total && saleable ? Math.round((total / saleable) * 100) / 100 : '';
+    r[col('Yield %')] = hanging && made ? Math.round((made / hanging) * 1000) / 10 : '';
+    r[col('Cost / saleable lb')] = total && made ? Math.round((total / made) * 100) / 100 : '';
     var got = Math.round(((revenue[id] || 0) + (potential[id] || 0)) * 100) / 100;
     r[col('Potential revenue')] = got || '';
     r[col('Sold so far')] = Math.round((revenue[id] || 0) * 100) / 100 || '';
@@ -6981,7 +7013,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-18 21:24 UTC';
+var BACKEND_BUILD = '2026-11-18 21:34 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -8680,6 +8712,11 @@ function bootstrap_(since) {
     freezer_record: freezerRecordState_(),
     // So the app can draw the lines in the same place this put them.
     freezer_limits: freezerLimits_(),
+    /* Every animal and what it did. It rides down with everything else
+       rather than being fetched when the tab is opened: the tab was going
+       quiet and saying "Reading the herd…" every single time, and there
+       are five animals — it is smaller than the freezer. */
+    cattle: cattle_(),
     steerCosts: steerCosts_()
   };
 }

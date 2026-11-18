@@ -1238,7 +1238,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-18 21:24 UTC';
+const APP_BUILD = '2026-11-18 21:34 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -2029,6 +2029,9 @@ function applyBoot(boot) {
     // The company's own sales book — every sale of the year, including the
     // ones made at the door long before this app existed.
     salesBook: boot.salesBook || [],
+    // Every animal and what it did, down with everything else so the tab
+    // opens on it instead of going and asking.
+    cattle: boot.cattle || null,
     steerCosts: boot.steerCosts || {},
     boxList: boot.boxList || [],
     // Cut SKU → the built boxes holding it, so the Cuts list can say that the
@@ -2369,7 +2372,7 @@ function renderAll() {
   renderMenuCounts();
   renderFollowups();
   renderWholesale(); renderWaitlist(); renderClients(); renderSchedule(); renderCnLines();
-  renderBoxes(); renderAlerts();
+  renderBoxes(); renderCattle(); renderAlerts();
   renderFreezers();
   renderSales();
   renderSteerNumbers();
@@ -7862,24 +7865,13 @@ async function addList(which) {
  * zero would average into the yield and drag it down, and a blank reads as
  * though somebody forgot to type it.
  */
-let cattle = null;
-
 function lbOr(v) { return v ? round2(v) + ' lb' : 'unavailable'; }
 
-async function loadCattle(force) {
-  if (cattle && !force) return renderCattle();
-  $('cattleTop').innerHTML = '<p class="muted" style="margin:0">Reading the herd…</p>';
-  $('cattleList').innerHTML = '';
-  try { cattle = await api('cattle', {}); }
-  catch (e) {
-    $('cattleTop').innerHTML = '<p class="muted" style="margin:0">' + esc(e.message) + '</p>';
-    return;
-  }
-  renderCattle();
-}
-
 function renderCattle() {
-  const c = cattle || {};
+  /* It came down with the last sync, like the freezer and the price list.
+     It used to be fetched when the tab was opened, which meant waiting on
+     the script every time for five animals that change a few times a year. */
+  const c = data.cattle || {};
   const list = c.steers || [];
 
   /* Two averages, kept apart. Meat over the carcass and meat over the live
@@ -9399,7 +9391,7 @@ function showView(name, opts) {
   if (name === 'neworder') paintOrderMode();
   if (name === 'calendar') loadSchedule(true);
   if (name === 'sales') renderSales();
-  if (name === 'cattle') loadCattle();
+  if (name === 'cattle') renderCattle();
   if (name === 'steer') setLineFreezer();
   if (name === 'calnew' && !$('cnDate').value) $('cnDate').value = todayISO();
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('on', v.id === 'view-' + name));

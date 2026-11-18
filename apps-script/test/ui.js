@@ -735,7 +735,10 @@ const pause = () => new Promise(r => setTimeout(r, 0));
     /* June was weighed on the rail and F2 on the hoof, so their yields are
        not the same measurement: 530.8 over a carcass against 996.9 over a
        live weight. Averaged together they would read as one usual. */
-    replyWith('cattle', { ok: true, weighed: 2, usualCut: 41.12, usualTake: 52.47,
+    /* It arrives with the sync now, not on opening the tab: five animals
+       that change a few times a year were being fetched from the script
+       every single time the screen was looked at. */
+    const herd = { ok: true, weighed: 2, usualCut: 41.12, usualTake: 52.47,
       cutters: 1, takers: 1, steers: [
       { id: 'June-2026', outfit: 'PCW', when: '2026-06-01', live: null, hanging: 1290.8,
         hung: null, meat: 530.8, aside: 362.5, packages: 0, yieldPct: 41.12,
@@ -749,9 +752,12 @@ const pause = () => new Promise(r => setTimeout(r, 0));
         hanging: null, hung: null, meat: null, aside: null, packages: null,
         yieldPct: null, cutYield: null, takeYield: null, yieldKind: '',
         covers: '', hasBreakdown: false, fromRecord: false, notes: '' }
-    ]});
-    w.eval('cattle = null; showView("cattle");');
-    await pause(); await pause();
+    ]};
+    w.eval('data.cattle = ' + JSON.stringify(herd) + '; showView("cattle");');
+    /* Nothing answers a 'cattle' call in this test, so the screen below
+       could only have been drawn from what the sync brought down. */
+    check('the herd draws with no reply waiting for it',
+      names('cattleList').length > 0, true);
 
     // The tags sit inside the name, so take the text before them.
     const cNames = Array.from(doc.querySelectorAll('#cattleList .item .name b'))
