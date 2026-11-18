@@ -761,12 +761,34 @@ const pause = () => new Promise(r => setTimeout(r, 0));
 
     /* A phone that has not synced since the herd was added to the payload
        has none in its data, and an empty card reads as "no animals". It
-       asks for it instead, once. */
+       asks for it instead. */
     replyWith('cattle', herd);
     w.eval('data.cattle = null; openCattle.asking = false; showView("cattle");');
     await pause(); await pause();
     check('a phone with no herd yet goes and asks for one',
       names('cattleList').length, 3);
+
+    /* And a phone holding an OLD herd asks too. This is the one that bit:
+       the June steer sat there with its meat weight and no yield, because
+       the only test for going back was whether the list was empty, and a
+       stale list is not an empty one. */
+    const fresher = JSON.parse(JSON.stringify(herd));
+    fresher.steers[0].yieldPct = 41.12;
+    fresher.steers[0].hanging = 1290.8;
+    replyWith('cattle', fresher);
+    w.eval('data.cattle = ' + JSON.stringify((function () {
+      const old = JSON.parse(JSON.stringify(herd));
+      old.steers[0].yieldPct = null;
+      old.steers[0].cutYield = null;
+      old.steers[0].hanging = null;
+      old.steers[0].yieldKind = '';
+      return old;
+    })()) + '; openCattle.asking = false; showView("cattle");');
+    check('the stale figure is what it draws first, with no waiting',
+      /unavailable/.test(text('cattleList')), true);
+    await pause(); await pause();
+    check('and it is replaced by the current one a moment later',
+      /41.12%/.test(text('cattleList')), true);
 
     /* And a herd that came back broken says so rather than drawing as a
        herd of none. */

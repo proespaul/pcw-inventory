@@ -1238,7 +1238,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-18 21:41 UTC';
+const APP_BUILD = '2026-11-18 21:49 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -7867,20 +7867,35 @@ async function addList(which) {
  */
 function lbOr(v) { return v ? round2(v) + ' lb' : 'unavailable'; }
 
-/* The herd comes down with the sync, like the freezer and the price list,
-   so the tab draws the moment it is opened. But a phone that has not synced
-   since this was added has no herd in its data, and an empty screen is not
-   an answer — so if it is not there, it is asked for, once. */
+/* Draw what we have, then quietly go and check.
+ *
+ * The herd rides down with the sync, so the tab opens on it instantly —
+ * that was the point, and it stays. But "I have a herd" and "my herd is
+ * current" are different things: a phone holding a copy from before the
+ * carcass weight was filled in drew the June steer with its meat weight
+ * and no yield, and nothing on the screen or in the code would ever have
+ * gone back for a better one, because the test for asking was whether the
+ * list was EMPTY. A stale answer passes that test.
+ *
+ * So it renders from what it has and refreshes behind that. Nothing
+ * flickers, nothing waits, and nothing goes stale for longer than it
+ * takes the script to answer once. */
 async function openCattle() {
   renderCattle();
-  if (data.cattle && (data.cattle.steers || []).length) return;
   if (openCattle.asking) return;
   openCattle.asking = true;
+  const had = JSON.stringify((data.cattle || {}).steers || []);
   try {
     const got = await api('cattle', {});
-    if (got && got.steers) { data.cattle = got; save(LS.data, data); }
-    renderCattle();
+    if (got && got.steers) {
+      data.cattle = got;
+      save(LS.data, data);
+      if (JSON.stringify(got.steers) !== had) renderCattle();
+    }
   } catch (e) {
+    // Offline, or the script is asleep. What is on the screen is still
+    // the last thing we knew, so it stays; only an empty screen is worth
+    // replacing with the reason it is empty.
     const top = $('cattleTop');
     if (top && !(data.cattle && (data.cattle.steers || []).length)) {
       top.innerHTML = '<p class="muted" style="margin:0">Could not read the herd — ' +
