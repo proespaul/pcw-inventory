@@ -6981,7 +6981,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-18 21:10 UTC';
+var BACKEND_BUILD = '2026-11-18 21:24 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -7492,6 +7492,17 @@ function kenjiSnapshot_() {
   return snap;
 }
 
+/* The app works this out in the browser; Kenji needs it on this side too,
+   and the two have to agree or his totals will not match the screen. */
+function fiscalYearStartISO_() {
+  var cfg = settings_();
+  var m = num_(cfg['FISCAL_YEAR_STARTS']);
+  if (!(m >= 1 && m <= 12)) m = 4;
+  var now = new Date();
+  var y = (now.getMonth() + 1) >= m ? now.getFullYear() : now.getFullYear() - 1;
+  return y + '-' + ('0' + m).slice(-2) + '-01';
+}
+
 function kenjiBuildSnapshot_() {
   var products = indexProducts_();
   var stock = currentStock_();
@@ -7552,9 +7563,42 @@ function kenjiBuildSnapshot_() {
     customers = customers.slice(0, 25);
   } catch (errCust) { customers = []; }
 
+  /* The year's money.
+   *
+   * Kenji knew the freezer and the catalogue and nothing whatever about
+   * what had been sold, so "why is $2,442 not paid for yet" — a figure
+   * on a screen in front of Paul — had no answer in anything he could
+   * see. The totals and the unpaid list go in: it is the question the
+   * sales screen raises most often, and the unpaid rows are few. */
+  var sales = null;
+  try {
+    var book = salesBookRows_();
+    var fromDate = fiscalYearStartISO_();
+    var inYear = book.filter(function (r) { return r.date && r.date >= fromDate; });
+    var owed = inYear.filter(function (r) { return !r.paid; });
+    var tot = function (xs) {
+      return Math.round(xs.reduce(function (t, r) { return t + num_(r.amount); }, 0) * 100) / 100;
+    };
+    sales = {
+      since: fromDate,
+      sold: tot(inYear),
+      collected: tot(inYear.filter(function (r) { return r.paid; })),
+      sales: inYear.length,
+      /* Not "unpaid" — the sheet's Payment column was left empty, which
+         is not the same as the customer not having paid. Some of these are
+         money in the bank that nobody ticked. */
+      notMarkedPaid: tot(owed),
+      waiting: owed.slice(0, 40).map(function (r) {
+        return { when: r.date, who: r.customer, what: r.what,
+                 amount: r.amount, note: r.note };
+      })
+    };
+  } catch (errSales) { sales = null; }
+
   return {
     today: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'),
     boxes: boxes,
+    sales: sales,
     customers: customers,
     channels: CHANNELS,
     groundBeef: {
@@ -7666,6 +7710,14 @@ function kenjiSystem_(brief) {
     '',
     'If they are asking you something, just answer it from what you were given.',
     'Never invent a number. If what you were given does not say, say so.',
+    '',
+    'sales is the year so far, from sales.since: what was sold, what has been',
+    'collected, and sales.waiting \u2014 the sales whose Payment column on the',
+    'sales sheet was never filled in, with who and what and how much. That',
+    'column being empty is NOT the same as the customer not having paid: it',
+    'means nobody ticked it, and some of those are money already in the bank.',
+    'Say it that way round. If they ask why a figure is what it is, name the',
+    'sales that add up to it rather than explaining the arithmetic.',
     '',
     'boxes lists every box recipe: what it holds, and how many are made up and',
     'sitting in the freezer. The packs inside a made-up box are NOT in',

@@ -251,6 +251,10 @@
   .kv{display:flex;justify-content:space-between;gap:12px;padding:7px 0;
       border-bottom:1px solid var(--line);font-size:13.5px}
   .kv:last-child{border-bottom:0}
+  /* A figure you can open. The chevron is in the text; this is the part
+     that says it will respond to a thumb. */
+  .kv.tap{cursor:pointer;margin:0 -6px;padding-left:6px;padding-right:6px;border-radius:7px}
+  .kv.tap:active{background:var(--bg)}
   .kv b{text-align:right}
   .scrim{position:fixed;inset:0;background:rgba(10,16,6,.55);z-index:40;display:none}
   .scrim.on{display:block}
@@ -299,8 +303,18 @@
   /* The countdown, drawn as well as counted — easier to read at arm's
      length than a number, and it empties as the seconds go. */
   .kbar{position:absolute;left:0;right:0;bottom:0;height:3px;overflow:hidden}
-  .kbar>div{height:100%;width:0;background:var(--brand-2);
-            transition:width .25s linear}
+  /* It says "still running", not "nine seconds left". A bar that sweeps
+     is honest about knowing nothing; a bar that fills to a deadline is
+     making a promise the script cannot keep. */
+  .kbar>div{height:100%;width:0;background:var(--brand-2)}
+  .kbar>div.going{width:40%;animation:ksweep 1.1s ease-in-out infinite}
+  @keyframes ksweep{
+    0%{margin-left:-40%}
+    100%{margin-left:100%}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .kbar>div.going{width:100%;animation:none;opacity:.5}
+  }
   /* Said in words, because the app already has fourteen microphone buttons
      and every one of them only dictates into a box. This is the one that
      answers, so it says so. */
@@ -966,8 +980,8 @@
     <div id="salesOwing"></div>
     <h3>Month by month</h3>
     <div class="card" id="salesMonths"></div>
-    <h3 id="salesListHead">Delivered</h3>
-    <div class="card flush list" id="salesList"></div>
+    <p class="muted" style="text-align:center;margin:10px 0 0">
+      Tap a month, or any figure above, for the sales behind it.</p>
   </section>
 
   <section class="view" id="view-freezers">
@@ -1224,7 +1238,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-18 21:10 UTC';
+const APP_BUILD = '2026-11-18 21:24 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -1471,84 +1485,26 @@ function kenjiListen() {
   try { r.start(); } catch (e) { kSay('Could not start listening.', 'bad'); }
 }
 
-/* ───────── counting down, not up ─────────
- * A count-up tells you time is passing, which you knew. A countdown tells
- * you how much longer — but only if the number means something, so it is
- * not a guess from thin air: the app remembers how long its last few
- * answers actually took on this phone, on this connection, and counts down
- * from the slowest of them. The first ever question has nothing to go on
- * and starts from eight seconds.
- *
- * If it runs out before the answer lands it stops counting and says so
- * rather than sitting at zero or going negative. A countdown that lies is
- * worse than no countdown.
- */
-const KENJI_FIRST_GUESS = 8;          // seconds, until it has seen a real one
-const KENJI_REMEMBER = 8;             // how many answers to judge by
-
-function kenjiTimes() {
-  const t = load(LS.asktimes, []);
-  return Array.isArray(t) ? t.filter(n => Number(n) > 0).slice(-KENJI_REMEMBER) : [];
-}
-function kenjiRemember(secs) {
-  const t = kenjiTimes().concat(Math.max(0.5, secs)).slice(-KENJI_REMEMBER);
-  save(LS.asktimes, t);
-}
-/**
- * How long this normally takes — the middle of the recent answers, not the
- * worst of them.
- *
- * It used to be the slowest of the last five, on the theory that finishing
- * early feels quick. In practice the FIRST question of the day is always the
- * slow one — the script wakes up, the prompt cache is cold, sixteen seconds —
- * and that one number then became the countdown for every quick question
- * after it. Paul watched it start at fifteen every time and said, rightly,
- * that fifteen was a default and not the truth.
- *
- * The middle one is the truth: half the answers come in under it. A second of
- * cushion keeps the common case landing just inside, and one slow morning
- * washes out of eight samples instead of ruling five.
- */
-function kenjiEstimate() {
-  const t = kenjiTimes().slice().sort((a, b) => a - b);
-  if (!t.length) return KENJI_FIRST_GUESS;
-  const mid = t.length % 2
-    ? t[(t.length - 1) / 2]
-    : (t[t.length / 2 - 1] + t[t.length / 2]) / 2;
-  return Math.max(3, Math.ceil(mid + 1));
-}
 
 let kenjiTick = null;
 let kenjiStarted = 0;
 
+/* No countdown. It was a guess dressed as a fact, and knowing whether an
+   answer is nine seconds away or fourteen changes nothing anybody does
+   while waiting — the question has been asked either way. The bar moves
+   to say the thing is still running, which is the only part that was ever
+   any use. */
 function kenjiWaiting(said) {
   kenjiStarted = Date.now();
-  const budget = kenjiEstimate();
   const bar = $('kBar');
-  const show = () => {
-    const gone = (Date.now() - kenjiStarted) / 1000;
-    const left = budget - gone;
-    if (bar) bar.style.width = Math.max(0, Math.min(100, (left / budget) * 100)) + '%';
-    if (left > 0.5) {
-      kSay('“' + said + '” · ' + Math.ceil(left) + 's', 'said');
-    } else {
-      // Past the estimate, so stop pretending to know. Count the real
-      // seconds up instead: "still going · 11s" is true, and "nearly
-      // there…" sitting there for another eight seconds was not.
-      if (bar) bar.style.width = '0%';
-      kSay('“' + said + '” · still going · ' + Math.floor(gone) + 's', 'said');
-    }
-  };
-  show();
-  kenjiTick = setInterval(show, 250);
+  if (bar) bar.classList.add('going');
+  kSay('“' + said + '”', 'said');
 }
 
-function kenjiDoneWaiting(landed) {
+function kenjiDoneWaiting() {
   if (kenjiTick) { clearInterval(kenjiTick); kenjiTick = null; }
   const bar = $('kBar');
-  if (bar) bar.style.width = '0%';
-  // Only a real answer teaches it anything; an error or a cancel does not.
-  if (landed && kenjiStarted) kenjiRemember((Date.now() - kenjiStarted) / 1000);
+  if (bar) bar.classList.remove('going');
   kenjiStarted = 0;
 }
 
@@ -2780,15 +2736,19 @@ function renderSales() {
     '<h2 style="margin:0 0 2px">' + esc(fiscalYearEndLabel(from)) + '</h2>' +
     '<p class="muted" style="margin:0 0 10px">Everything sold since ' + esc(from) +
       (fromBook ? ' — ' + fromBook + ' of them off the sales sheet' : '') + '</p>' +
-    '<div class="kv big"><span>Sold</span><b>' + plain(sum(rows)) + '</b></div>' +
-    '<div class="kv"><span>Collected</span><b>' + plain(sum(settled)) + '</b></div>' +
+    '<div class="kv big tap" onclick="openSalesList(\'all\')">' +
+      '<span>Sold</span><b>' + plain(sum(rows)) + ' ›</b></div>' +
+    '<div class="kv tap" onclick="openSalesList(\'paid\')">' +
+      '<span>Collected</span><b>' + plain(sum(settled)) + ' ›</b></div>' +
     (fees
       ? '<div class="kv sub"><span>less card fees</span><b>' + plain(fees) + '</b></div>'
       : '') +
     '<div class="kv"><span>Sales</span><b>' + rows.length + '</b></div>' +
     (unpaidOnSheet.length
-      ? '<div class="kv want"><span>Not paid for yet</span><b>' + plain(sum(unpaidOnSheet)) +
-        ' · ' + unpaidOnSheet.length + (unpaidOnSheet.length === 1 ? ' sale' : ' sales') + '</b></div>'
+      ? '<div class="kv want tap" onclick="openSalesList(\'unpaid\')">' +
+        '<span>Not paid for yet</span><b>' + plain(sum(unpaidOnSheet)) +
+        ' · ' + unpaidOnSheet.length + (unpaidOnSheet.length === 1 ? ' sale' : ' sales') +
+        ' ›</b></div>'
       : '') +
     (owing.length
       ? '<div class="kv want"><span>Delivered, still owed</span><b>' + plain(sum(owing)) +
@@ -2813,18 +2773,108 @@ function renderSales() {
   });
   const months = Object.keys(byMonth).sort();
   $('salesMonths').innerHTML = months.length
-    ? months.map(k => '<div class="kv"><span>' + esc(monthLabel(k)) + '</span><b>' +
-        plain(Math.round(byMonth[k] * 100) / 100) + '</b></div>').join('')
+    ? months.map(k => '<div class="kv tap" onclick="openSalesList(' + arg(k) + ')">' +
+        '<span>' + esc(monthLabel(k)) + '</span><b>' +
+        plain(Math.round(byMonth[k] * 100) / 100) + ' ›</b></div>').join('')
     : '<p class="muted" style="margin:0">Nothing delivered yet this year.</p>';
-
-  $('salesListHead').textContent = 'Sales — ' + rows.length +
-    (rows.length === 1 ? ' sale' : ' sales');
-  $('salesList').innerHTML = rows.length
-    ? rows.map(saleRowHtml).join('')
-    : '<div class="empty">Nothing sold since ' + esc(from) + '.</div>';
 
   const badge = $('cOwing');
   if (badge) badge.textContent = owing.length ? String(owing.length) : '';
+}
+
+/* ───────── the sales behind a figure ─────────
+ *
+ * Every number on this screen is a total of particular sales, and the
+ * question it raises is always the same one: which sales? It used to be
+ * answered by a list of all 46 of them underneath, which is the answer to
+ * a different question. Each figure opens its own.
+ */
+
+/* An invoice number if somebody wrote one down. The sheet has no column
+   for it, so it lives in the comment as "PCW #048" or "PCW 048", which is
+   where the eye finds it and where this looks. */
+function invoiceIn(text) {
+  const m = String(text || '').match(/PCW\s*#?\s*(\d{2,5})/i);
+  return m ? 'PCW #' + m[1] : '';
+}
+
+let salesCut = 'all';
+
+function openSalesList(which) {
+  salesCut = which;
+  renderSalesList();
+}
+
+function salesCutOf(which) {
+  const rows = salesRows();
+  if (which === 'unpaid') {
+    return { rows: rows.filter(r => !r.paid), title: 'Not paid for yet',
+      note: 'Sales written into the sales sheet with the Payment column left ' +
+            'empty. The sheet only counts a sale as paid once that says so, ' +
+            'so some of these may be money already in the bank and never ticked.' };
+  }
+  if (which === 'paid') {
+    return { rows: rows.filter(r => r.paid), title: 'Collected', note: '' };
+  }
+  if (which === 'all') {
+    return { rows: rows, title: 'Everything sold', note: '' };
+  }
+  // Otherwise a month, as yyyy-mm.
+  return { rows: rows.filter(r => String(r.deliveryDate).slice(0, 7) === which),
+           title: monthLabel(which), note: '' };
+}
+
+/* By person or by month. Which one is useful depends on the question: a
+   month's takings read best as a list, a year's read best by customer. */
+let salesBy = 'date';
+function salesListBy(how) { salesBy = how; renderSalesList(); }
+
+function renderSalesList() {
+  const cut = salesCutOf(salesCut);
+  const rows = cut.rows;
+  const money = list => Math.round(list.reduce((t, o) => t + Number(o.total || 0), 0) * 100) / 100;
+
+  let body;
+  if (!rows.length) {
+    body = '<div class="empty">Nothing here.</div>';
+  } else if (salesBy === 'person') {
+    const by = {};
+    rows.forEach(o => {
+      const who = String(o.customer || '').trim() || 'No name on the sale';
+      (by[who] = by[who] || []).push(o);
+    });
+    body = Object.keys(by)
+      .sort((a, b) => money(by[b]) - money(by[a]))
+      .map(who => '<div class="item"><div class="name"><b>' + esc(who) + '</b>' +
+        '<span>' + by[who].length + (by[who].length === 1 ? ' sale' : ' sales') + '</span></div>' +
+        '<div class="qty"><b>' + plain(money(by[who])) + '</b></div></div>').join('');
+  } else {
+    body = rows.map(o => {
+      const inv = invoiceIn(o.note) || invoiceIn(o.what);
+      return '<div class="item"><div class="name"><b>' +
+        esc(String(o.customer || '').trim() || 'No name on the sale') +
+        (inv ? '<span class="tag">' + esc(inv) + '</span>' : '') + '</b>' +
+        '<span>' + esc(o.deliveryDate || 'no date on the sale') +
+          (o.by ? ' · ' + esc(o.by) : '') +
+          (o.paid && o.paymentType ? ' · ' + esc(o.paymentType) : '') +
+          (o.what ? '<br>' + esc(o.what) : '') +
+          (o.note ? '<br>' + esc(o.note) : '') + '</span></div>' +
+        '<div class="qty"><b>' + plain(o.total || 0) + '</b>' +
+          (o.paid ? '' : '<span>not paid</span>') + '</div></div>';
+    }).join('');
+  }
+
+  openSheet(cut.title,
+    rows.length + (rows.length === 1 ? ' sale · ' : ' sales · ') + plain(money(rows)),
+    (cut.note ? '<p class="muted" style="margin:0 0 10px">' + cut.note + '</p>' : '') +
+    '<div class="seg small" style="margin-bottom:10px">' +
+      '<button class="' + (salesBy === 'date' ? 'on' : '') +
+        '" onclick="salesListBy(\'date\')">One by one</button>' +
+      '<button class="' + (salesBy === 'person' ? 'on' : '') +
+        '" onclick="salesListBy(\'person\')">By customer</button>' +
+    '</div>' +
+    '<div class="card flush list" style="margin:0">' + body + '</div>' +
+    '<button class="ghost" style="margin-top:12px" onclick="closeSheet()">Close</button>');
 }
 
 function monthLabel(k) {

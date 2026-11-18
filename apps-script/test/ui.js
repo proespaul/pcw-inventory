@@ -814,6 +814,76 @@ const pause = () => new Promise(r => setTimeout(r, 0));
       /no pack count/.test(sheet), true);
   }
 
+  /* ───────── the sales behind a figure ─────────
+     Every number on this screen totals particular sales, and the question
+     it raises is always "which ones?". It used to be answered by a list of
+     all 46 underneath, which answers a different question. */
+  {
+    w.eval('data.salesBook = ' + JSON.stringify([
+      { date: '2026-04-02', customer: 'Katelyn Kelly', by: 'Hannah', what: '20 lb ground beef',
+        amount: 240, net: 0, paid: false, paymentType: '', note: '', orderId: '' },
+      { date: '2026-04-29', customer: 'Dorothy Douglas', by: 'Hannah', what: '20 lb GB',
+        amount: 439, net: 0, paid: false, paymentType: '', note: '', orderId: '' },
+      { date: '2026-06-23', customer: 'Jeff Cappis', by: 'Website', what: 'Front quarter',
+        amount: 1649, net: 0, paid: true, paymentType: 'E-transfer',
+        note: 'Entered QBO \u00b7 PCW #048 $1649.00', orderId: '' },
+      { date: '2026-06-10', customer: 'Katelyn Kelly', by: 'Hannah', what: 'pepperoni',
+        amount: 100, net: 0, paid: true, paymentType: 'Cash', note: '', orderId: '' }
+    ]) + '; data.settings = data.settings || {}; data.settings.FISCAL_YEAR_STARTS = 4;' +
+      'data.orders = []; showView("sales");');
+
+    check('the long list of every sale is gone from the screen',
+      !!doc.getElementById('salesList'), false);
+
+    // The figure Paul asked about: what is it made of?
+    w.eval('openSalesList("unpaid");');
+    const unpaid = text('sheetBody');
+    check('the unpaid figure opens the sales that make it up',
+      [/Katelyn Kelly/.test(unpaid), /Dorothy Douglas/.test(unpaid)], [true, true]);
+    check('and leaves out the ones that were paid for',
+      /Jeff Cappis/.test(unpaid), false);
+    check('the sheet says what it adds up to',
+      /679/.test(text('sheetSub')), true);
+    /* The Payment column being empty is not the same as the customer not
+       having paid, and the difference is the whole of what Paul wanted to
+       know. The card says so rather than calling them debts. */
+    check('and says what an empty Payment column actually means',
+      /never ticked|left empty/.test(unpaid), true);
+
+    // By customer, for a year's worth; one by one, for a month's.
+    w.eval('salesListBy("person");');
+    const byPerson = text('sheetBody');
+    check('the same figure can be read by customer instead',
+      /Katelyn Kelly/.test(byPerson) && /2 sales|1 sale/.test(byPerson), true);
+    w.eval('salesListBy("date");');
+
+    w.eval('openSalesList("all");');
+    const all = text('sheetBody');
+    check('"sold" opens everything, paid or not', /Jeff Cappis/.test(all), true);
+    /* An invoice number is written in the comment, because the sheet has
+       no column for one. It is pulled out where there is one. */
+    check('an invoice number written in a comment is found and shown',
+      /PCW #048/.test(doc.getElementById('sheetBody').innerHTML), true);
+
+    w.eval('openSalesList("2026-04");');
+    const apr = text('sheetBody');
+    check('a month opens its own sales and no others',
+      [/Katelyn Kelly/.test(apr), /Jeff Cappis/.test(apr)], [true, false]);
+    w.eval('closeSheet();');
+  }
+
+  /* ───────── Kenji says nothing about how long he will be ───────── */
+  {
+    w.eval('kenjiWaiting("how many ribeye");');
+    check('the bar says something is running',
+      doc.getElementById('kBar').className, 'going');
+    check('and no countdown is guessed at',
+      /\d+\s*s\b/.test(text('kSay')), false);
+    w.eval('kenjiDoneWaiting(true);');
+    check('and it stops when the answer lands',
+      doc.getElementById('kBar').className, '');
+  }
+
   console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll browser checks passed.\n');
   process.exit(failures ? 1 : 0);
 })();
