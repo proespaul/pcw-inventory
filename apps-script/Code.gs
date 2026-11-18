@@ -138,7 +138,11 @@ var HEADERS = {
              'Other cost', 'Total cost', 'Packages cut', 'Saleable weight (lb)', 'Yield %',
              'Cost / saleable lb', 'Model saleable lb', 'Model revenue', 'Potential revenue',
              'Sold so far', 'Still in the freezer', 'Variance vs model', 'Notes',
-             'Breakdown covers'],
+             'Breakdown covers',
+             /* Appended, not slotted in beside the hanging weight: a missing
+                column is added at the end of the tab, so the order here has
+                to be the order there. */
+             'Carcass weight (lb)'],
   CUSTOMERS:['Customer', 'Email', 'Phone', 'Town', 'First order', 'Last order', 'Orders',
              'Orders before the app', 'Packages', 'Spend', 'Spend before the app',
              'Source', 'In Google Contacts', 'Bought before', 'Notes',
@@ -2655,7 +2659,8 @@ function rebuildSteers_() {
     if (!id) return;
     var total = num_(r[col('Purchase cost')]) + num_(r[col('Butcher cost')]) + num_(r[col('Other cost')]);
     var saleable = Math.round((weight[id] || 0) * 100) / 100;
-    var hanging = num_(r[col('Hanging weight (lb)')]);
+    var hanging = num_(r[col('Carcass weight (lb)')]) ||
+                  num_(r[col('Hanging weight (lb)')]);
     r[col('Total cost')] = total || '';
     r[col('Packages cut')] = cut[id] || '';
     r[col('Saleable weight (lb)')] = saleable || '';
@@ -6976,7 +6981,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-17 17:59 UTC';
+var BACKEND_BUILD = '2026-11-18 21:02 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -9971,6 +9976,21 @@ function sameSteer_(a, b) {
    as a date. "JUNE-2026" went in and "Mon Jun 01 2026 00:00:00 GMT-0600"
    comes back, which matches nothing. Read as the month and year it was
    turned into, so those rows still find their steer. */
+/* The weight a yield is worked out against.
+ *
+ * Paul keeps these apart: the carcass weight is what the plant weighed the
+ * dressed animal at, and the hanging weight is what it weighed after it had
+ * hung, which often nobody took. The yield is meat over the carcass. The
+ * column was called 'Hanging weight' when there was only one of them and
+ * both of the steers in it — the June animal at 1,290.8 lb and F2 at
+ * 1,900 — were carcass weights, so a blank carcass weight falls back to
+ * it rather than reading those two as missing.
+ */
+function carcassOf_(row) {
+  var c = num_(row['Carcass weight (lb)']);
+  return c > 0 ? c : num_(row['Hanging weight (lb)']);
+}
+
 function steerKey_(v) {
   // Not instanceof: a date handed over from the Sheets side is a Date from
   // another realm, where instanceof answers false. Its shape is the test.
@@ -10132,7 +10152,7 @@ function cattle_() {
     var from = recorded[key] || booked[key] || { weight: 0, aside: 0, packages: 0, cuts: 0 };
     var stated = num_(r['Saleable weight (lb)']);
     var meat = stated > 0 ? stated : from.weight;
-    var hanging = num_(r['Hanging weight (lb)']);
+    var hanging = carcassOf_(r);
     list.push({
       id: id,
       outfit: str_(r['Outfit']),
@@ -10142,6 +10162,9 @@ function cattle_() {
       when: dateStr_(r['Kill date']) || dateStr_(r['Pack date']),
       live: num_(r['Live weight (lb)']) || null,
       hanging: hanging || null,
+      /* Shown only where it was actually taken, and never as the yield
+         basis: it is the carcass weight that drives that. */
+      hung: num_(r['Hanging weight (lb)']) || null,
       meat: meat > 0 ? round2_(meat) : null,
       aside: from.aside > 0 ? round2_(from.aside) : null,
       packages: from.packages || null,
@@ -10324,7 +10347,8 @@ function steerYield_(req) {
   readTable_(TABS.STEERS).forEach(function (r) {
     if (sameSteer_(r['Steer ID'], batch)) row = r;
   });
-  var hanging = row ? num_(row['Hanging weight (lb)']) : 0;
+  var hanging = row ? carcassOf_(row) : 0;
+  var hung = row ? num_(row['Hanging weight (lb)']) : 0;
   var live = row ? num_(row['Live weight (lb)']) : 0;
   /* What the cut list adds up to, and what the animal actually made. They
      are the same number on a steer we cut and kept whole. Where they are
@@ -10342,7 +10366,7 @@ function steerYield_(req) {
   others.forEach(function (b) {
     var r2 = null;
     readTable_(TABS.STEERS).forEach(function (r) { if (sameSteer_(r['Steer ID'], b)) r2 = r; });
-    var h = r2 ? num_(r2['Hanging weight (lb)']) : 0;
+    var h = r2 ? carcassOf_(r2) : 0;
     var w = r2 && num_(r2['Saleable weight (lb)']) > 0
       ? num_(r2['Saleable weight (lb)']) : byBatch[b].weight;
     if (h && w) pastYields.push(w / h * 100);
@@ -10440,6 +10464,7 @@ var STEER_FIELDS = [
   ['tag', 'Tag'], ['outfit', 'Outfit'], ['butcher', 'Butcher'],
   ['killDate', 'Kill date'], ['packDate', 'Pack date'], ['grade', 'Grade (BMS)'],
   ['liveWeight', 'Live weight (lb)'], ['hangingWeight', 'Hanging weight (lb)'],
+  ['carcassWeight', 'Carcass weight (lb)'],
   ['purchaseCost', 'Purchase cost'], ['butcherCost', 'Butcher cost'],
   ['otherCost', 'Other cost'], ['notes', 'Notes'],
   /* Written down for an animal whose cut-by-cut is only part of it. F2 went
@@ -10448,7 +10473,8 @@ var STEER_FIELDS = [
      is the animal's and the cut list is labelled with what it covers. */
   ['saleableWeight', 'Saleable weight (lb)'], ['covers', 'Breakdown covers']
 ];
-var STEER_NUMBERS = { liveWeight: true, hangingWeight: true, purchaseCost: true,
+var STEER_NUMBERS = { liveWeight: true, hangingWeight: true, carcassWeight: true,
+                      purchaseCost: true,
                       butcherCost: true, otherCost: true, saleableWeight: true };
 
 /** Fills the blanks on an existing steer row. Returns what it filled. */

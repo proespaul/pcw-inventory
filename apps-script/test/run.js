@@ -1594,5 +1594,25 @@ console.log('\na client with two numbers');
     inYield.filter(x => !c.countsInYield_('SKU', x[0], x[1])).map(x => x[0]), []);
 }
 
+/* ---- carcass weight, not hanging weight ----
+   Paul keeps the two apart: the carcass weight is what the plant weighed
+   the dressed animal at, and the hanging weight is what it weighed after
+   it hung, which on most of these nobody took. The yield goes against the
+   carcass. Every steer recorded before the split has one number under the
+   old heading and it is a carcass weight, so a blank carcass weight falls
+   back to it rather than reading those animals as unweighed. */
+{
+  const c = buildContext();
+  check('a carcass weight is what the yield is worked out against',
+    c.carcassOf_({ 'Carcass weight (lb)': 1290.8, 'Hanging weight (lb)': 1180 }), 1290.8);
+  check('an older steer with only the old column still counts',
+    c.carcassOf_({ 'Hanging weight (lb)': 1900 }), 1900);
+  check('and one with neither is not read as nothing-at-all pounds',
+    [c.carcassOf_({}), c.carcassOf_({ 'Carcass weight (lb)': '', 'Hanging weight (lb)': '' })],
+    [0, 0]);
+  check('the new column is on the end of the tab, where a missing one is added',
+    c.HEADERS.STEERS[c.HEADERS.STEERS.length - 1], 'Carcass weight (lb)');
+}
+
 console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll checks passed.\n');
 process.exit(failures ? 1 : 0);

@@ -580,9 +580,17 @@ const pause = () => new Promise(r => setTimeout(r, 0));
          'b3.innerHTML = "<option>S4</option>"; b3.value = "S4"; openSteerEdit();');
   await pause();
   check('the steer opens showing what is on it now',
-    [doc.getElementById('seHang').value, doc.getElementById('seButcher').value,
+    [doc.getElementById('seCarc').value, doc.getElementById('seButcher').value,
      doc.getElementById('seTag').value],
     ['2000', 'Simard', '771']);
+  /* Carcass weight and hanging weight came apart once Paul said he keeps
+     them apart: the carcass is what the plant weighed it at, the hanging
+     weight is what it weighed after it hung, and on most animals nobody
+     took the second. A steer recorded before the split has one number, and
+     it is a carcass weight — so it fills the carcass box and leaves the
+     hanging box empty rather than claiming a weight nobody took. */
+  check('a steer from before the split reads as a carcass weight, not a hung one',
+    doc.getElementById('seHang').value, '');
   check('an empty figure comes through as empty, not as a zero',
     doc.getElementById('seOther').value, '');
 
@@ -748,7 +756,7 @@ const pause = () => new Promise(r => setTimeout(r, 0));
 
     const body = text('cattleList');
     check('a weight nobody took says so rather than reading as a blank',
-      /rail unavailable/.test(body), true);
+      /carcass unavailable/.test(body), true);
     check('and a yield that cannot be worked out is not drawn as 0%',
       [/unavailable/.test(body), /\b0%/.test(body)], [true, false]);
     check('a steer somebody else took says whose it was',

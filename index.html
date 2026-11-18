@@ -1224,7 +1224,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-17 17:59 UTC';
+const APP_BUILD = '2026-11-18 21:02 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -3438,7 +3438,7 @@ function openNewBatch(backInto) {
       '<input id="nbPack" type="date" value="' + todayISO() + '"></div></div>' +
     '<div class="row"><div><label>Butcher</label>' +
       '<input id="nbButcher" type="text" autocomplete="off" placeholder="optional"></div>' +
-      '<div><label>Hanging weight (lb)</label>' +
+      '<div><label>Carcass weight (lb)</label>' +
       '<input id="nbHang" type="number" inputmode="decimal" step="0.1" placeholder="optional"></div></div>' +
     '<button id="nbGo" style="margin-top:12px" onclick="saveNewBatch(' +
       JSON.stringify(backInto || '') + ')">Add the steer</button>' +
@@ -3458,7 +3458,7 @@ async function saveNewBatch(backInto) {
     await api('addSteer', { steer: {
       id, tag: ($('nbTag').value || '').trim(), butcher: ($('nbButcher').value || '').trim(),
       killDate: $('nbKill').value || '', packDate: $('nbPack').value || '',
-      grade: $('nbGrade').value || '', hangingWeight: $('nbHang').value || ''
+      grade: $('nbGrade').value || '', carcassWeight: $('nbHang').value || ''
     }});
     await sync(true);
     closeSheet();
@@ -7836,17 +7836,20 @@ function renderCattle() {
     '<div class="item" style="border:0;padding:2px"><div class="name">' +
     '<b>' + list.length + (list.length === 1 ? ' animal' : ' animals') + '</b>' +
     '<span>' + (c.weighed
-      ? c.weighed + ' of them weighed, averaging ' + round2(c.usualYield) + '% of the rail'
+      ? c.weighed + ' of them weighed, averaging ' + round2(c.usualYield) + '% of the carcass'
       : 'None of them weighed yet') + '</span></div>' +
     '<div class="qty"><b>' + (c.weighed ? round2(c.usualYield) + '%' : '—') +
       '</b><span>usual yield</span></div></div>';
 
   $('cattleList').innerHTML = list.length ? list.map(x => {
-    /* Hanging weight is the one that matters — yield is worked out against
-       it — so it is named, and the live weight only shown where we have it. */
+    /* The carcass weight is the one that matters — the yield is worked out
+       against it — so it is always named, even to say it is not there. The
+       live weight and the hanging weight are shown only where somebody took
+       them, which on most of these animals nobody did. */
     const weights = [
-      'rail ' + lbOr(x.hanging),
-      x.live ? 'live ' + round2(x.live) + ' lb' : ''
+      'carcass ' + lbOr(x.hanging),
+      x.live ? 'live ' + round2(x.live) + ' lb' : '',
+      x.hung ? 'hung ' + round2(x.hung) + ' lb' : ''
     ].filter(Boolean).join(' · ');
     const meat = x.meat
       ? round2(x.meat) + ' lb of meat' + (x.aside ? ' · ' + round2(x.aside) +
@@ -7860,7 +7863,7 @@ function renderCattle() {
       '<span>' + (x.when ? esc(x.when) : 'date unavailable') + ' · ' + weights +
         '<br>' + meat + '</span></div>' +
       '<div class="qty"><b>' + (x.yieldPct === null ? '—' : round2(x.yieldPct) + '%') +
-        '</b><span>' + (x.yieldPct === null ? 'unavailable' : 'of the rail') +
+        '</b><span>' + (x.yieldPct === null ? 'unavailable' : 'of the carcass') +
         '</span></div></div>';
   }).join('') : '<div class="empty">No animals recorded yet.</div>';
 
@@ -7960,11 +7963,18 @@ async function openSteerEdit() {
     '</div>' +
     '<h3 style="margin:16px 0 6px">Weights</h3>' +
     '<div class="row">' +
-      '<div><label>Live weight (lb)</label>' +
+      '<div><label>Live (lb)</label>' +
         '<input type="number" inputmode="decimal" step="0.1" id="seLive" value="' + v(d.liveWeight) + '"></div>' +
-      '<div><label>Hanging / carcass (lb)</label>' +
-        '<input type="number" inputmode="decimal" step="0.1" id="seHang" value="' + v(d.hangingWeight) + '"></div>' +
+      '<div><label>Carcass (lb)</label>' +
+        '<input type="number" inputmode="decimal" step="0.1" id="seCarc" value="' +
+          v(d.carcassWeight || d.hangingWeight) + '"></div>' +
+      '<div><label>Hanging (lb)</label>' +
+        '<input type="number" inputmode="decimal" step="0.1" id="seHang" value="' +
+          v(d.carcassWeight ? d.hangingWeight : '') + '"></div>' +
     '</div>' +
+    '<p class="muted" style="margin:7px 0 0">The yield is worked out against the ' +
+      'carcass weight. Hanging weight is what it weighed after it hung, if anybody ' +
+      'took it — leave it empty if not.</p>' +
     '<h3 style="margin:16px 0 6px">What it cost</h3>' +
     '<div class="row">' +
       '<div><label>The animal</label>' +
@@ -8085,7 +8095,9 @@ async function openSteerBreakdown(batch, backTo) {
           ' lb</b></div>' : '') +
       (y.aside ? '<div class="kv"><span>Fat, bone, organs</span><b>' +
         round2(y.aside) + ' lb, outside the yield</b></div>' : '') +
-      (y.hanging ? '<div class="kv"><span>Hanging weight</span><b>' +
+      (y.hung ? '<div class="kv"><span>Hanging weight</span><b>' +
+        round2(y.hung) + ' lb</b></div>' : '') +
+      (y.hanging ? '<div class="kv"><span>Carcass weight</span><b>' +
         round2(y.hanging) + ' lb</b></div>' : '') +
       '<div class="kv big"><span>Yield</span><b>' + pc(y.yieldPct) + '</b></div>' +
       (y.usualYield !== null
