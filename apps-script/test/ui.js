@@ -939,7 +939,10 @@ const pause = () => new Promise(r => setTimeout(r, 0));
       { customer: 'Reene Beaudoin', email: 'reene@example.com', phone: '780-625-6963',
         phone2: '780-555-0199', email2: '', town: 'Peace River, AB', notes: '',
         orders: 1, prior: 2, spend: 188, priorSpend: 300, last: '2026-08-20' }
-    ]) + '; data.custCards = {}; data.orders = [];');
+    ]) + '; data.custCards = {}; data.orders = []; data.salesBook = ' +
+      JSON.stringify([{ date: '2026-08-20', customer: 'Reene Beaudoin', by: 'Hannah',
+        what: '2x Steak Lovers Box', amount: 188, net: 0, paid: true,
+        paymentType: 'E-transfer', note: '', orderId: '' }]) + ';');
 
     // Nothing answers 'customer' yet, so whatever is on screen came from here.
     w.eval('openCustomer("Reene Beaudoin");');
@@ -950,12 +953,29 @@ const pause = () => new Promise(r => setTimeout(r, 0));
       /780-555-0199/.test(card), true);
     check('and what they are worth, straight away',
       /488/.test(text('sheetSub')), true);
-    /* The order history genuinely does have to be fetched. It says so,
-       rather than showing an empty list that reads as "never bought
-       anything". */
-    check('the part still coming says so rather than reading as nothing',
-      [/Reading what they have bought/.test(card),
-       /Nothing recorded against them/.test(card)], [true, false]);
+    /* And what they have bought, which was the last thing on this card
+       still being waited for. The sales book, the app's own orders and
+       the wholesale list are all on the phone already. */
+    check('their order history is there too, without asking anybody',
+      [/Steak Lovers Box/.test(card), /Nothing recorded against them/.test(card)],
+      [true, false]);
+
+    /* The wholesale list and the waiting lists are on the phone too, so a
+       whole-animal share and anything they are still waiting on show up
+       without asking either. */
+    w.eval('data.lists.wholesale = ' + JSON.stringify([
+      { row: 4, customer: 'Reene Beaudoin', wants: 'Half, cut and wrapped',
+        invoice: 'PCW 051', weight: 310, price: 2480, added: '2026-05-02', notes: '' },
+      { row: 5, customer: 'Reene Beaudoin', wants: 'Quarter next spring',
+        invoice: '', weight: '', price: 0, added: '2026-09-01', notes: '' }
+    ]) + '; openCustomer("Reene Beaudoin");');
+    const withWhole = text('sheetBody');
+    check('a whole-animal share is on the card, invoice and all',
+      [/PCW 051/.test(withWhole), /310 lb/.test(withWhole)], [true, true]);
+    check('and what they are still waiting on is listed as waiting',
+      /Quarter next spring/.test(withWhole), true);
+    check('the newest thing they bought is at the top',
+      withWhole.indexOf('Steak Lovers Box') < withWhole.indexOf('PCW 051'), true);
 
     // Then the full card lands and replaces it.
     replyWith('customer', { ok: true, name: 'Reene Beaudoin', email: 'reene@example.com',

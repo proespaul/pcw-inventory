@@ -1238,7 +1238,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-18 22:05 UTC';
+const APP_BUILD = '2026-11-18 22:15 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -7200,9 +7200,15 @@ function custDetails(w) {
     line('Phone', known.phone, 'tel') +
     line('Email', known.email, 'mail') +
     line('Town', known.town) +
-    '<div class="kv"><span>In</span><b>' +
-      [w.app ? 'app' : '', w.sales ? 'sales sheet' : '', w.contact ? 'contacts' : '']
-        .filter(Boolean).join(' · ') + '</b></div>';
+    /* Which books they are in. Left out entirely while the answer is not
+       known yet — the card opens off the phone, and the script says which
+       books a moment later. An "In" with nothing after it read as though
+       they were in none of them. */
+    (function () {
+      var inBooks = [w.app ? 'app' : '', w.sales ? 'sales sheet' : '',
+                     w.contact ? 'contacts' : ''].filter(Boolean).join(' · ');
+      return inBooks ? '<div class="kv"><span>In</span><b>' + inBooks + '</b></div>' : '';
+    })();
 
   const WORD = { phone: ['number', 'numbers'], email: ['email address', 'email addresses'],
                  town: ['address', 'addresses'] };
@@ -7368,12 +7374,63 @@ function custLocal(name) {
     .filter(c => String(c.customer || '').trim().toLowerCase() === key)[0] || null;
 }
 
-/* The card as the phone can already tell it. Good enough to act on: it has
-   the number to ring and what they are worth. It is not the whole card, and
-   it says which part is still coming rather than pretending to be finished. */
+/* What they have bought, off the phone.
+ *
+ * This was the last thing on the card still worth waiting for, and it
+ * turned out not to be: the sales book, the app's own orders and the
+ * wholesale list are all already here. The script is still asked, because
+ * it reads one tab this does not and it settles the spelling of the name
+ * — but it is asked behind a card that is already finished, not in
+ * front of an empty one.
+ */
+function custLinesLocal(name) {
+  const key = String(name || '').trim().toLowerCase();
+  const same = v => String(v || '').trim().toLowerCase() === key;
+  const lines = [];
+
+  (data.salesBook || []).filter(r => same(r.customer)).forEach(r => {
+    lines.push({ date: r.date || '', what: r.what || '', amount: Number(r.amount) || 0,
+                 kind: 'Sale', how: r.paid ? (r.paymentType || '') : 'not paid yet',
+                 where: 'sales sheet', note: r.note || '' });
+  });
+
+  effectiveOrders().filter(o => same(o.customer)).forEach(o => {
+    const items = (o.items || [])
+      .map(i => i.packages + ' \u00d7 ' + (i.product || i.sku)).join(', ');
+    lines.push({ date: o.deliveryDate || o.created || '',
+                 what: items || o.notes || 'Order ' + o.id,
+                 amount: Number(o.total) || 0, kind: 'Order', how: o.method || '',
+                 where: 'app', status: o.status || '', orderId: o.id,
+                 note: o.notes || '' });
+  });
+
+  const waiting = [];
+  ((data.lists || {}).wholesale || []).filter(r => same(r.customer)).forEach(r => {
+    if (!r.invoice && !r.weight) {
+      if (r.wants) waiting.push(r.wants + ' (whole animal list)');
+      return;
+    }
+    lines.push({ date: r.added || '', what: r.share || r.wants || 'Whole animal share',
+                 amount: Number(r.price) || 0, kind: 'Whole animal', how: '',
+                 where: 'wholesale', invoice: r.invoice || '',
+                 weight: r.weight || '', note: r.notes || '' });
+  });
+  ((data.lists || {}).waitlist || []).filter(r => same(r.customer)).forEach(r => {
+    if (r.wants) waiting.push(r.wants + ' (cut waiting list)');
+  });
+
+  // Newest first, and anything undated after the dated rather than before.
+  lines.sort((a, b) => (a.date ? 0 : 1) - (b.date ? 0 : 1) ||
+                       String(b.date).localeCompare(String(a.date)));
+  return { lines: lines, waiting: waiting };
+}
+
+/* The card as the phone can already tell it — which is all of it bar the
+   spelling of their name in the other two books. */
 function custFromLocal(name) {
   const c = custLocal(name);
   if (!c) return null;
+  const got = custLinesLocal(name);
   const one = v => v ? [{ value: v, where: ['app'] }] : [];
   const two = (a, b) => one(a).concat(b && b !== a ? one(b) : []);
   return {
@@ -7381,7 +7438,11 @@ function custFromLocal(name) {
     town: c.town || '', notes: c.notes || '', source: c.source || '',
     orderCount: (c.orders || 0) + (c.prior || 0),
     spend: (c.spend || 0) + (c.priorSpend || 0),
-    last: c.last || '', lines: [], waiting: [], stillReading: true,
+    last: c.last || '', lines: got.lines, waiting: got.waiting,
+    /* Only the cross-reference is still coming, and that is a footnote
+       rather than the card. Nothing on screen says "reading…" for it:
+       it either turns up or it does not, and the card reads the same. */
+    stillReading: false,
     where: { ok: true, name: c.customer || name, app: null,
              known: { phone: two(c.phone, c.phone2), email: two(c.email, c.email2),
                       town: one(c.town) } }
@@ -7450,9 +7511,7 @@ function custSheet(f) {
         (l.note ? '<br>' + esc(l.note) : '') + '</span></div>' +
         (l.amount ? '<div class="qty"><b>' + money(l.amount) + '</b><span></span></div>' : '') +
         '</div>').join('')
-    : (f.stillReading
-        ? '<div class="empty">Reading what they have bought\u2026</div>'
-        : '<div class="empty">Nothing recorded against them yet.</div>');
+    : '<div class="empty">Nothing recorded against them yet.</div>';
 
   const waiting = (f.waiting || []).length
     ? '<h3 style="margin:16px 0 6px">Waiting on</h3><ul style="margin:0;padding-left:20px">' +
