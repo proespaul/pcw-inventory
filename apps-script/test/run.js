@@ -1760,5 +1760,63 @@ console.log('\na client with two numbers');
     c.freezerHowOften_(168), 'once a week');
 }
 
+/* ---- what Kenji can actually see ----
+   He had twenty-five bare names off the last forty orders, so "what is
+   Reene's number" had no answer and anybody who had not ordered lately did
+   not exist. And not one temperature, yield or whole-animal sale. */
+{
+  const c = buildContext();
+  c.setup();
+  const CH = c.HEADERS.CUSTOMERS;
+  const cust = CH.map(() => '');
+  cust[CH.indexOf('Customer')] = 'Reene Beaudoin';
+  cust[CH.indexOf('Phone')] = '780-625-6963';
+  cust[CH.indexOf('Phone 2')] = '780-555-0199';
+  cust[CH.indexOf('Email')] = 'reene@example.com';
+  cust[CH.indexOf('Town')] = 'Peace River, AB';
+  cust[CH.indexOf('Last order')] = '2026-08-20';
+  cust[CH.indexOf('Spend before the app')] = 300;
+  cust[CH.indexOf('Bought before')] = '1/2 cow';
+  c.sheet_(c.TABS.CUSTOMERS).appendRow(cust);
+
+  const WH = c.HEADERS.WHOLESALE;
+  const half = WH.map(() => '');
+  half[WH.indexOf('Customer')] = 'Reene Beaudoin';
+  half[WH.indexOf('Wants')] = 'Half, cut and wrapped';
+  half[WH.indexOf('Weight (lb)')] = 310;
+  half[WH.indexOf('Invoice')] = 'PCW 051';
+  half[WH.indexOf('Price')] = 2480;
+  half[WH.indexOf('Added')] = '2026-05-02';
+  c.sheet_(c.TABS.WHOLESALE).appendRow(half);
+
+  const SH = c.HEADERS.STEERS;
+  const steer = SH.map(() => '');
+  steer[SH.indexOf('Steer ID')] = 'June-2026';
+  steer[SH.indexOf('Carcass weight (lb)')] = 1290.8;
+  steer[SH.indexOf('Saleable weight (lb)')] = 530.8;
+  c.sheet_(c.TABS.STEERS).appendRow(steer);
+
+  const snap = c.kenjiBuildSnapshot_();
+
+  const her = (snap.customers || []).filter(x => x.name === 'Reene Beaudoin')[0];
+  check('he can read a customer straight out rather than saying to look it up',
+    [her.phone, her.phone2, her.town], ['780-625-6963', '780-555-0199', 'Peace River, AB']);
+  check('with when they last bought and what they have spent',
+    [her.lastBought, her.spentAllTime], ['2026-08-20', 300]);
+
+  const share = (snap.wholeAnimals || [])[0];
+  check('a half steer is a row of its own, with the date and the invoice',
+    [share.customer, share.stage, share.when, share.invoice],
+    ['Reene Beaudoin', 'had it', '2026-05-02', 'PCW 051']);
+
+  const june = (snap.cattle || []).filter(x => x.steer === 'June-2026')[0];
+  check('and the steers carry their yields, named for what they are measured against',
+    [june.carcassLb, june.meatLb, june.yieldOfCarcassPct, june.yieldOfLivePct],
+    [1290.8, 530.8, 41.12, null]);
+
+  check('the freezers come with their temperatures, not just their names',
+    typeof snap.freezerLog === 'object', true);
+}
+
 console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll checks passed.\n');
 process.exit(failures ? 1 : 0);

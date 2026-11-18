@@ -7127,7 +7127,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-18 22:39 UTC';
+var BACKEND_BUILD = '2026-11-18 22:46 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -7621,6 +7621,7 @@ function kenjiStamp_() {
  * without adding a row would not move the fingerprint, and ninety seconds is
  * as stale as that can ever get.
  */
+var KENJI_SNAP_MAX = 90000;      // the cache will not take much more
 var KENJI_SNAP_SECS = 90;
 
 function kenjiSnapshot_() {
@@ -7632,6 +7633,25 @@ function kenjiSnapshot_() {
     if (hit) { try { return JSON.parse(hit); } catch (e2) {} }
   }
   var snap = kenjiBuildSnapshot_();
+  /* A prompt, not a database.
+   *
+   * The customer book and the freezer are both allowed to grow, and the
+   * cache this is kept in will not take more than about 100KB. Rather than
+   * discover that by the whole of Kenji failing one day, the longest list
+   * is trimmed until it fits — newest kept, since a customer who bought
+   * last month is likelier to be asked about than one who bought in 2024. */
+  try {
+    var budget = KENJI_SNAP_MAX;
+    var size = JSON.stringify(snap).length;
+    while (size > budget && (snap.customers || []).length > 40) {
+      snap.customers = snap.customers.slice(0, Math.floor(snap.customers.length * 0.8));
+      size = JSON.stringify(snap).length;
+    }
+    while (size > budget && (snap.inTheFreezer || []).length > 200) {
+      snap.inTheFreezer = snap.inTheFreezer.slice(0, Math.floor(snap.inTheFreezer.length * 0.8));
+      size = JSON.stringify(snap).length;
+    }
+  } catch (eTrim) { /* better a big prompt than no prompt */ }
   if (cache) {
     try { cache.put(key, JSON.stringify(snap), KENJI_SNAP_SECS); } catch (e3) {}
   }
@@ -7697,17 +7717,80 @@ function kenjiBuildSnapshot_() {
     });
   } catch (errBox) { boxes = []; }
 
-  // Who has ordered before, so a first name can be matched to a whole one
-  // instead of a new customer being invented from a half-heard word.
+  /* Everybody, and how to reach them.
+   *
+   * This was twenty-five bare names off the last forty orders, there only so
+   * a half-heard first name could be matched to a whole one. So "what is
+   * Reene's number" had no answer, and anybody who had not ordered in the
+   * last forty orders did not exist at all.
+   *
+   * It is the customer book now: the name, the number, the address, what
+   * they last bought and what they have spent. Short fields, because this
+   * is a prompt and not a database, but every customer rather than the
+   * last few.
+   */
   var customers = [];
   try {
-    var seen = {};
-    readOrders_().slice(-40).reverse().forEach(function (o) {
-      var n = str_(o.customer);
-      if (n && !seen[n.toLowerCase()]) { seen[n.toLowerCase()] = true; customers.push(n); }
+    readTable_(TABS.CUSTOMERS).forEach(function (r) {
+      var n = str_(r['Customer']);
+      if (!n) return;
+      var one = { name: n };
+      var phone = str_(r['Phone']), phone2 = str_(r['Phone 2']);
+      var mail = str_(r['Email']), mail2 = str_(r['Email 2']);
+      if (phone) one.phone = phone;
+      if (phone2 && phone2 !== phone) one.phone2 = phone2;
+      if (mail) one.email = mail;
+      if (mail2 && mail2 !== mail) one.email2 = mail2;
+      var town = str_(r['Town']);
+      if (town) one.town = town.replace(/\s*\n\s*/g, ', ').slice(0, 80);
+      var last = dateStr_(r['Last order']);
+      if (last) one.lastBought = last;
+      var spend = num_(r['Spend']) + num_(r['Spend before the app']);
+      if (spend) one.spentAllTime = Math.round(spend * 100) / 100;
+      var orders = num_(r['Orders']) + num_(r['Orders before the app']);
+      if (orders) one.orders = orders;
+      var bought = str_(r['Bought before']);
+      if (bought) one.hasBought = bought.slice(0, 120);
+      customers.push(one);
     });
-    customers = customers.slice(0, 25);
   } catch (errCust) { customers = []; }
+
+  /* Who has had a whole animal, or a share of one, and when.
+   *
+   * "When did they last take a half" is a question about this list and no
+   * other: a half steer is not a line of packs, it is a row on the
+   * wholesale tab with an invoice against it. */
+  var shares = [];
+  try {
+    readTable_(TABS.WHOLESALE).forEach(function (r) {
+      var who = str_(r['Customer']);
+      if (!who) return;
+      var out = str_(r['Invoice']) || num_(r['Weight (lb)']);
+      shares.push({
+        customer: who,
+        what: str_(r['Wants']) || 'share',
+        /* Gone out, or still waiting on a steer. Both are worth knowing and
+           they are not the same answer. */
+        stage: out ? 'had it' : str_(r['Status']) || 'waiting',
+        when: dateStr_(r['Added']),
+        weight: num_(r['Weight (lb)']) || null,
+        invoice: str_(r['Invoice']) || '',
+        paid: num_(r['Price']) || null
+      });
+    });
+  } catch (errShare) { shares = []; }
+
+  /* Every animal and what it did — the same figures the Cattle
+     performance tab shows, so the two can never disagree. */
+  var herd = [];
+  try {
+    herd = (cattle_().steers || []).map(function (x) {
+      return { steer: x.id, when: x.when || '', liveLb: x.live, carcassLb: x.hanging,
+               meatLb: x.meat, setAsideLb: x.aside,
+               yieldOfCarcassPct: x.cutYield, yieldOfLivePct: x.takeYield,
+               breakdownCovers: x.covers || '' };
+    });
+  } catch (errHerd) { herd = []; }
 
   /* The year's money.
    *
@@ -7771,6 +7854,8 @@ function kenjiBuildSnapshot_() {
     boxes: boxes,
     sales: sales,
     freezerLog: cold,
+    wholeAnimals: shares,
+    cattle: herd,
     customers: customers,
     channels: CHANNELS,
     groundBeef: {
@@ -7882,6 +7967,25 @@ function kenjiSystem_(brief) {
     '',
     'If they are asking you something, just answer it from what you were given.',
     'Never invent a number. If what you were given does not say, say so.',
+    '',
+    'customers is the customer book: the name, the number or numbers, the',
+    'address, when they last bought, what they have spent all time and what',
+    'they have bought before. Read a number straight out of it rather than',
+    'saying to look it up. If two names are close, say which one you mean.',
+    '',
+    'wholeAnimals is who has had a whole animal or a share of one, with the',
+    'date, the weight, the invoice and what they paid. stage says whether',
+    'they have had it or are still waiting on a steer. "When did somebody',
+    'last take a half" is a question about this list and no other \u2014 a share',
+    'is a row here, not a line of packs.',
+    '',
+    'cattle is every animal and what it did: the live and carcass weights,',
+    'the meat off it, what was set aside, and the yield. There are two',
+    'yields and they are NOT comparable: yieldOfCarcassPct is meat over the',
+    'carcass, yieldOfLivePct is meat over the live weight, and most animals',
+    'have one or the other because they were only ever weighed once. Say',
+    'which one you are quoting. breakdownCovers, where it is filled in, says',
+    'the cut list behind that animal is only part of it.',
     '',
     'freezerLog is the freezers and the record of them. freezerLog.now is the',
     'last reading from each one; tooWarmForTheRecord means it is above',
