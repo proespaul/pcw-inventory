@@ -2800,6 +2800,17 @@ var GOVEE_SENDS_SETTING = 'GOVEE_SENDS';
    it says anything. */
 var GOVEE_WARM_C_DEFAULT = -12;
 var GOVEE_HOT_C_DEFAULT  = -7;
+/* The line that matters to somebody else.
+ *
+ * The two above are banner lines, set slack on purpose so a lid left open
+ * for a minute does not cry wolf. This one is not about banners: frozen
+ * storage is kept at or below -18C, and a record anybody inspects is read
+ * against that number and no other. Freezer 5 sat between -15.7C and
+ * -16.8C from August to November without a single banner, because -16 is
+ * comfortably under a -12 warning line and nowhere near a -7 one. It was
+ * two degrees the wrong side of the only line that counts. */
+var FREEZER_SAFE_SETTING   = 'FREEZER_FOOD_SAFE';
+var FREEZER_SAFE_C_DEFAULT = -18;
 var GOVEE_BATT_DEFAULT = 20;
 
 /* What Govee's own numbers are in.
@@ -3002,15 +3013,19 @@ function freezerAuto_(source) {
 /** "every hour", "once a day" — however often the round is set to run. */
 function freezerHowOften_(every) {
   var n = num_(every) || freezerEveryHours_();
+  if (n >= 168) return 'once a week';
   if (n >= 24) return 'once a day';
   if (n === 1) return 'every hour';
   return 'every ' + n + ' hours';
 }
 
+/* The cap used to be a day, which meant a weekly reading could not be
+   asked for at all — anything over 24 was quietly read as 24. Weekly is
+   the cadence a food-safety record is kept at, so it has to be sayable. */
 function freezerEveryHours_(cfg) {
   var v = (cfg || settings_())[FREEZER_EVERY_SETTING];
   var n = num_(v);
-  return n >= 1 ? Math.min(Math.round(n), 24) : FREEZER_EVERY_DEFAULT;
+  return n >= 1 ? Math.min(Math.round(n), 168) : FREEZER_EVERY_DEFAULT;
 }
 
 /**
@@ -3057,14 +3072,16 @@ function freezerLimits_(cfg) {
   };
   var warmShown = said(GOVEE_WARM_SETTING, GOVEE_WARM_C_DEFAULT);
   var hotShown  = said(GOVEE_HOT_SETTING,  GOVEE_HOT_C_DEFAULT);
+  var safeShown = said(FREEZER_SAFE_SETTING, FREEZER_SAFE_C_DEFAULT);
   var batt = cfg[GOVEE_BATT_SETTING] === '' || cfg[GOVEE_BATT_SETTING] === undefined
     ? GOVEE_BATT_DEFAULT : num_(cfg[GOVEE_BATT_SETTING]);
   return {
     unit: unit,
-    warmShown: warmShown, hotShown: hotShown,
-    // The same two lines in Fahrenheit, which is what readings are compared in.
+    warmShown: warmShown, hotShown: hotShown, safeShown: safeShown,
+    // The same three lines in Fahrenheit, which is what readings are compared in.
     warm: unit === 'C' ? cToF_(warmShown) : warmShown,
     hot:  unit === 'C' ? cToF_(hotShown)  : hotShown,
+    safe: unit === 'C' ? cToF_(safeShown) : safeShown,
     battery: batt
   };
 }
@@ -3681,6 +3698,12 @@ function setupFreezerWatch() {
     if (t.getHandlerFunction() === 'freezerWatch') ScriptApp.deleteTrigger(t);
   });
   var every = freezerEveryHours_();
+  if (every >= 168) {
+    ScriptApp.newTrigger('freezerWatch').timeBased()
+      .onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(6).create();
+    return 'The freezers will be read every Monday morning, and the ' +
+           'readings kept on the ' + TABS.FREEZERLOG + ' tab.';
+  }
   if (every >= 24) {
     ScriptApp.newTrigger('freezerWatch').timeBased().everyDays(1).atHour(6).create();
     return 'The freezers will be read every morning around 6am, and the ' +
@@ -3689,6 +3712,38 @@ function setupFreezerWatch() {
   ScriptApp.newTrigger('freezerWatch').timeBased().everyHours(every).create();
   return 'The freezers will be read ' + freezerHowOften_(every) +
          ', and the readings kept on the ' + TABS.FREEZERLOG + ' tab.';
+}
+
+/* ---- and it puts itself back ----
+ *
+ * setupFreezerWatch has to be run by hand from the editor, once. If it
+ * never was, or the trigger was lost, nothing says so: the tab simply
+ * stops filling and the app carries on showing the last reading it has as
+ * though it were today's. The log went from a reading every seven days to
+ * nothing at all after the 7th of October and the app never mentioned it.
+ *
+ * A record that can go quiet without anybody being told is not a record.
+ * So every sync checks — cheaply, once a day — that the trigger is
+ * still there, and puts it back if it is not.
+ */
+var FREEZER_TRIGGER_CHECKED = 'FREEZER_WATCH_CHECKED';
+
+function ensureFreezerWatch_() {
+  var props;
+  try { props = PropertiesService.getScriptProperties(); } catch (e) { return; }
+  var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  if (props.getProperty(FREEZER_TRIGGER_CHECKED) === today) return;
+  try {
+    var found = ScriptApp.getProjectTriggers().some(function (t) {
+      return t.getHandlerFunction() === 'freezerWatch';
+    });
+    if (!found) setupFreezerWatch();
+    props.setProperty(FREEZER_TRIGGER_CHECKED, today);
+  } catch (err) {
+    /* Listing or creating triggers can be refused depending on who the web
+       app runs as. That is worth knowing about but not worth failing a
+       sync over — the record screen reports the gap either way. */
+  }
 }
 
 /* ==================== THE RECORD, FOR SOMEBODY ELSE ====================
@@ -4066,6 +4121,48 @@ function freezerRecordState_() {
 
   var tail = freezerLogTail_(400);
   var every = freezerEveryHours_();
+  var lim = freezerLimits_();
+
+  /* Was there a reading every week, and was everything cold enough?
+   *
+   * Those are the two questions anybody checking this record asks, and
+   * neither was answered anywhere. A count of readings says nothing about
+   * whether they are spread evenly, and a tab of temperatures says nothing
+   * about whether any of them were too warm. */
+  var WEEK = 7 * 864e5;
+  var weeks = {}, warmest = {}, aboveSafe = {};
+  var newest = 0, oldest = 0;
+  tail.forEach(function (r) {
+    var when = asDate_(r['When']);
+    if (!when) return;
+    var at = when.getTime();
+    if (!oldest || at < oldest) oldest = at;
+    if (at > newest) newest = at;
+    weeks[Math.floor(at / WEEK)] = true;
+
+    var f = str_(r['Freezer']) || str_(r['Sensor']);
+    var tF = str_(r['Temperature (F)']);
+    if (!f || tF === '') return;
+    var t = num_(tF);
+    if (warmest[f] === undefined || t > warmest[f]) warmest[f] = t;
+    if (t > lim.safe) {
+      var seen = aboveSafe[f] || (aboveSafe[f] = {
+        freezer: f, name: str_(r['Freezer name']) || f, readings: 0,
+        warmest: t, since: when.toISOString(), latest: when.toISOString() });
+      seen.readings += 1;
+      if (t > seen.warmest) seen.warmest = t;
+      if (when.toISOString() < seen.since) seen.since = when.toISOString();
+      if (when.toISOString() > seen.latest) seen.latest = when.toISOString();
+    }
+  });
+
+  /* Weeks with no reading at all, between the first in view and the last.
+     A gap of one week in a food-safety record is the whole of the finding;
+     counting readings would have hidden it behind a large number. */
+  var weeksCovered = Object.keys(weeks).length;
+  var weeksSpanned = oldest
+    ? Math.floor(newest / WEEK) - Math.floor(oldest / WEEK) + 1 : 0;
+  var daysSince = newest ? Math.floor((Date.now() - newest) / 864e5) : null;
   var holes = freezerHoles_(tail.map(function (r) {
     return { when: asDate_(r['When']),
              freezer: str_(r['Freezer']), name: str_(r['Freezer name']),
@@ -4081,7 +4178,24 @@ function freezerRecordState_() {
        itself from the first of those is claiming cover it does not have. */
     autoSince: autoFrom ? iso(sh.getRange(autoFrom, 1).getValue()) : '',
     everyHours: every,
-    recentGaps: holes.length
+    recentGaps: holes.length,
+    /* Everything an inspector would ask, answered rather than implied. */
+    weeklyOk: weeksSpanned ? weeksCovered >= weeksSpanned : false,
+    weeksCovered: weeksCovered,
+    weeksSpanned: weeksSpanned,
+    weeksMissed: Math.max(0, weeksSpanned - weeksCovered),
+    lastReading: newest ? new Date(newest).toISOString() : '',
+    daysSinceReading: daysSince,
+    /* The line a record is read against, and anything that was ever the
+       wrong side of it in the stretch in view. */
+    safeShown: lim.safeShown,
+    unit: lim.unit,
+    aboveSafe: Object.keys(aboveSafe).map(function (k) {
+      var a = aboveSafe[k];
+      return { freezer: a.freezer, name: a.name, readings: a.readings,
+               warmestShown: lim.unit === 'C' ? fToC_(a.warmest) : a.warmest,
+               since: a.since, latest: a.latest };
+    }).sort(function (a, b) { return b.readings - a.readings; })
   };
 }
 
@@ -7013,7 +7127,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-18 22:31 UTC';
+var BACKEND_BUILD = '2026-11-18 22:39 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -7627,10 +7741,36 @@ function kenjiBuildSnapshot_() {
     };
   } catch (errSales) { sales = null; }
 
+  /* The freezers, and whether the record of them holds up.
+   *
+   * Kenji knew which freezers exist and not one temperature, so "is
+   * freezer 5 cold enough" and "when were they last checked" — the two
+   * questions a food-safety record exists to answer — had no answer in
+   * anything he could see. */
+  var cold = null;
+  try {
+    var lim2 = freezerLimits_();
+    cold = {
+      unit: lim2.unit,
+      /* The line a food-safety record is read against. The warm and hot
+         lines below it are banner settings, deliberately slack so a lid
+         left open does not cry wolf; they are not the standard. */
+      mustBeAtOrBelow: lim2.safeShown,
+      bannerWarmAbove: lim2.warmShown,
+      bannerHotAbove: lim2.hotShown,
+      now: freezerLatest_().map(function (f) {
+        return { freezer: f.freezer, name: f.name, when: f.when, reads: f.reads,
+                 tooWarmForTheRecord: f.tempF !== null && f.tempF > lim2.safe };
+      }),
+      record: freezerRecordState_()
+    };
+  } catch (errCold) { cold = null; }
+
   return {
     today: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'),
     boxes: boxes,
     sales: sales,
+    freezerLog: cold,
     customers: customers,
     channels: CHANNELS,
     groundBeef: {
@@ -7742,6 +7882,16 @@ function kenjiSystem_(brief) {
     '',
     'If they are asking you something, just answer it from what you were given.',
     'Never invent a number. If what you were given does not say, say so.',
+    '',
+    'freezerLog is the freezers and the record of them. freezerLog.now is the',
+    'last reading from each one; tooWarmForTheRecord means it is above',
+    'freezerLog.mustBeAtOrBelow, which is the line a food-safety record is',
+    'read against. The warm and hot lines are banner settings set slack on',
+    'purpose and are NOT the standard \u2014 never tell anybody a freezer is',
+    'fine because it is under those. freezerLog.record says when they were',
+    'last read, whether there is a reading every week, how many weeks were',
+    'missed, and which freezers have been above the line and for how long.',
+    'If asked about the log, answer from that rather than from the banners.',
     '',
     'sales is the year so far, from sales.since: what was sold, what has been',
     'collected, and sales.waiting \u2014 the sales whose Payment column on the',
@@ -8672,6 +8822,8 @@ function bootstrap_(since) {
   }
 
   rebuildInventory();
+  // Cheap, once a day: make sure the freezers are still being read at all.
+  ensureFreezerWatch_();
   /* A price typed straight into the PRODUCTS tab changes what everybody is
      charged, so it goes on the record the same as one changed in the app.
      Nothing here is slow: it is one read of a tab already in memory, and it

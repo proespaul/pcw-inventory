@@ -1700,5 +1700,65 @@ console.log('\na client with two numbers');
     herd.filter(x => x.id === 'June-2026')[0].yieldPct, 41.12);
 }
 
+/* ---- the freezer record answers the two questions it exists to answer ----
+   Is there a reading every week, and was anything too warm? A count of
+   readings answers neither. Freezer 5 sat between -15.7C and -16.8C from
+   August to November without one banner, because the banner lines are -12
+   and -7 and -16 is comfortably under both — and two degrees the wrong
+   side of -18, which is the only line a record is read against. */
+{
+  const c = buildContext();
+  c.setup();
+  const sh = c.sheet_(c.TABS.FREEZERLOG);
+  const H = c.HEADERS.FREEZERLOG;
+  const put = (whenISO, id, f) => {
+    const row = H.map(() => '');
+    row[H.indexOf('When')] = whenISO;
+    row[H.indexOf('Freezer')] = id;
+    row[H.indexOf('Freezer name')] = 'Freezer ' + id.slice(1);
+    row[H.indexOf('Temperature (F)')] = f;
+    sh.appendRow(row);
+  };
+  const day = (n) => new Date(Date.now() - n * 864e5).toISOString();
+
+  // Three weeks running: one freezer cold, one at -16C (3.2F) all through.
+  put(day(21), 'F1', -4);   put(day(21), 'F5', 3.2);
+  put(day(14), 'F1', -4);   put(day(14), 'F5', 3.2);
+  put(day(7),  'F1', -4);   put(day(7),  'F5', 3.0);
+  put(day(0),  'F1', -4);   put(day(0),  'F5', 3.4);
+
+  let rec = c.freezerRecordState_();
+  check('a reading every week reads as a reading every week',
+    [rec.weeksMissed, rec.weeklyOk], [0, true]);
+  check('and the warm one is named against the food-safety line, not the banner',
+    (rec.aboveSafe || []).map(a => a.freezer), ['F5']);
+  check('with how many readings were the wrong side of it',
+    (rec.aboveSafe || [])[0].readings, 4);
+  check('the line itself is said, so nobody has to know it',
+    rec.safeShown, -18);
+  check('and the cold one is not accused of anything',
+    (rec.aboveSafe || []).filter(a => a.freezer === 'F1').length, 0);
+
+  // A fortnight with nothing in it is the whole of the finding.
+  put(day(56), 'F1', -4);
+  rec = c.freezerRecordState_();
+  check('weeks with no reading at all are counted and reported',
+    [rec.weeksMissed > 0, rec.weeklyOk], [true, false]);
+}
+
+/* ---- weekly is a cadence somebody can ask for ----
+   The cap was a day, so anything over 24 was quietly read back as 24 and a
+   weekly check could not be set at all. */
+{
+  const c = buildContext();
+  c.setup();
+  const st = c.sheet_(c.TABS.SETTINGS);
+  st.appendRow(['FREEZER_CHECK_HOURS', '168', 'how often']);
+  check('a weekly check is read as a week, not clipped to a day',
+    c.freezerEveryHours_(), 168);
+  check('and said in words somebody would use',
+    c.freezerHowOften_(168), 'once a week');
+}
+
 console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll checks passed.\n');
 process.exit(failures ? 1 : 0);

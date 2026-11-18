@@ -1238,7 +1238,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-18 22:31 UTC';
+const APP_BUILD = '2026-11-18 22:39 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -6201,11 +6201,40 @@ function renderFreezerRecord() {
       '<div class="kv sub"><span>Automatic since</span><b>' +
       (autoSince ? day(autoSince) : 'not started') + '</b></div>' : '') +
     '<div class="kv"><span>Taken</span><b>' +
-      (rec.everyHours >= 24 ? 'once a day'
+      (rec.everyHours >= 168 ? 'once a week'
+        : rec.everyHours >= 24 ? 'once a day'
         : rec.everyHours === 1 ? 'every hour' : 'every ' + rec.everyHours + ' hours') +
       '</b></div>' +
+    /* The two questions anybody checking a record actually asks, answered
+       rather than left to be worked out from a count of readings. */
+    (rec.daysSinceReading === null ? '' :
+      '<div class="kv' + (rec.daysSinceReading > 7 ? ' want' : '') + '">' +
+      '<span>Last read</span><b>' +
+      (rec.daysSinceReading === 0 ? 'today'
+        : rec.daysSinceReading === 1 ? 'yesterday'
+        : rec.daysSinceReading + ' days ago') + '</b></div>') +
+    '<div class="kv' + (rec.weeksMissed ? ' want' : '') + '">' +
+      '<span>A reading every week</span><b>' +
+      (rec.weeksMissed
+        ? rec.weeksMissed + (rec.weeksMissed === 1 ? ' week missed' : ' weeks missed')
+        : 'yes') + '</b></div>' +
     '<div class="kv' + (rec.recentGaps ? ' want' : '') + '"><span>Gaps lately</span><b>' +
       (rec.recentGaps ? rec.recentGaps : 'none') + '</b></div>' +
+    /* Not a banner. The banner lines are set slack on purpose; this is the
+       line the record is read against, and a freezer sitting the wrong side
+       of it for months is the finding, whether or not anything beeped. */
+    ((rec.aboveSafe || []).length
+      ? '<h3 style="margin:14px 0 6px">Above ' + round2(rec.safeShown) + '\u00b0' +
+        esc(rec.unit || 'C') + ', which is the line for frozen storage</h3>' +
+        (rec.aboveSafe || []).map(a =>
+          '<div class="kv want"><span>' + esc(a.name || a.freezer) + '</span><b>' +
+          a.readings + (a.readings === 1 ? ' reading' : ' readings') +
+          ', warmest ' + round2(a.warmestShown) + '\u00b0' + esc(rec.unit || 'C') +
+          '</b></div>').join('') +
+        '<p class="muted" style="margin:8px 0 0">Nothing has beeped about these: ' +
+        'the banner lines sit well above this one so a lid left open does not ' +
+        'cry wolf. This is the number an inspector reads the log against.</p>'
+      : '') +
     '<button class="ghost" style="margin-top:12px" onclick="openFreezerReport()">' +
       'Make a record to hand over</button>';
 }
