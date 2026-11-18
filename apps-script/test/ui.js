@@ -85,6 +85,12 @@ const replies = {};
 const replyWith = (action, body) => { replies[action] = body; };
 w.api = function (action, payload) {
   w.__sent.push({ action, payload });
+  /* A function answers per call, which is what a real backend does. One
+     fixed object answered every caller with the same thing, so two
+     customers opened at once both got the first one's card. */
+  if (typeof replies[action] === 'function') {
+    return Promise.resolve(replies[action](payload));
+  }
   if (replies[action]) return Promise.resolve(replies[action]);
   return Promise.resolve({ ok: true, wholesale: [], waitlist: [], customers: [] });
 };
@@ -540,6 +546,12 @@ check('an empty list says so rather than going blank',
    top-level await would turn this file into an ES module and the requires
    above would stop resolving. */
 const pause = () => new Promise(r => setTimeout(r, 0));
+/* Let everything already in flight land before opening something new.
+   Panels now ignore an answer that arrives after somebody has moved on —
+   which is the point of them — so a test that opens a panel while an
+   earlier one is still in the post would have its own answer thrown away,
+   exactly as a person tapping twice would. */
+const settle = async () => { for (let i = 0; i < 8; i++) await pause(); };
 
 (async () => {
   /* ───────── what came off the steer ─────────
@@ -554,9 +566,10 @@ const pause = () => new Promise(r => setTimeout(r, 0));
           share: 8, usual: 20, off: 'low' },
         { sku: 'BRISKET', product: 'Brisket', packages: 5, weight: 20, each: 4,
           share: 20, usual: 20, off: '' }] });
+    await settle();
     w.eval('closeSheet(); var b = document.getElementById("inBatch");' +
            'b.innerHTML = "<option>S4</option>"; b.value = "S4"; openSteerYield();');
-    await pause();
+    await settle();
     body = text('sheetBody');
     check('the yield is shown against what the steers before it did',
       [/Yield/.test(body), /50%/.test(body), /56% over 3 steers/.test(body)],
@@ -993,8 +1006,43 @@ const pause = () => new Promise(r => setTimeout(r, 0));
 
     /* And the second opening waits for nothing at all: the whole card was
        kept the first time. */
-    delete replies.customer;      // nothing will answer it this time
+    /* ---- a card that is no longer being looked at may not barge back ----
+       Open Reene, close her, open Doris: Reene's answer was still in the
+       post, and it painted itself over Doris a second later. Paul saw the
+       one he had tapped first, then the ones before that. */
+    w.eval('data.lists.customers = data.lists.customers.concat([' +
+      '{ customer: "Doris Boucher", email: "", phone: "780-555-0177", town: "",' +
+      '  orders: 0, prior: 3, spend: 0, priorSpend: 640, last: "2026-07-04" }]);' +
+      'data.custCards = {};');
+    // Reene's answer is slow; Doris is opened while it is still coming.
+    let letReeneLand;
+    const reeneLate = new Promise(r => { letReeneLand = r; });
+    replies.customer = (p) => p.customer === 'Reene Beaudoin'
+      ? reeneLate
+      : { ok: true, name: p.customer, lines: [], waiting: [],
+          where: { ok: true, name: p.customer, app: null,
+                   known: { phone: [], email: [], town: [] } } };
     w.eval('closeSheet(); openCustomer("Reene Beaudoin");');
+    await pause();
+    w.eval('closeSheet(); openCustomer("Doris Boucher");');
+    await pause();
+    check('the one just tapped is the one on screen',
+      text('sheetTitle'), 'Doris Boucher');
+    letReeneLand({ ok: true, name: 'Reene Beaudoin', town: 'Peace River, AB',
+                   orderCount: 3, spend: 488, last: '2026-08-20', waiting: [],
+                   lines: [{ date: '2026-08-20', what: '2x Steak Lovers Box',
+                             amount: 188, kind: 'Sale', how: 'E-transfer' }],
+                   where: { ok: true, name: 'Reene Beaudoin', app: null,
+                            known: { phone: [{ value: '780-625-6963', where: ['app'] }],
+                                     email: [], town: [] } } });
+    await settle();
+    check('and a late answer for somebody else does not take the screen',
+      text('sheetTitle'), 'Doris Boucher');
+    w.eval('closeSheet();');
+    await settle();
+
+    delete replies.customer;      // nothing will answer it this time
+    w.eval('openCustomer("Reene Beaudoin");');
     check('opening them again is instant, history and all',
       /Steak Lovers Box/.test(text('sheetBody')), true);
     check('and the kept card is not still calling itself unfinished',

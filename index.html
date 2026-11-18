@@ -1238,7 +1238,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-18 22:15 UTC';
+const APP_BUILD = '2026-11-18 22:24 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -7454,13 +7454,16 @@ async function openCustomer(name) {
   const first = cached || custFromLocal(name);
   if (first) custSheet(first);
   else openSheet(name, 'Looking them up…', '<p class="muted">One moment.</p>');
+  const mine = sheetNow();
 
   let f;
   try { f = await api('customer', { customer: name, where: true }); }
   catch (e) {
     // Offline, or the script is asleep. What is on the screen is still true
     // as far as it goes; only a blank card is worth replacing with the reason.
-    if (!first) openSheet(name, '', '<p class="muted">' + esc(e.message) + '</p>');
+    if (!first && sheetStill(mine)) {
+      openSheet(name, '', '<p class="muted">' + esc(e.message) + '</p>');
+    }
     return;
   }
   /* Kept, so the second opening of a customer waits for nothing at all.
@@ -7472,7 +7475,11 @@ async function openCustomer(name) {
   const keys = Object.keys(data.custCards);
   if (keys.length > 40) delete data.custCards[keys[0]];
   save(LS.data, data);
-  custSheet(f);
+  /* Only redraw if it says something different, and only if this is still
+     the card being looked at. A card that is already right should not blink
+     a second after it opens, and a card nobody is looking at should not
+     shove its way back onto the screen. */
+  if (sheetStill(mine) && JSON.stringify(f) !== JSON.stringify(first)) custSheet(f);
 }
 
 function custSheet(f) {
@@ -8317,10 +8324,13 @@ async function openSteerBreakdown(batch, backTo) {
     openSheet(batch, 'Working it out…', '<p class="muted">One moment.</p>');
   }
 
+  const mine = sheetNow();
   let y;
   try { y = await api('steerYield', { batch }); }
   catch (e) {
-    if (!cached && !known) openSheet(batch, '', '<p class="muted">' + esc(e.message) + '</p>');
+    if (!cached && !known && sheetStill(mine)) {
+      openSheet(batch, '', '<p class="muted">' + esc(e.message) + '</p>');
+    }
     return;
   }
   if (y && y.ok) {
@@ -8328,7 +8338,7 @@ async function openSteerBreakdown(batch, backTo) {
     data.steerCards[String(batch).toLowerCase()] = y;
     save(LS.data, data);
   }
-  return steerSheet(y, backTo);
+  if (sheetStill(mine)) steerSheet(y, backTo);
 }
 
 function steerSheet(y, backTo) {
@@ -9339,6 +9349,7 @@ function pushHist(kind, name) {
 
 function closeSheet(opts) {
   const was = sheetIsOpen;
+  sheetSeq++;                       // nothing in flight may draw over this
   sheetIsOpen = false;
   editingPriceFrom = '';            // next time in, whichever way they come
   $('sheet').classList.remove('on');
@@ -9351,7 +9362,24 @@ function closeSheet(opts) {
   }
 }
 
+/* Which panel is on the screen right now.
+ *
+ * Every panel that fills itself in behind an instant first draw has the
+ * same hazard: the answer to a question asked a moment ago arrives after
+ * somebody has moved on, and paints itself over whatever they are looking
+ * at now. Open Reene, close her, open Doris, and Reene reappears a second
+ * later — her card was still in the post.
+ *
+ * So each opening takes a number, and a late answer only draws if that
+ * number is still the one on screen. Late answers are still kept; they
+ * just do not get to interrupt.
+ */
+let sheetSeq = 0;
+function sheetNow() { return sheetSeq; }
+function sheetStill(n) { return sheetSeq === n; }
+
 function openSheet(title, sub, body) {
+  sheetSeq++;
   $('sheetTitle').textContent = title;
   $('sheetSub').textContent = sub || '';
   $('sheetBody').innerHTML = body;
