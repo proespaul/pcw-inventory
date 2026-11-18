@@ -1818,5 +1818,43 @@ console.log('\na client with two numbers');
     typeof snap.freezerLog === 'object', true);
 }
 
+/* ---- the record somebody else reads ----
+   The only verdict the hand-over report gave was "nothing was flagged in
+   this period", which is true of the banner lines and says nothing about
+   the standard. Four months of Freezer 5 at -16C would have read as a
+   clean run in a document going to an inspector. */
+{
+  const c = buildContext();
+  c.setup();
+  const sh = c.sheet_(c.TABS.FREEZERLOG);
+  const H = c.HEADERS.FREEZERLOG;
+  const put = (whenISO, id, f) => {
+    const row = H.map(() => '');
+    row[H.indexOf('When')] = whenISO;
+    row[H.indexOf('Freezer')] = id;
+    row[H.indexOf('Freezer name')] = 'Freezer ' + id.slice(1);
+    row[H.indexOf('Temperature (F)')] = f;
+    row[H.indexOf('Source')] = 'Govee API';
+    sh.appendRow(row);
+  };
+  const d = (n) => new Date(Date.now() - n * 864e5).toISOString();
+  put(d(2), 'F1', -4);   put(d(2), 'F5', 3.2);     // -20C and -16C
+  put(d(1), 'F1', -4);   put(d(1), 'F5', 3.4);
+
+  c.freezerReport(d(5).slice(0, 10), d(0).slice(0, 10));
+  const html = (c.__files || []).map(f => f.text).join('');
+
+  check('the report names the line frozen storage is kept at',
+    /-18/.test(html), true);
+  check('and names the freezer that was above it',
+    /Freezer 5/.test(html), true);
+  check('while not accusing the one that was not',
+    /<td>Freezer 1<\/td><td class="n">\d+<\/td><td class="n">\d+<\/td>/.test(html), false);
+  /* "Nothing was flagged" must not be left standing as the verdict when
+     something was too warm and simply never beeped. */
+  check('a clean banner run is not offered as a clean record',
+    /not the same as everything having been/.test(html), true);
+}
+
 console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll checks passed.\n');
 process.exit(failures ? 1 : 0);

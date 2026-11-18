@@ -122,7 +122,18 @@ function buildContext() {
         return String(fmt || 'yyyy-MM-dd')
           .replace(/yyyy|MM|dd|HH|mm|ss/g, k => map[k]);
       },
-      newBlob: (bytes, mime, name) => ({ bytes, mime, name }),
+      /* A blob that can be turned into a PDF and named, the way the real
+         one can. The bytes are kept as they were handed over so a test can
+         read what the report actually says — which is the only part of a
+         PDF worth asserting on. */
+      newBlob: (bytes, mime, name) => {
+        const blob = { bytes, mime, name };
+        blob.setName = (n) => { blob.name = n; return blob; };
+        blob.getBytes = () => blob.bytes;
+        blob.getDataAsString = () => String(blob.bytes);
+        blob.getAs = () => blob;
+        return blob;
+      },
       base64Decode: s => Buffer.from(s, 'base64')
     },
     Session: {
@@ -155,6 +166,14 @@ function buildContext() {
             };
           }
         };
+      },
+      /* Keeps what was written, so a test can read the report rather than
+         only count that one was made. */
+      createFile(blob) {
+        ctx.__files = ctx.__files || [];
+        ctx.__files.push({ name: blob.name, text: String(blob.bytes) });
+        return { getUrl: () => 'https://drive/file-' + blob.name,
+                 getId: () => 'file-' + blob.name };
       },
       createFolder(name) {
         return { getId: () => 'folder-1', getUrl: () => 'https://drive/folder-1',

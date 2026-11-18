@@ -3838,6 +3838,8 @@ function freezerDays_(rows, unit) {
                                 sum: 0, lo: null, hi: null, worst: '' });
     d.n++;
     if (r.auto === false) d.spot++; else d.auto++;
+    // Readings above the food-safety line, which is not the banner line.
+    if (r.tempF > freezerLimits_().safe) d.overSafe = (d.overSafe || 0) + 1;
     d.sum += r.tempF;
     if (d.lo === null || r.tempF < d.lo) d.lo = r.tempF;
     if (d.hi === null || r.tempF > d.hi) d.hi = r.tempF;
@@ -4061,10 +4063,56 @@ function freezerReport(fromISO, toISO) {
       'time the photograph was taken.</p>');
   }
 
+  /* Against the line the record is actually read against.
+   *
+   * This section did not exist, and its absence was the most dangerous
+   * thing in the document. The only verdict the report gave was "nothing
+   * was flagged in this period" — which is true of the banners and says
+   * nothing about the standard. Freezer 5 spent four months between -15.7C
+   * and -16.8C and every report covering those months would have read as a
+   * clean run, because -16 is under a -12 banner line. */
+  var overByFreezer = {};
+  days.forEach(function (d) {
+    if (!d.overSafe) return;
+    var o = overByFreezer[d.freezer] ||
+      (overByFreezer[d.freezer] = { name: d.name || d.freezer, days: 0, readings: 0, hi: null });
+    o.days += 1;
+    o.readings += d.overSafe;
+    if (o.hi === null || d.hi > o.hi) o.hi = d.hi;
+  });
+  var overIds = Object.keys(overByFreezer);
+  html.push('<h2>Against ' + esc_(freezerTemp_(lim.safe, lim.unit)) +
+            ', the temperature frozen storage is kept at</h2>');
+  if (!overIds.length) {
+    html.push('<p class="ok">Every reading in this period was at or below ' +
+      esc_(freezerTemp_(lim.safe, lim.unit)) + '.</p>');
+  } else {
+    html.push('<table><tr><th>Freezer</th><th>Days above</th>' +
+              '<th>Readings above</th><th>Warmest</th></tr>');
+    overIds.sort().forEach(function (id) {
+      var o = overByFreezer[id];
+      html.push('<tr class="bad"><td>' + esc_(o.name) + '</td><td class="n">' + o.days +
+        '</td><td class="n">' + o.readings + '</td><td class="n">' +
+        esc_(freezerTemp_(o.hi, lim.unit)) + '</td></tr>');
+    });
+    html.push('</table>');
+    html.push('<p class="note">The amber and red banners in the app are set ' +
+      'at ' + esc_(freezerTemp_(lim.warm, lim.unit)) + ' and ' +
+      esc_(freezerTemp_(lim.hot, lim.unit)) + ', deliberately clear of ' +
+      'this line so that a lid left open for a minute does not raise an ' +
+      'alarm. A reading in the table above is therefore not necessarily one ' +
+      'that was flagged at the time.</p>');
+  }
+
   // What was flagged, and what was done.
   html.push('<h2>Warnings raised, and what was done</h2>');
   if (!alerts.length) {
-    html.push('<p class="ok">Nothing was flagged in this period.</p>');
+    html.push('<p' + (overIds.length ? '' : ' class="ok"') +
+      '>No banner was raised in this period' +
+      (overIds.length
+        ? ' \u2014 which, as above, is not the same as everything having been ' +
+          'cold enough.'
+        : '.') + '</p>');
   } else {
     html.push('<table><tr><th>When</th><th>What</th><th>Answered</th>' +
               '<th>By</th><th>When answered</th></tr>');
@@ -7127,7 +7175,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-18 22:51 UTC';
+var BACKEND_BUILD = '2026-11-18 22:58 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
