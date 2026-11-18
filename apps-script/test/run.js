@@ -1856,5 +1856,49 @@ console.log('\na client with two numbers');
     /not the same as everything having been/.test(html), true);
 }
 
+/* ---- is anything going to read the freezers tomorrow? ----
+   A log that stopped and a log that never started look identical from the
+   outside: a tab that is not filling. A reading somebody got by tapping
+   the button proves the sensors answer, not that anything is scheduled,
+   so the two are counted apart. */
+{
+  const c = buildContext();
+  c.setup();
+  const sh = c.sheet_(c.TABS.FREEZERLOG);
+  const H = c.HEADERS.FREEZERLOG;
+  const put = (whenISO, source) => {
+    const row = H.map(() => '');
+    row[H.indexOf('When')] = whenISO;
+    row[H.indexOf('Freezer')] = 'F1';
+    row[H.indexOf('Temperature (F)')] = -4;
+    row[H.indexOf('Source')] = source;
+    sh.appendRow(row);
+  };
+  const d = (n) => new Date(Date.now() - n * 864e5).toISOString();
+
+  put(d(9), 'Govee API');                 // the last unattended round
+  put(d(0), 'Govee API (asked for)');     // somebody tapped the button today
+
+  const st = c.freezerWatchState_();
+  check('a reading taken today does not pass for a schedule running',
+    st.daysSinceUnattended, 9);
+  check('and the last unattended round is named as such',
+    st.lastUnattended.slice(0, 10), d(9).slice(0, 10));
+  check('it says what it is set to read at',
+    st.everyHours > 0, true);
+  check('and whether anything is actually installed to do it',
+    ['installed', 'missing', 'cannot tell'].indexOf(st.trigger) > -1, true);
+}
+
+/* ---- Kenji has to remember an order being put together ----
+   Six messages is three exchanges. Who it is for, what day, what cuts, how
+   many — four questions and four answers is eight, and by the last one the
+   name was gone. */
+{
+  const c = buildContext();
+  check('he is given more of the conversation than an order takes to build',
+    c.KENJI_MAX_TURNS >= 16, true);
+}
+
 console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll checks passed.\n');
 process.exit(failures ? 1 : 0);

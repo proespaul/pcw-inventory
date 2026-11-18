@@ -4142,6 +4142,46 @@ function freezerReport(fromISO, toISO) {
   };
 }
 
+/* Is anything actually going to read the freezers tomorrow?
+ *
+ * Nothing could answer that. The log stopping and the log never having
+ * started look identical from the outside — a tab that is not filling —
+ * and "it is set up" is a claim nobody could check, including me. So this
+ * says whether a trigger exists, what it is set to, and when it last wrote.
+ */
+function freezerWatchState_() {
+  var out = { ok: true, everyHours: freezerEveryHours_(), trigger: null, note: '' };
+  try {
+    var mine = ScriptApp.getProjectTriggers().filter(function (t) {
+      return t.getHandlerFunction() === 'freezerWatch';
+    });
+    out.triggers = mine.length;
+    out.trigger = mine.length ? 'installed' : 'missing';
+  } catch (err) {
+    out.trigger = 'cannot tell';
+    out.note = str_(err && err.message);
+  }
+  try {
+    var tail = freezerLogTail_(40);
+    var last = null, lastAuto = null;
+    tail.forEach(function (r) {
+      var w = asDate_(r['When']);
+      if (!w) return;
+      if (!last || w > last) last = w;
+      // The unattended rounds only. A reading somebody asked for by tapping
+      // the button proves the sensors answer, not that anything is scheduled.
+      if (str_(r['Source']).indexOf('asked for') === -1 && freezerAuto_(r['Source'])) {
+        if (!lastAuto || w > lastAuto) lastAuto = w;
+      }
+    });
+    out.lastReading = last ? last.toISOString() : '';
+    out.lastUnattended = lastAuto ? lastAuto.toISOString() : '';
+    out.daysSinceUnattended = lastAuto
+      ? Math.floor((Date.now() - lastAuto.getTime()) / 864e5) : null;
+  } catch (err2) { /* the record screen reports the gap either way */ }
+  return out;
+}
+
 /** How complete the record is, for the app to show without making a PDF. */
 function freezerRecordState_() {
   var sh;
@@ -7175,7 +7215,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-18 22:58 UTC';
+var BACKEND_BUILD = '2026-11-18 23:04 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -7645,7 +7685,17 @@ function photoPrompt_(names) {
  *     app discovering it later.
  */
 
-var KENJI_MAX_TURNS = 6;      // how much of the conversation to carry back
+/* How much of the conversation he is given back.
+ *
+ * Six messages is three exchanges, which is nothing: putting an order
+ * together takes "who is it for", "what day", "what cuts", "how many" —
+ * four questions and four answers is eight messages, and by the last one he
+ * had forgotten the name. It read as running out of memory because that is
+ * exactly what it was.
+ *
+ * Twenty is ten exchanges. The history is a few hundred bytes a turn beside
+ * a snapshot of tens of thousands, so this costs almost nothing. */
+var KENJI_MAX_TURNS = 20;
 
 /* A cheap fingerprint of "has anything changed": the version counter every
  * write bumps, plus the two row counts that move when somebody edits the
@@ -8893,6 +8943,7 @@ function handle_(e, body) {
       case 'addBatch':    return json_(addBatch_(req.batch || {}));
       case 'ask':         return json_(askKenji_(req, me));
       case 'freezerReport': return json_(freezerReport(req.from, req.to));
+      case 'freezerWatchState': return json_(freezerWatchState_());
       case 'freezerNow':  return json_(freezerNow_());
       case 'updateBatch': return json_(updateBatch_(req.batch || {}));
       case 'addFreezer':  return json_(addFreezer_(req.freezer || {}));

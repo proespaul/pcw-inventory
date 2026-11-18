@@ -1238,7 +1238,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-18 22:58 UTC';
+const APP_BUILD = '2026-11-18 23:04 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -1522,7 +1522,7 @@ async function kenjiAsk(said) {
           lines: orderCart.map(l => ({ sku: l.sku, product: l.product,
                                        packages: l.packages, weight: l.weight })) }
       : null;
-    const res = await api('ask', { say: said, history: kenjiTurns.slice(-6),
+    const res = await api('ask', { say: said, history: kenjiTurns.slice(-20),
                                    openOrder: onScreen });
     if (!res.ok) throw new Error(res.error || 'Kenji could not answer.');
     kenjiTurns.push({ role: 'user', text: said });
