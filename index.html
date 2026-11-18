@@ -1238,7 +1238,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-18 21:34 UTC';
+const APP_BUILD = '2026-11-18 21:41 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -7867,11 +7867,38 @@ async function addList(which) {
  */
 function lbOr(v) { return v ? round2(v) + ' lb' : 'unavailable'; }
 
+/* The herd comes down with the sync, like the freezer and the price list,
+   so the tab draws the moment it is opened. But a phone that has not synced
+   since this was added has no herd in its data, and an empty screen is not
+   an answer — so if it is not there, it is asked for, once. */
+async function openCattle() {
+  renderCattle();
+  if (data.cattle && (data.cattle.steers || []).length) return;
+  if (openCattle.asking) return;
+  openCattle.asking = true;
+  try {
+    const got = await api('cattle', {});
+    if (got && got.steers) { data.cattle = got; save(LS.data, data); }
+    renderCattle();
+  } catch (e) {
+    const top = $('cattleTop');
+    if (top && !(data.cattle && (data.cattle.steers || []).length)) {
+      top.innerHTML = '<p class="muted" style="margin:0">Could not read the herd — ' +
+        esc(e.message) + '</p>';
+    }
+  } finally { openCattle.asking = false; }
+}
+
 function renderCattle() {
-  /* It came down with the last sync, like the freezer and the price list.
-     It used to be fetched when the tab was opened, which meant waiting on
-     the script every time for five animals that change a few times a year. */
   const c = data.cattle || {};
+  /* A herd that came back as an error is not a herd of none. Saying so
+     beats an empty card that reads as "there are no animals". */
+  if (c.ok === false && c.error) {
+    $('cattleTop').innerHTML = '<p class="muted" style="margin:0">Could not read the herd — ' +
+      esc(c.error) + '</p>';
+    $('cattleList').innerHTML = '';
+    return;
+  }
   const list = c.steers || [];
 
   /* Two averages, kept apart. Meat over the carcass and meat over the live
@@ -9391,7 +9418,7 @@ function showView(name, opts) {
   if (name === 'neworder') paintOrderMode();
   if (name === 'calendar') loadSchedule(true);
   if (name === 'sales') renderSales();
-  if (name === 'cattle') renderCattle();
+  if (name === 'cattle') openCattle();
   if (name === 'steer') setLineFreezer();
   if (name === 'calnew' && !$('cnDate').value) $('cnDate').value = todayISO();
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('on', v.id === 'view-' + name));

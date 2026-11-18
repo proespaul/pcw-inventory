@@ -7013,7 +7013,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-18 21:34 UTC';
+var BACKEND_BUILD = '2026-11-18 21:41 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -8715,8 +8715,17 @@ function bootstrap_(since) {
     /* Every animal and what it did. It rides down with everything else
        rather than being fetched when the tab is opened: the tab was going
        quiet and saying "Reading the herd…" every single time, and there
-       are five animals — it is smaller than the freezer. */
-    cattle: cattle_(),
+       are five animals — it is smaller than the freezer.
+
+       Wrapped, because this is the newest thing in the payload and the
+       oldest rule of the payload is that one new field must never be able
+       to take the whole sync down with it. If it fails the phone gets
+       everything else and asks for the herd on its own. */
+    cattle: (function () {
+      try { return cattle_(); } catch (errHerd) {
+        return { ok: false, steers: [], error: str_(errHerd && errHerd.message) };
+      }
+    })(),
     steerCosts: steerCosts_()
   };
 }

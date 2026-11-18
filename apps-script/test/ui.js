@@ -759,6 +759,24 @@ const pause = () => new Promise(r => setTimeout(r, 0));
     check('the herd draws with no reply waiting for it',
       names('cattleList').length > 0, true);
 
+    /* A phone that has not synced since the herd was added to the payload
+       has none in its data, and an empty card reads as "no animals". It
+       asks for it instead, once. */
+    replyWith('cattle', herd);
+    w.eval('data.cattle = null; openCattle.asking = false; showView("cattle");');
+    await pause(); await pause();
+    check('a phone with no herd yet goes and asks for one',
+      names('cattleList').length, 3);
+
+    /* And a herd that came back broken says so rather than drawing as a
+       herd of none. */
+    w.eval('data.cattle = { ok: false, steers: [], error: "the tab is missing" };' +
+           'renderCattle();');
+    check('a herd that could not be read says so, not "no animals"',
+      [/Could not read the herd/.test(text('cattleTop')),
+       /no animals/i.test(text('cattleList'))], [true, false]);
+    w.eval('data.cattle = ' + JSON.stringify(herd) + '; renderCattle();');
+
     // The tags sit inside the name, so take the text before them.
     const cNames = Array.from(doc.querySelectorAll('#cattleList .item .name b'))
       .map(b => (b.firstChild ? b.firstChild.textContent : b.textContent).trim());
