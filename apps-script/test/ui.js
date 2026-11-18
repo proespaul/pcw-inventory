@@ -1087,6 +1087,58 @@ const settle = async () => { for (let i = 0; i < 8; i++) await pause(); };
     await settle();
   }
 
+  /* ───────── an order Kenji built is just an order ─────────
+     It lands on the same form, by the same door, and is saved by the same
+     button into the same queue as one typed by hand. Nothing about it is
+     special once it is on the screen — which is the point. */
+  {
+    await settle();
+    w.eval('closeSheet(); data.lists = data.lists || {};' +
+      'data.lists.customers = ' + JSON.stringify([
+        { customer: 'Doris Boucher', phone: '780-555-0177', email: '', town: '',
+          last: '2026-07-04', orders: 0, prior: 3, spend: 0, priorSpend: 640 }
+      ]) + ';' +
+      'data.products = [{ sku: "RIBEYE", product: "Ribeye", content: "1 steak",' +
+      '  price: 63, kind: "Steak", active: true }];');
+
+    w.eval('kenjiOfferOrder(' + JSON.stringify({
+      customer: 'Doris Boucher', when: '2026-11-27', method: 'Delivery',
+      channel: 'website', notes: 'Leave at the back door',
+      lines: [{ sku: 'RIBEYE', product: 'Ribeye', content: '1 steak',
+                packages: 6, weight: 0 }]
+    }) + ');');
+
+    check('it opens the ordinary new-order screen, filled in',
+      [doc.getElementById('ordCustomer').value,
+       doc.getElementById('ordDate').value,
+       doc.getElementById('ordMethod').value],
+      ['Doris Boucher', '2026-11-27', 'Delivery']);
+    /* A name typed by hand brings up what is on file and offers the number.
+       A name put in by code fires no keystroke, so it used not to. */
+    check('and brings up what is on file for them, as typing the name would',
+      [/780-555-0177/.test(text('ordKnown')),
+       doc.getElementById('ordContact').value], [true, '780-555-0177']);
+    check('the lines are on the cart, named rather than left as SKUs',
+      /Ribeye/.test(text('ordLines')), true);
+    check('with nothing saved until the button is pressed',
+      (w.__sent || []).filter(x => x.action === 'submit').length, 0);
+
+    // Saved by the same button, into the same queue, as a typed one.
+    const before = w.eval('queue.length');
+    w.eval('saveOrder();');
+    const op = w.eval('JSON.stringify(queue[queue.length - 1])');
+    const sent = JSON.parse(op);
+    check('saving puts an ordinary ORDER_NEW on the queue',
+      [sent.type, sent.customer, sent.method, sent.deliveryDate],
+      ['ORDER_NEW', 'Doris Boucher', 'Delivery', '2026-11-27']);
+    check('with the line on it',
+      [sent.lines.length, sent.lines[0].sku, sent.lines[0].packages], [1, 'RIBEYE', 6]);
+    check('and it is one order, not two',
+      w.eval('queue.length') - before, 1);
+    check('landing on the orders screen, where every other order is',
+      w.eval('document.getElementById("view-orders").classList.contains("on")'), true);
+  }
+
   console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll browser checks passed.\n');
   process.exit(failures ? 1 : 0);
 })();

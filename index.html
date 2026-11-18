@@ -1238,7 +1238,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-18 22:46 UTC';
+const APP_BUILD = '2026-11-18 22:51 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -1617,6 +1617,16 @@ function kenjiOfferOrder(o) {
   $('ordDate').value = o.when || '';
   $('ordMethod').value = o.method || 'Pickup';
   $('ordNotes').value = o.notes || '';
+  /* An order Kenji built is an order, and it arrives on the same form by
+     the same door as a typed one. A name put in the box by hand brings up
+     what is on file for them and offers the number; a name put in by code
+     fires no keystroke, so it did not. Same screen, same offer. */
+  const known = knownCustomers().find(x => x.customer === (o.customer || ''));
+  if (known) {
+    const contact = $('ordContact');
+    if (contact && !contact.value.trim()) contact.value = known.phone || known.email || '';
+    showKnownCustomer(known, true);
+  } else showKnownCustomer(null);
   setOrderChannel(o.channel || 'website');
   orderCart = (o.lines || []).map(l => ({
     sku: l.sku, product: l.product, content: l.content,
