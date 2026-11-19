@@ -6961,6 +6961,15 @@ function customerSave_(req) {
     if (!theirs) { salesAdd_(book, want); done.sales.push('added'); }
     else {
       if (name !== theirs.name) { salesWrite_(book, theirs.row, 'name', name); done.sales.push('name'); }
+      /* The sales sheet keeps the order count by hand, and merging two rows
+         for one customer can override it — the survivor's figure wins and
+         the other is only reported. So it has to be correctable from here
+         rather than only by opening the sheet. Written only when sent. */
+      if (req.orders !== undefined && num_(theirs.orders) !== num_(req.orders)) {
+        salesWrite_(book, theirs.row, 'orders', num_(req.orders));
+        theirs.orders = num_(req.orders);
+        done.sales.push('orders');
+      }
       WHERE_FIELDS.forEach(function (f) {
         if (!given[f.key]) return;
         var text = joinCell_(want[f.many]);
@@ -7506,7 +7515,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-19 15:40 UTC';
+var BACKEND_BUILD = '2026-11-19 15:47 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign

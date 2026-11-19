@@ -1890,6 +1890,40 @@ console.log('\na client with two numbers');
     ['installed', 'missing', 'cannot tell'].indexOf(st.trigger) > -1, true);
 }
 
+/* ---- the order count has to be correctable ----
+   Merging two rows for one customer keeps the survivor's order count and
+   only reports the one it overrode. That is the safe default, but it is
+   only safe if the figure can then be put right without opening the sheet
+   by hand. */
+{
+  const c = buildContext();
+  c.setup();
+  const foreign = new (c.__ss.constructor)();
+  const book = foreign.insertSheet("Customers' info");
+  book.data = [
+    ['Peace Country Wagyu', '', '', '', '', '', '', ''],
+    ['Customer', 'Phone number', 'email address', 'address/location',
+     'Purchase history', '# of order', 'Postcards received', 'Sales person'],
+    ['Jeremie Trudeau', '17808374301', 'jeremietrudeau655@gmail.com', '',
+     'Steak Lovers Box', 1, '', 'Website']
+  ];
+  c.__foreign['SALES-ORD'] = foreign;
+  const st = c.__ss.getSheetByName('SETTINGS');
+  st.data.forEach(r => { if (r && r[0] === 'SALES_SHEET_ID') r[1] = 'SALES-ORD'; });
+
+  c.customerSave_({ customer: 'Jeremie Trudeau', orders: 2 });
+  check('the order count can be put right from the app', c.num_(book.data[2][5]), 2);
+  check('and nothing else on the row was disturbed',
+    [book.data[2][1], book.data[2][4], book.data[2][7]],
+    ['17808374301', 'Steak Lovers Box', 'Website']);
+
+  /* Not sending it must not blank it — most saves have nothing to say
+     about the count. */
+  c.customerSave_({ customer: 'Jeremie Trudeau', phone: '17808374301' });
+  check('a save that says nothing about it leaves it alone',
+    c.num_(book.data[2][5]), 2);
+}
+
 /* ---- one customer on two rows ----
    The sales book is typed by hand and the same person ended up twice:
    Jeremie Trudeau on rows 45 and 98, with his phone, email and address on
