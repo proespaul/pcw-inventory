@@ -4542,10 +4542,16 @@ function rebuildCustomers_() {
   /* Filed under their address AND their name, both pointing at the one row.
      Filed under only one of them, an order that carried an email and an
      order that carried a phone made two Katelyn Kellys — four of her, in
-     the end, because every rebuild added the half it could not match. */
+     the end, because every rebuild added the half it could not match.
+
+     The name half goes through nameKey_ rather than raw text, so "Jean &
+     Val Sylvain" and "Jean and Val Sylvain" are one household and not two.
+     Keyed on the raw string they drifted apart quietly: the wholesale line
+     spelt it one way, every other book the other, and the sweep had no way
+     to see they were the same people. */
   var file = function (r) {
     var mail = str_(r['Email']).toLowerCase().trim();
-    var nm = str_(r['Customer']).toLowerCase().trim();
+    var nm = nameKey_(r['Customer']);
     if (mail && !byKey[mail]) byKey[mail] = r;
     if (nm && !byKey[nm]) byKey[nm] = r;
   };
@@ -4557,7 +4563,7 @@ function rebuildCustomers_() {
   orders.forEach(function (o) {
     if (o.status === 'Cancelled') return;
     var mail = o.contact.indexOf('@') > -1 ? o.contact.toLowerCase().trim() : '';
-    var nm = str_(o.customer).toLowerCase().trim();
+    var nm = nameKey_(o.customer);
     var c = (mail && byKey[mail]) || byKey[nm];
     if (!c) {
       c = { 'Customer': o.customer,
@@ -6241,11 +6247,11 @@ function readContacts_() {
 
 /** Name first, then email, then the last ten digits of the phone. */
 function matchContact_(list, person) {
-  var key = str_(person.name).toLowerCase().trim();
+  var key = nameKey_(person.name);
   var hit = null;
   list.forEach(function (c) {
     if (hit) return;
-    if (key && str_(c.name).toLowerCase().trim() === key) hit = c;
+    if (key && nameKey_(c.name) === key) hit = c;
   });
   if (hit) return hit;
   list.forEach(function (c) {
@@ -6596,7 +6602,7 @@ function nameLikeness_(a, b) {
 function customerWhere_(name, pre) {
   var who = str_(name);
   if (!who) return { ok: false, error: 'Which customer?' };
-  var key = who.toLowerCase().trim();
+  var key = nameKey_(who);
 
   var app = (pre && pre.app) || appCustomerRows_();
   var book = (pre && pre.book) || salesBook_();
@@ -6609,7 +6615,7 @@ function customerWhere_(name, pre) {
     rows.forEach(function (r) {
       var n = getName(r);
       if (exact) return;
-      if (str_(n).toLowerCase().trim() === key) { exact = r; return; }
+      if (nameKey_(n) === key) { exact = r; return; }
       var how = nameLikeness_(who, n);
       if (how === 'same') { if (!close) close = r; }
       else if (how === 'maybe') maybe.push(str_(n));
@@ -6652,8 +6658,8 @@ function customerWhere_(name, pre) {
       var n = str_(e.fields['Customer']);
       var how = nameLikeness_(who, n);
       if (how === 'maybe') { maybe.push(n); return; }
-      if (how !== 'same' && n.toLowerCase().trim() !== key) return;
-      if (n.toLowerCase().trim() !== key) spellings.push(n);
+      if (how !== 'same' && nameKey_(n) !== key) return;
+      if (str_(n).trim() !== str_(card.name).trim()) spellings.push(n);
       var phone = str_(e.fields['Phone']), email = str_(e.fields['Email']);
       if (phone || email) {
         card.lists.push({ where: src.where, row: e.row, name: n,
@@ -6712,10 +6718,10 @@ function customerSave_(req) {
   var was = str_(req.was || name);                 // renaming keeps the thread
 
   var app = appCustomerRows_(), book = salesBook_();
-  var key = was.toLowerCase().trim();
+  var key = nameKey_(was);
   var mine = null, theirs = null;
-  app.rows.forEach(function (r) { if (!mine && str_(r.name).toLowerCase().trim() === key) mine = r; });
-  book.rows.forEach(function (r) { if (!theirs && str_(r.name).toLowerCase().trim() === key) theirs = r; });
+  app.rows.forEach(function (r) { if (!mine && nameKey_(r.name) === key) mine = r; });
+  book.rows.forEach(function (r) { if (!theirs && nameKey_(r.name) === key) theirs = r; });
 
   /* A client can have two numbers and three email addresses. The app sends
      the whole list; the first one is the one that goes in the single-cell
@@ -6839,9 +6845,9 @@ function syncCustomers_(opt) {
      in the app. */
   if (book.ok) {
     var known = {};
-    app.rows.forEach(function (r) { known[str_(r.name).toLowerCase().trim()] = true; });
+    app.rows.forEach(function (r) { known[nameKey_(r.name)] = true; });
     book.rows.forEach(function (r) {
-      var k = str_(r.name).toLowerCase().trim();
+      var k = nameKey_(r.name);
       if (!k || known[k]) return;
       appAdd_(app, { name: r.name, phone: splitCell_(r.phone)[0] || '',
                      email: splitCell_(r.email)[0] || '',
@@ -6855,12 +6861,12 @@ function syncCustomers_(opt) {
   }
 
   var byName = {};
-  book.rows.forEach(function (r) { byName[str_(r.name).toLowerCase().trim()] = r; });
+  book.rows.forEach(function (r) { byName[nameKey_(r.name)] = r; });
 
   app.rows.forEach(function (mine) {
-    if (opt.only && str_(opt.only).toLowerCase().trim() !== str_(mine.name).toLowerCase().trim()) return;
+    if (opt.only && nameKey_(opt.only) !== nameKey_(mine.name)) return;
     out.checked++;
-    var theirs = byName[str_(mine.name).toLowerCase().trim()] || null;
+    var theirs = byName[nameKey_(mine.name)] || null;
     var hit = contactsOn
       ? matchContact_(list, { name: mine.name, email: mine.email, phone: mine.phone })
       : null;
@@ -7313,7 +7319,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-19 15:00 UTC';
+var BACKEND_BUILD = '2026-11-19 15:18 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign

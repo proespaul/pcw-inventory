@@ -1890,6 +1890,71 @@ console.log('\na client with two numbers');
     ['installed', 'missing', 'cannot tell'].indexOf(st.trigger) > -1, true);
 }
 
+/* ---- "&" and "and" are one household, not two ----
+   The books are typed by hand in four places. The wholesale line said
+   "Jean & Val Sylvain"; the app, the sales sheet and Google Contacts said
+   "Jean and Val Sylvain". nameKey_ has always read those as one name, but
+   the sweep keyed customers on raw text, so to it they were two people who
+   never met — one of them collecting the orders, the other the address.
+
+   What must NOT happen is the opposite: a key loose enough to fold two real
+   customers together. These check the one pair joins and the neighbours
+   that look alike stay apart. */
+{
+  const c = buildContext();
+  check('an ampersand and the word are the same household',
+    c.nameKey_('Jean & Val Sylvain'), c.nameKey_('Jean and Val Sylvain'));
+  check('and it survives the spacing somebody actually types',
+    c.nameKey_('Jean &Val  Sylvain'), c.nameKey_('Jean and Val Sylvain'));
+
+  check('two different customers are still two',
+    c.nameKey_('What The Chuck') === c.nameKey_('Jean and Val Sylvain'), false);
+  check('a shared surname does not merge the family',
+    c.nameKey_('Eli Hodgson') === c.nameKey_('Jacob Hodgson'), false);
+  check('nor do two Cloutiers',
+    c.nameKey_('Jamie Cloutier') === c.nameKey_('Kevin Cloutier'), false);
+  check('a misspelling is not silently folded in either',
+    c.nameKey_('Paige Rey') === c.nameKey_('Page Rey'), false);
+
+  /* The whole point: an order under each spelling has to land on one
+     customer, not two. Same shape as the four Katelyn Kellys above. */
+  const d = buildContext();
+  d.setup();
+  d.addProduct_({ product: 'Ribeye Steak', content: '2 x 12 oz', avgWeight: 1.6, price: 44 });
+  d.addBatch_({ id: 'B-SYL', animal: '811', outfit: 'PCW', packDate: '2026-06-01' });
+
+  const sh = d.sheet_(d.TABS.CUSTOMERS);
+  const at = (h) => d.HEADERS.CUSTOMERS.indexOf(h);
+  const line = d.HEADERS.CUSTOMERS.map(() => '');
+  line[at('Customer')] = 'Jean and Val Sylvain';
+  line[at('Email')] = 'jvalsyl@telus.net';
+  sh.appendRow(line);
+
+  const tok = d.PropertiesService.getScriptProperties().getProperty('API_TOKEN');
+  d.handle_({ parameter: {} }, { action: 'submit', token: tok, ops: [
+    { clientKey: 'sy1', type: 'ORDER_NEW', orderId: 'ORD-SYL-1',
+      customer: 'Jean and Val Sylvain', contact: 'jvalsyl@telus.net',
+      deliveryDate: '2026-10-20', method: 'Pickup',
+      lines: [{ sku: 'RIBEYE-STEAK', packages: 1 }] },
+    /* The wholesale spelling, and a second address, so neither the name nor
+       the email can be what joins them by accident. */
+    { clientKey: 'sy2', type: 'ORDER_NEW', orderId: 'ORD-SYL-2',
+      customer: 'Jean & Val Sylvain', contact: 'jvalsylv@gmail.com',
+      deliveryDate: '2026-10-27', method: 'Pickup',
+      lines: [{ sku: 'RIBEYE-STEAK', packages: 1 }] }
+  ]});
+  check('both orders were taken', d.readOrders_().length, 2);
+  d.rebuildCustomers_();
+
+  const syl = d.readTable_(d.TABS.CUSTOMERS)
+    .filter(r => d.nameKey_(r['Customer']) === d.nameKey_('Jean and Val Sylvain'));
+  check('the two spellings land on the one customer', syl.length, 1);
+  check('and both orders are counted on it',
+    d.num_(syl[0] ? syl[0]['Orders'] : 0), 2);
+  check('the name already on the books is the one kept',
+    syl[0] ? String(syl[0]['Customer']) : '', 'Jean and Val Sylvain');
+}
+
 /* ---- the circle has to be provably turning ----
    Reaching Contacts was never the hard part: the script owns the account, so
    the People API answers it. Whether the app, the sales sheet and Contacts
