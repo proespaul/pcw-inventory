@@ -561,7 +561,39 @@ function sheet_(name) {
 }
 
 /** Reads a tab into an array of objects keyed by header text. */
+/* One read of a tab, remembered for the rest of a request.
+ *
+ * A full sync went back to the Sheet sixty-eight times, nineteen of them for
+ * the PRODUCTS tab alone: every helper that needs the product list reads it
+ * for itself, and a sync calls two dozen helpers. Each trip is a round trip
+ * to Google, so the same answer was being fetched over and over.
+ *
+ * This is null — off — except while bootstrap_ is assembling its reply,
+ * after its writes are done. It is deliberately not on everywhere: a request
+ * that writes a row and then reads the tab back must see what it wrote, and
+ * a memory that outlived the write would hand it yesterday's answer. Anything
+ * that writes a whole tab forgets that tab here as well, belt and braces.
+ * Rows are handed out as copies, so one helper tidying a row in place cannot
+ * change what the next helper is given. */
+var READ_MEMO = null;
+var READ_MEMO_ON = false;
+
 function readTable_(name) {
+  if (READ_MEMO && READ_MEMO_ON && READ_MEMO[name]) {
+    return READ_MEMO[name].map(function (o) {
+      var c = {}; for (var k in o) c[k] = o[k]; return c;
+    });
+  }
+  var rows = readTableFresh_(name);
+  if (READ_MEMO && READ_MEMO_ON) {
+    READ_MEMO[name] = rows.map(function (o) {
+      var c = {}; for (var k in o) c[k] = o[k]; return c;
+    });
+  }
+  return rows;
+}
+
+function readTableFresh_(name) {
   var sh = sheet_(name);
   var lastRow = sh.getLastRow();
   var lastCol = sh.getLastColumn();
@@ -579,6 +611,7 @@ function readTable_(name) {
 
 /** Overwrites a tab's body (keeps the header row). */
 function writeTable_(name, headers, rows) {
+  if (READ_MEMO) delete READ_MEMO[name];
   var sh = sheet_(name);
   var lastRow = sh.getLastRow();
   if (lastRow > 1) sh.getRange(2, 1, lastRow - 1, headers.length).clearContent();
@@ -7515,7 +7548,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-19 15:47 UTC';
+var BACKEND_BUILD = '2026-11-19 16:14 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -9242,7 +9275,7 @@ function handle_(e, body) {
     }
 
     switch (action) {
-      case 'bootstrap':   return json_(bootstrap_(req.since));
+      case 'bootstrap':   return json_(bootstrap_(req.since, req.profile));
       case 'me':          return json_({ ok: true, me: me });
       case 'submit':      return json_(submit_(req));
       case 'addProduct':  return json_(addProduct_(req.product || {}));
@@ -9325,7 +9358,7 @@ function json_(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-function bootstrap_(since) {
+function bootstrap_(since, profile) {
   // The phone tells us the stamp it already has. If nothing has changed we can
   // say so in three quick calls instead of reading a dozen tabs and opening
   // the sales sheet. This is the difference between a sync that feels instant
@@ -9339,65 +9372,80 @@ function bootstrap_(since) {
     }
   }
 
-  rebuildInventory();
-  // Cheap, once a day: make sure the freezers are still being read at all.
-  ensureFreezerWatch_();
-  /* A price typed straight into the PRODUCTS tab changes what everybody is
-     charged, so it goes on the record the same as one changed in the app.
-     Nothing here is slow: it is one read of a tab already in memory, and it
-     only runs when something in the sheet has actually moved. */
-  try { sweepPriceEdits_(); } catch (errPrice) {}
-  // Cheap — one heading row each — and it is what stops a column added in
-  // the code from being invisible in the sheet.
-  try { ensureOrderHeaders_(); } catch (errHead) {}
-  var products = indexProducts_();
-  return {
-    ok: true,
-    stamp: dataStamp_(),
-    serverTime: new Date().toISOString(),
-    settings: publicSettings_(),
-    products: Object.keys(products).map(function (k) { return products[k]; }),
-    batches: indexBatches_(),
-    freezers: indexFreezers_(),
-    stock: currentStock_(),
-    orders: readOrders_(),
-    committed: committedBySku_(),
-    scansPending: listScans_('Pending').scans.length,
-    ageing: ageing_(),
-    boxes: buildable_(),
-    boxList: boxesForApp_(),
-    boxedBySku: boxedBySku_(),
-    lists: lists_(),
-    followups: followups_(),
-    sendAs: sendAs_(),
-    priceChanges: recentPriceChanges_(60),
-    // The company's own sales book, so the Sales screen shows the year as it
-    // really was rather than only what went through this app.
-    salesBook: salesBookRows_(400),
-    // Anything the app should put a banner up about, and what each freezer
-    // was reading when it was last looked at.
-    alerts: openAlerts_(),
-    freezers_seen: freezerLatest_(),
-    freezers_history: freezerHistory_(14),
-    freezer_record: freezerRecordState_(),
-    // So the app can draw the lines in the same place this put them.
-    freezer_limits: freezerLimits_(),
-    /* Every animal and what it did. It rides down with everything else
-       rather than being fetched when the tab is opened: the tab was going
-       quiet and saying "Reading the herd…" every single time, and there
-       are five animals — it is smaller than the freezer.
-
-       Wrapped, because this is the newest thing in the payload and the
-       oldest rule of the payload is that one new field must never be able
-       to take the whole sync down with it. If it fails the phone gets
-       everything else and asks for the herd on its own. */
-    cattle: (function () {
-      try { return cattle_(); } catch (errHerd) {
-        return { ok: false, steers: [], error: str_(errHerd && errHerd.message) };
-      }
-    })(),
-    steerCosts: steerCosts_()
+  /* Each piece is timed. A sync that takes forty seconds is not fixed by
+     guessing which part is slow, and from outside all anybody can see is
+     the total. Ask with profile=1 and the answer carries how long every
+     piece took; otherwise the stopwatch costs nothing worth counting. */
+  var took = {}, began = Date.now();
+  var part = function (name, fn) {
+    var t = Date.now(), v = fn();
+    took[name] = Date.now() - t;
+    return v;
   };
+
+  part('rebuildInventory', function () { rebuildInventory(); });
+  // Cheap, once a day: make sure the freezers are still being read at all.
+  part('ensureFreezerWatch', function () { ensureFreezerWatch_(); });
+  /* A price typed straight into the PRODUCTS tab changes what everybody is
+     charged, so it goes on the record the same as one changed in the app. */
+  part('sweepPriceEdits', function () { try { sweepPriceEdits_(); } catch (errPrice) {} });
+  // One heading row each — it is what stops a column added in the code
+  // from being invisible in the sheet.
+  part('ensureOrderHeaders', function () { try { ensureOrderHeaders_(); } catch (errHead) {} });
+
+  /* From here down nothing writes, so every tab is read once and
+     remembered for the rest of this request. See READ_MEMO. */
+  READ_MEMO = {};
+  var out;
+  try {
+    var products = part('products', function () { return indexProducts_(); });
+    out = {
+      ok: true,
+      stamp: part('stamp', function () { return dataStamp_(); }),
+      serverTime: new Date().toISOString(),
+      settings: part('settings', function () { return publicSettings_(); }),
+      products: Object.keys(products).map(function (k) { return products[k]; }),
+      batches: part('batches', function () { return indexBatches_(); }),
+      freezers: part('freezers', function () { return indexFreezers_(); }),
+      stock: part('stock', function () { return currentStock_(); }),
+      orders: part('orders', function () { return readOrders_(); }),
+      committed: part('committed', function () { return committedBySku_(); }),
+      scansPending: part('scans', function () { return listScans_('Pending').scans.length; }),
+      ageing: part('ageing', function () { return ageing_(); }),
+      boxes: part('boxes', function () { return buildable_(); }),
+      boxList: part('boxList', function () { return boxesForApp_(); }),
+      boxedBySku: part('boxedBySku', function () { return boxedBySku_(); }),
+      lists: part('lists', function () { return lists_(); }),
+      followups: part('followups', function () { return followups_(); }),
+      sendAs: part('sendAs', function () { return sendAs_(); }),
+      priceChanges: part('priceChanges', function () { return recentPriceChanges_(60); }),
+      // The company's own sales book, so the Sales screen shows the year as it
+      // really was rather than only what went through this app.
+      salesBook: part('salesBook', function () { return salesBookRows_(400); }),
+      // Anything the app should put a banner up about, and what each freezer
+      // was reading when it was last looked at.
+      alerts: part('alerts', function () { return openAlerts_(); }),
+      freezers_seen: part('freezers_seen', function () { return freezerLatest_(); }),
+      freezers_history: part('freezers_history', function () { return freezerHistory_(14); }),
+      freezer_record: part('freezer_record', function () { return freezerRecordState_(); }),
+      // So the app can draw the lines in the same place this put them.
+      freezer_limits: part('freezer_limits', function () { return freezerLimits_(); }),
+      /* Every animal and what it did. Wrapped, because the oldest rule of
+         the payload is that one field must never be able to take the whole
+         sync down with it. If it fails the phone gets everything else and
+         asks for the herd on its own. */
+      cattle: part('cattle', function () {
+        try { return cattle_(); } catch (errHerd) {
+          return { ok: false, steers: [], error: str_(errHerd && errHerd.message) };
+        }
+      }),
+      steerCosts: part('steerCosts', function () { return steerCosts_(); })
+    };
+  } finally {
+    READ_MEMO = null;
+  }
+  if (profile) { took.total = Date.now() - began; out.took = took; }
+  return out;
 }
 
 function history_(limit) {
