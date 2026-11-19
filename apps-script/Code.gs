@@ -3373,7 +3373,7 @@ function alertIsOpen_(r) {
 function alertRaise_(a) {
   var sh = alertSheet_();
   var at = alertCols_();
-  var rows = readTable_(TABS.ALERTS);
+  var rows = alertRows_();
   var key = str_(a.kind) + '|' + str_(a.about);
   var saidBefore = '', saidWhen = '';
 
@@ -3381,9 +3381,9 @@ function alertRaise_(a) {
     if (str_(rows[i]['Kind']) + '|' + str_(rows[i]['About']) !== key) continue;
     if (alertIsOpen_(rows[i])) {
       // Still on the banner. Bring it up to date and leave it at that.
-      sh.getRange(i + 2, at['What']).setValue(str_(a.what));
-      sh.getRange(i + 2, at['Detail']).setValue(str_(a.detail));
-      sh.getRange(i + 2, at['Last seen']).setValue(new Date());
+      sh.getRange(rows[i].__row, at['What']).setValue(str_(a.what));
+      sh.getRange(rows[i].__row, at['Detail']).setValue(str_(a.detail));
+      sh.getRange(rows[i].__row, at['Last seen']).setValue(new Date());
       return { raised: false, updated: true };
     }
     /* Put away by a person, and here it is again. Worth saying so on the new
@@ -3427,7 +3427,7 @@ function alertRaise_(a) {
  */
 function alertSweepGone_(stillWatched) {
   var rows;
-  try { rows = readTable_(TABS.ALERTS); } catch (err) { return 0; }
+  try { rows = alertRows_(); } catch (err) { return 0; }
   var sh = alertSheet_();
   var n = 0;
   for (var i = 0; i < rows.length; i++) {
@@ -3435,22 +3435,58 @@ function alertSweepGone_(stillWatched) {
     if (FREEZER_ALERT_KINDS.indexOf(str_(rows[i]['Kind'])) === -1) continue;
     var about = str_(rows[i]['About']);
     if (!about || stillWatched[about]) continue;
-    alertPutAway_(sh, i + 2, ALERT_NOT_WATCHED, '');
+    alertPutAway_(sh, rows[i].__row, ALERT_NOT_WATCHED, '');
     n++;
   }
   return n;
 }
 
+/* The ALERTS tab, each row carrying the sheet row it actually sits on.
+ *
+ * Every alert routine used to find its row as "position in readTable_ plus
+ * two". readTable_ drops blank rows, so one row cleared by hand in the
+ * middle of the tab shifted every row below it, and the next "fixed itself"
+ * or "put away" landed on the wrong alert. On a food-safety log that is the
+ * worst kind of wrong: quiet. */
+function alertRows_() {
+  var sh = alertSheet_();
+  var last = sh.getLastRow(), cols = sh.getLastColumn();
+  if (last < 2 || cols < 1) return [];
+  var vals = sh.getRange(1, 1, last, cols).getValues();
+  var head = vals.shift().map(function (h) { return String(h).trim(); });
+  var out = [];
+  vals.forEach(function (row, i) {
+    if (!row.some(function (v) { return v !== '' && v !== null; })) return;
+    var o = { __row: i + 2 };
+    head.forEach(function (h, j) { if (h) o[h] = row[j]; });
+    out.push(o);
+  });
+  return out;
+}
+
+/* Which kind|about pairs have a banner up right now — one read, so a round
+   clearing eight kinds for six freezers does not read the tab forty-eight
+   times to learn that nothing was open. */
+function openAlertKeys_() {
+  var keys = {};
+  try {
+    alertRows_().forEach(function (r) {
+      if (alertIsOpen_(r)) keys[str_(r['Kind']) + '|' + str_(r['About'])] = true;
+    });
+  } catch (e) { return null; }
+  return keys;
+}
+
 /** Something that has put itself right needs no banner. */
 function alertClear_(kind, about) {
   var sh = alertSheet_();
-  var rows = readTable_(TABS.ALERTS);
+  var rows = alertRows_();
   var n = 0;
   for (var i = 0; i < rows.length; i++) {
     if (!alertIsOpen_(rows[i])) continue;
     if (str_(rows[i]['Kind']) !== str_(kind)) continue;
     if (str_(rows[i]['About']) !== str_(about)) continue;
-    alertPutAway_(sh, i + 2, ALERT_FIXED_ITSELF, '');
+    alertPutAway_(sh, rows[i].__row, ALERT_FIXED_ITSELF, '');
     n++;
   }
   return n;
@@ -3467,12 +3503,12 @@ function alertDismiss_(op) {
   if (!id) return { error: 'Which alert?' };
   var answer = ALERT_ANSWERS[str_(op.answer)] || ALERT_ANSWERS.later;
   var sh = alertSheet_();
-  var rows = readTable_(TABS.ALERTS);
+  var rows = alertRows_();
   for (var i = 0; i < rows.length; i++) {
     if (str_(rows[i]['Alert ID']) !== id) continue;
     // Already closed: the first answer stands, so two phones do not fight.
     if (!alertIsOpen_(rows[i])) return { ok: true, alertId: id, already: true };
-    alertPutAway_(sh, i + 2, answer, str_(op.user) || 'Someone');
+    alertPutAway_(sh, rows[i].__row, answer, str_(op.user) || 'Someone');
     return { ok: true, alertId: id, answer: answer };
   }
   // Not there at all is not a failure either.
@@ -3764,6 +3800,7 @@ function freezerWatch(askedFor) {
   var sh = freezerLogSheet_();
   var now = new Date();
   var rows = [], raised = 0, cleared = 0, watched = {};
+  var openKeys = lap_('alerts: what is open', function () { return openAlertKeys_(); });
   readings.forEach(function (r) {
     var bad = freezerTrouble_(r, lim);
     var where = r.freezer || r.device;
@@ -3781,7 +3818,9 @@ function freezerWatch(askedFor) {
                freezerSourceFor_(askedFor)]);
     watched[where] = true;
     FREEZER_ALERT_KINDS.forEach(function (k) {
-      if (!bad || bad.kind !== k) cleared += alertClear_(k, where);
+      if (bad && bad.kind === k) return;
+      if (openKeys && !openKeys[k + '|' + where]) return;   // nothing up to clear
+      cleared += alertClear_(k, where);
     });
     if (bad && !(tapped && pending.length)) {
       var r2 = alertRaise_({ kind: bad.kind, about: where, level: bad.level,
@@ -7678,7 +7717,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-19 16:25 UTC';
+var BACKEND_BUILD = '2026-11-19 16:28 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign

@@ -2021,6 +2021,35 @@ console.log('\na client with two numbers');
     d.freezerWatchState_().daysSinceUnattended, 0);
 }
 
+/* ---- an alert is put away on its own row ----
+   Rows were found as "position in the read, plus two", and the read drops
+   blank rows. One row cleared by hand in the middle of ALERTS and the next
+   "fixed itself" landed on the alert below it. */
+{
+  const c = buildContext();
+  c.setup();
+  c.alertRaise_({ kind: 'warm', about: 'F1', level: 'warn', what: 'Freezer 1 is warm', detail: '' });
+  c.alertRaise_({ kind: 'warm', about: 'F2', level: 'warn', what: 'Freezer 2 is warm', detail: '' });
+  c.alertRaise_({ kind: 'warm', about: 'F3', level: 'warn', what: 'Freezer 3 is warm', detail: '' });
+  const sh = c.alertSheet_();
+  // Somebody clears the F1 row's cells by hand, leaving a blank row.
+  sh.data[1] = sh.data[1].map(() => '');
+  c.alertClear_('warm', 'F2');
+  const open = c.alertRows_().filter(r => c.alertIsOpen_(r)).map(r => r['About']);
+  check('clearing Freezer 2 clears Freezer 2', open.indexOf('F2'), -1);
+  check('and leaves Freezer 3 standing', open.indexOf('F3') > -1, true);
+
+  /* A round with nothing open does not go back to ALERTS per kind per
+     freezer to find that out. */
+  let reads = 0;
+  const orig = sh.getRange.bind(sh);
+  sh.getRange = (...a) => { const r = orig(...a), gv = r.getValues.bind(r);
+    r.getValues = () => { reads++; return gv(); }; return r; };
+  ['F4', 'F5', 'F6'].forEach(w => { const k = c.openAlertKeys_();
+    c.FREEZER_ALERT_KINDS.forEach(kind => { if (k[kind + '|' + w]) c.alertClear_(kind, w); }); });
+  check('freezers with nothing up cost one read each, not eight', reads <= 3, true);
+}
+
 /* ---- keys a phone has no use for stay on the server ---- */
 {
   const c = buildContext();
