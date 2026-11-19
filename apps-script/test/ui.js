@@ -1139,6 +1139,18 @@ const settle = async () => { for (let i = 0; i < 8; i++) await pause(); };
       w.eval('document.getElementById("view-orders").classList.contains("on")'), true);
   }
 
+  /* ---- slow because working is not the same as lost ----
+     A full sync, a freezer read and the customer square-up each ran past
+     the 45-second cut-off while still doing their jobs, and were reported
+     as failures. They get longer; the rest keep the short limit. */
+  {
+    check('a full sync is given time to finish', w.eval('LONG_CALLS.bootstrap') >= 90000, true);
+    check('so is reading the freezers', w.eval('LONG_CALLS.freezerNow') >= 90000, true);
+    check('ordinary calls keep the short limit', w.eval('LONG_CALLS.submit || 0'), 0);
+    check('and the square-up no longer changes the shared limit while it runs',
+      /API_WAIT_MS = 300000/.test(w.eval('squareUpBooks.toString()')), false);
+  }
+
   console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll browser checks passed.\n');
   process.exit(failures ? 1 : 0);
 })();

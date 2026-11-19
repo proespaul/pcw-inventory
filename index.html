@@ -1238,7 +1238,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-19 16:28 UTC';
+const APP_BUILD = '2026-11-19 16:33 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -1858,6 +1858,14 @@ function signOut() {
    than a const so a test can wind it down and prove the corner recovers
    from a request that never answers. */
 let API_WAIT_MS = 45000;
+/* Calls that are slow because they are working, not because they are lost.
+ * A full sync after a change does a recount; reading the freezers waits on
+ * Govee, which answers in six seconds one minute and twenty-two the next;
+ * squaring up the customer books walks all three. Each was being cut off at
+ * forty-five seconds and reported as a failure while it was still doing its
+ * job. They get longer; everything else keeps the short limit that stops a
+ * dead request on a weak signal from holding the app up. */
+const LONG_CALLS = { bootstrap: 90000, freezerNow: 90000, syncCustomers: 300000 };
 
 async function api(action, payload = {}) {
   if (!signedIn()) {
@@ -1877,7 +1885,7 @@ async function api(action, payload = {}) {
      than any call here legitimately takes; after that we hand back a plain
      error, the flag clears, and the minute timer tries again. */
   const giveUp = new AbortController();
-  const timer = setTimeout(() => giveUp.abort(), API_WAIT_MS);
+  const timer = setTimeout(() => giveUp.abort(), LONG_CALLS[action] || API_WAIT_MS);
   let res;
   try {
     res = await fetch(CONFIG.APPS_SCRIPT_URL, {
@@ -9693,14 +9701,10 @@ function turnOnNightlySweep(btn) {
 }
 
 /* The sweep walks every customer through all three books, so it is minutes
- * rather than seconds — well past the 45 the app allows any other call. The
- * limit is lifted for this one and put straight back, because a call that is
- * working fine should not be reported as a failure. */
+ * rather than seconds. Its longer limit is in LONG_CALLS. */
 async function squareUpBooks(btn) {
   const label = 'Square up the three books now';
   if (btn) { btn.disabled = true; btn.textContent = 'Squaring up\u2026'; }
-  const was = API_WAIT_MS;
-  API_WAIT_MS = 300000;
   try {
     const r = await api('syncCustomers');
     if (!r || !r.ok) throw new Error((r && r.error) || 'It did not finish.');
@@ -9718,7 +9722,6 @@ async function squareUpBooks(btn) {
   } catch (e) {
     toast(e.message || 'It did not finish.');
   } finally {
-    API_WAIT_MS = was;
     if (btn) { btn.disabled = false; btn.textContent = label; }
   }
 }
