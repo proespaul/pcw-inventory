@@ -1238,7 +1238,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-19 16:33 UTC';
+const APP_BUILD = '2026-11-19 17:49 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -2494,11 +2494,14 @@ function renderBoard() {
   const low = rows.filter(r => r.status !== 'ok');
 
   const totalPkg = rows.reduce((s, r) => s + r.packages, 0);
+  const boxSet = boxSkus();
+  const boxPkg = rows.filter(r => boxSet.has(r.sku)).reduce((s, r) => s + r.packages, 0);
   const totalCommitted = rows.reduce((s, r) => s + (r.committed || 0), 0);
   $('boardSummary').innerHTML =
     '<div class="item" style="border:0;padding:2px"><div class="name">' +
     '<b>' + open.length + (open.length === 1 ? ' order to assemble' : ' orders to assemble') + '</b>' +
     '<span>' + Math.round(totalPkg * 100) / 100 + ' packages on hand' +
+      (boxPkg ? ' (' + Math.round(boxPkg * 100) / 100 + ' boxes)' : '') +
       (totalCommitted ? ' · ' + Math.round(totalCommitted * 100) / 100 + ' promised' : '') + '</span></div>' +
     '<div class="qty"><b>' + low.length + '</b><span>low / out</span></div></div>';
 
@@ -3634,6 +3637,13 @@ function setInvKind(kind) {
   renderStock();
 }
 
+/* "183 loose · 22 boxes" — the same total both screens show, split so a box
+   is not mistaken for one steak. */
+function pkgSplit(total, boxes) {
+  const r = n => Math.round(n * 100) / 100;
+  return r(total - boxes) + ' loose · ' + r(boxes) + ' boxes';
+}
+
 function boxSkus() {
   const set = new Set((data.boxList || []).map(b => b.sku));
   (data.products || []).forEach(p => { if (p.isBox) set.add(p.sku); });
@@ -3731,13 +3741,18 @@ function renderStock() {
   if (invKind === 'boxes') return renderBoxList();
   const q = $('stockSearch').value.trim().toLowerCase();
   const boxes = boxSkus();
-  let rows = productTotals().filter(r => !boxes.has(r.sku));
-  if (q) rows = rows.filter(r => (r.product + ' ' + r.content + ' ' + r.sku).toLowerCase().includes(q));
+  const all = productTotals();
+  const matches = r => !q || (r.product + ' ' + r.content + ' ' + r.sku).toLowerCase().includes(q);
+  let rows = all.filter(r => !boxes.has(r.sku)).filter(matches);
+  /* Made-up boxes are stock: they are listed on the Boxes tab, but they are
+     counted here too, so this card and the Orders screen give one number. */
+  const boxRows = all.filter(r => boxes.has(r.sku)).filter(matches);
   renderTrouble(rows);
   /* The totals are what the freezer holds, so they are counted before the
      list is narrowed. Counted after, "show these" turned the card at the top
      into −1 packages — the shortfall, read as the whole freezer. */
-  const counted = rows;
+  const counted = rows.concat(boxRows);
+  const boxPkg = boxRows.reduce((s, r) => s + r.packages, 0);
   if (invTrouble) rows = rows.filter(r => r.status !== 'ok' || r.packages <= 0);
 
   const sort = $('stockSort').value || 'kind';
@@ -3761,6 +3776,7 @@ function renderStock() {
   $('stockTotals').innerHTML =
     '<div class="item" style="border:0;padding:2px"><div class="name">' +
     '<b>' + Math.round(totalPkg * 100) / 100 + ' packages</b>' +
+    (boxPkg ? '<span style="display:block">' + pkgSplit(totalPkg, boxPkg) + '</span>' : '') +
     '<span>' + (totalWt ? round2(totalWt) + ' lb · ' + round2(totalWt / LB_PER_KG) + ' kg'
                         : 'weights not recorded yet') +
       (totalCommitted ? ' · ' + Math.round(totalCommitted * 100) / 100 + ' promised' : '') + '</span></div>' +
