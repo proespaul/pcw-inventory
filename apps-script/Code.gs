@@ -2988,12 +2988,13 @@ function goveeFreezerFor_(dev, map) {
  * that did not answer is the thing most worth knowing about.
  */
 function goveeReadAll_(key) {
-  var found = goveeDevices_(key);
+  var found = lap_('govee: device list', function () { return goveeDevices_(key); });
   if (!found.ok) return found;
   var map = goveeFreezerMap_();
   var out = [];
   found.devices.forEach(function (d) {
-    var st = goveeState_(d.sku, d.device, key);
+    var st = lap_('govee: one sensor each (summed)', function () {
+      return goveeState_(d.sku, d.device, key); });
     var fz = goveeFreezerFor_(d, map);
     out.push({
       sku: d.sku, device: d.device, name: d.name,
@@ -3663,7 +3664,7 @@ function freezerWatch(askedFor) {
   /* Look again before saying anything. A lid open while an order is being
      packed reads warm for a few minutes and is not a fault. */
   if (suspect.length) {
-    Utilities.sleep(FREEZER_CONFIRM_WAIT);
+    lap_('waiting to look again', function () { Utilities.sleep(FREEZER_CONFIRM_WAIT); });
     var second = goveeReadAll_(key);
     if (second.ok) {
       var again = {};
@@ -3735,12 +3736,20 @@ function freezerWatch(askedFor) {
  * hands back what the app needs to redraw itself, rather than making
  * somebody wait until six tomorrow morning to find out.
  */
-function freezerNow_() {
-  var r = freezerWatch(true);
-  if (!r.ok) return r;
-  return { ok: true, read: r.read, raised: r.raised, cleared: r.cleared,
-           seen: freezerLatest_(), history: freezerHistory_(14),
-           alerts: openAlerts_(), record: freezerRecordState_() };
+function freezerNow_(profile) {
+  var took = {}, began = Date.now();
+  if (profile) LAPS = took;
+  try {
+    var r = lap_('freezerWatch', function () { return freezerWatch(true); });
+    if (!r.ok) return r;
+    var out = { ok: true, read: r.read, raised: r.raised, cleared: r.cleared,
+             seen: lap_('after: latest', function () { return freezerLatest_(); }),
+             history: lap_('after: history', function () { return freezerHistory_(14); }),
+             alerts: lap_('after: alerts', function () { return openAlerts_(); }),
+             record: lap_('after: record', function () { return freezerRecordState_(); }) };
+    if (profile) { took.total = Date.now() - began; out.took = took; }
+    return out;
+  } finally { LAPS = null; }
 }
 
 /**
@@ -7569,7 +7578,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-19 16:19 UTC';
+var BACKEND_BUILD = '2026-11-19 16:21 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -9317,7 +9326,7 @@ function handle_(e, body) {
       case 'ask':         return json_(askKenji_(req, me));
       case 'freezerReport': return json_(freezerReport(req.from, req.to));
       case 'freezerWatchState': return json_(freezerWatchState_());
-      case 'freezerNow':  return json_(freezerNow_());
+      case 'freezerNow':  return json_(freezerNow_(req.profile));
       case 'updateBatch': return json_(updateBatch_(req.batch || {}));
       case 'addFreezer':  return json_(addFreezer_(req.freezer || {}));
       case 'history':     return json_(history_(num_(req.limit) || 50));
