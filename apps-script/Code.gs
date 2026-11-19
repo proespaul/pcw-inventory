@@ -6402,6 +6402,133 @@ function salesAdd_(book, person) {
   return row;
 }
 
+/* ============ TWO ROWS FOR ONE PERSON ==============================
+ *
+ * The sales book is typed by hand and the same customer has ended up on
+ * two rows: Jeremie Trudeau on 45 and 98, Jean and Val Sylvain on 101 and
+ * 113. That is worse than untidy. The card reads the FIRST row it matches
+ * and the sweep writes to the LAST one, so one row keeps his phone, his
+ * email and his address while the other stays blank for ever, and no
+ * amount of sweeping brings them together — each half is looking at a
+ * different row for the same man.
+ *
+ * So one row is made complete and the row it consumed is removed. The
+ * merge follows the rules the books already use: every phone number and
+ * every email address is kept, an address folds to its fullest form, and
+ * the columns the sheet keeps by hand — purchase history, order count,
+ * sales person — are taken from the survivor where it has an answer and
+ * from the other row only where it does not. Every column is carried,
+ * including ones this code knows nothing about, so nothing is lost by
+ * being unmapped.
+ *
+ * Where the two rows disagree outright the survivor wins and the discarded
+ * value is reported, because a row count quietly changing is exactly the
+ * kind of thing that should be said out loud rather than noticed later.
+ *
+ * Deliberately NOT part of the nightly sweep. Deleting a row is the one
+ * thing here that cannot be undone from inside the app, so it happens when
+ * somebody asks for it, not at five in the morning. Ask for it dry first
+ * and it reports what it would do and changes nothing.
+ * ==================================================================== */
+
+function salesDupeGroups_(book) {
+  var groups = {}, out = [];
+  book.rows.forEach(function (r) {
+    var k = nameKey_(r.name);
+    if (!k) return;
+    (groups[k] = groups[k] || []).push(r);
+  });
+  Object.keys(groups).forEach(function (k) {
+    if (groups[k].length < 2) return;
+    out.push(groups[k].slice().sort(function (a, b) { return a.row - b.row; }));
+  });
+  return out;
+}
+
+function mergeSalesDupes_(opt) {
+  opt = opt || {};
+  var dry = !!opt.dry;
+  var book = salesBook_();
+  if (!book.ok) return { ok: false, error: str_(book.error) };
+
+  var groups = salesDupeGroups_(book);
+  var out = { ok: true, dry: dry, found: groups.length, merged: 0,
+              removedRows: [], pairs: [] };
+  if (!groups.length) return out;
+
+  var lastCol = Math.max(book.sheet.getLastColumn(), 8);
+  var head = book.sheet.getRange(2, 1, 1, lastCol).getValues()[0]
+    .map(function (h) { return String(h).trim(); });
+
+  var plans = [];
+  groups.forEach(function (group) {
+    var keep = group[0];
+    var raw = group.map(function (g) {
+      return book.sheet.getRange(g.row, 1, 1, lastCol).getValues()[0];
+    });
+    var merged = raw[0].slice();
+    var filled = [], differed = [];
+
+    for (var c = 0; c < lastCol; c++) {
+      var mine = str_(merged[c]), theirs = [];
+      for (var i = 1; i < raw.length; i++) {
+        var v = str_(raw[i][c]);
+        if (v) theirs.push(v);
+      }
+      if (!theirs.length) continue;
+
+      var says = [{ where: 'kept', value: mine }].concat(
+        theirs.map(function (v) { return { where: 'removed', value: v }; }));
+
+      if (c === book.at.phone || c === book.at.email) {
+        var all = gatherValues_(says, c === book.at.phone ? samePhone_ : sameMail_,
+                                CELL_SPLIT);
+        merged[c] = joinCell_(all.map(function (v) { return v.value; }));
+      } else if (c === book.at.town) {
+        var towns = gatherValues_(says, sameText_, TOWN_SPLIT, true);
+        merged[c] = joinCell_(towns.map(function (v) { return v.value; }));
+      } else if (!mine) {
+        merged[c] = theirs[0];
+      }
+
+      if (str_(merged[c]) !== mine) {
+        filled.push({ column: head[c] || ('column ' + (c + 1)),
+                      was: mine, now: str_(merged[c]) });
+      } else {
+        theirs.forEach(function (v) {
+          if (!sameText_(v, mine)) {
+            differed.push({ column: head[c] || ('column ' + (c + 1)),
+                            kept: mine, dropped: v });
+          }
+        });
+      }
+    }
+
+    plans.push({ keepRow: keep.row, name: keep.name, merged: merged,
+                 goneRows: group.slice(1).map(function (g) { return g.row; }) });
+    out.pairs.push({ name: keep.name, keptRow: keep.row,
+                     removedRows: group.slice(1).map(function (g) { return g.row; }),
+                     filled: filled, differed: differed });
+  });
+
+  if (dry) return out;
+
+  /* Every write first, while the row numbers still mean what they did when
+     the rows were read. Only then the deletions, highest row first, so one
+     removal cannot move another row out from under the next. */
+  plans.forEach(function (p) {
+    book.sheet.getRange(p.keepRow, 1, 1, lastCol).setValues([p.merged]);
+    out.merged++;
+  });
+
+  var kill = [];
+  plans.forEach(function (p) { kill = kill.concat(p.goneRows); });
+  kill.sort(function (a, b) { return b - a; });
+  kill.forEach(function (r) { book.sheet.deleteRow(r); });
+  out.removedRows = kill;
+  return out;
+}
+
 /* ─────────────────── the app's own customer rows ─────────────────── */
 
 function appCustomerRows_() {
@@ -7379,7 +7506,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-19 15:29 UTC';
+var BACKEND_BUILD = '2026-11-19 15:40 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -9099,7 +9226,7 @@ function handle_(e, body) {
     var READ_ONLY = ['bootstrap','me','history','scans','price','priceByName','findProduct',
                      'customer','schedule','lists','boxes','ageing','followups','stock',
                      'photoCount','scaleRead',
-                     'customerSyncState',
+                     'customerSyncState', 'salesDupes',
                      'ask'];          // both propose only; nothing is written
     if (READ_ONLY.indexOf(action) === -1) {
       try { bumpDataVersion_(); } catch (errBump) {}
@@ -9138,6 +9265,8 @@ function handle_(e, body) {
       case 'customerSave':  return json_(customerSave_(req));
       case 'syncCustomers': return json_(syncCustomers_(req));
       case 'customerSyncState': return json_(customerSyncState_());
+      case 'salesDupes':  return json_(mergeSalesDupes_({ dry: true }));
+      case 'salesMerge':  return json_(mergeSalesDupes_(req));
       case 'customerSyncSetup': return json_(customerSyncSetup_());
       case 'schedule':    return json_(schedule_(req));
       case 'calendarAdd': return json_(calendarAdd_(req));

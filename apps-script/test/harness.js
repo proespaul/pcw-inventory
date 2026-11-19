@@ -79,6 +79,11 @@ class FakeSheet {
     return new FakeRange(this, a, b, c === undefined ? 1 : c, d === undefined ? 1 : d);
   }
   appendRow(vals) { this.data[this.getLastRow()] = vals.slice(); }
+  /* Real rows move when one is inserted or deleted. A fake that ignored
+     that would let a bug through where code writes to a row number it read
+     before the sheet shifted under it. */
+  insertRowBefore(row) { this.data.splice(row - 1, 0, []); }
+  deleteRow(row) { this.data.splice(row - 1, 1); }
   setFrozenRows() {} autoResizeColumns() {} deleteColumns() {}
 }
 

@@ -1890,6 +1890,66 @@ console.log('\na client with two numbers');
     ['installed', 'missing', 'cannot tell'].indexOf(st.trigger) > -1, true);
 }
 
+/* ---- one customer on two rows ----
+   The sales book is typed by hand and the same person ended up twice:
+   Jeremie Trudeau on rows 45 and 98, with his phone, email and address on
+   one of them and his purchase history on the other. The card reads the
+   first row it matches and the sweep writes to the last, so neither half
+   ever saw the whole man.
+
+   These use the real shape of that pair: the survivor holds the history
+   and a lower order count, the other holds the contact details. */
+{
+  const c = buildContext();
+  c.setup();
+  const foreign = new (c.__ss.constructor)();
+  const book = foreign.insertSheet("Customers' info");
+  book.data = [
+    ['Peace Country Wagyu', '', '', '', '', '', '', ''],
+    ['Customer', 'Phone number', 'email address', 'address/location',
+     'Purchase history', '# of order', 'Postcards received', 'Sales person'],
+    ['Jeremie Trudeau', '', '', '', 'Steak Lovers Box', 1, '', ''],
+    ['Sheila Wegreen', '', 'nwegreen@hotmail.com', '', '', 1, 'yes', 'Hannah'],
+    ['Jeremie Trudeau', '17808374301', ' jeremietrudeau655@gmail.com',
+     'Township Road 810.5\r\nNorthern Sunrise County, AB, T0H 2R0\r\nCanada',
+     'Steak Lovers Box', 2, '', 'Website']
+  ];
+  c.__foreign['SALES-DUPE'] = foreign;
+  const st = c.__ss.getSheetByName('SETTINGS');
+  st.data.forEach(r => { if (r && r[0] === 'SALES_SHEET_ID') r[1] = 'SALES-DUPE'; });
+
+  const dry = c.mergeSalesDupes_({ dry: true });
+  check('it finds the one customer who is on two rows', dry.found, 1);
+  check('and names the row it would keep', dry.pairs[0].keptRow, 3);
+  check('and the row it would remove', dry.pairs[0].removedRows, [5]);
+  check('a dry run changes nothing', book.data.length, 5);
+
+  const did = c.mergeSalesDupes_({});
+  check('one row is removed', did.removedRows, [5]);
+  check('and the book is one row shorter', book.data.length, 4);
+
+  const kept = book.data[2];
+  check('the survivor keeps the name', kept[0], 'Jeremie Trudeau');
+  check('his phone came across', String(kept[1]).trim(), '17808374301');
+  check('and his email', String(kept[2]).trim(), 'jeremietrudeau655@gmail.com');
+  check('and his address', String(kept[3]).indexOf('Township Road 810.5') > -1, true);
+  check('the history it already had is untouched', kept[4], 'Steak Lovers Box');
+  check('and the sales person came across', kept[7], 'Website');
+
+  /* Where the two rows disagreed outright the survivor wins — but it is
+     reported, because an order count changing quietly is the kind of thing
+     somebody finds out about months later. */
+  check('the survivor\'s own order count stands', c.num_(kept[5]), 1);
+  const diff = did.pairs[0].differed.filter(d => d.column === '# of order');
+  check('and the figure it overrode is reported, not swallowed',
+    diff.length && String(diff[0].dropped), '2');
+
+  check('the customer who was only on one row is left alone',
+    book.data[3][0], 'Sheila Wegreen');
+  check('running it again finds nothing to do',
+    c.mergeSalesDupes_({ dry: true }).found, 0);
+}
+
 /* ---- a split address is one address ----
    Google Contacts keeps an address in parts, so reading one back hands you
    the whole line and every piece of it. Keeping every answer turned Jeremie
