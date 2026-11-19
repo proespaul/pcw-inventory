@@ -220,7 +220,8 @@ function buildContext() {
                getResponseCode: () => (stub ? stub.code : 200) };
     } },
     __ss: ss, __foreign: {}, __drive: {}, __sent: [], __aliases: [],
-    __fetchStub: null, __canStubFetch: true, __account: 'admin@pcwagyu.com'
+    __fetchStub: null, __canStubFetch: true, __account: 'admin@pcwagyu.com',
+    __triggers: []
   };
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'Code.gs'), 'utf8'), ctx);

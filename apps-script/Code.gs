@@ -7008,6 +7008,72 @@ function setupCustomerSync() {
   return r;
 }
 
+/* ============ IS THE CIRCLE ACTUALLY TURNING? =======================
+ *
+ * Being able to reach Contacts and keeping the three books in step are two
+ * different things. The reach was never the problem — the script owns the
+ * account, so the People API answers it. What decides whether the app, the
+ * sales sheet and Contacts still agree a month from now is whether anything
+ * is scheduled to walk them.
+ *
+ * That lived only in the project's trigger list, which is a thing you can
+ * only see from the editor. So it was possible — and it happened — for the
+ * sweep to be switched off for months with every screen looking normal.
+ * This reports both halves to the app: when it last ran, and whether
+ * anything is set to run it again.
+ * ==================================================================== */
+
+var CUSTOMER_SYNC_HOUR = 5;          // 5am, read in the script's own zone
+var CUSTOMER_SYNC_PROP = 'CUSTOMER_SYNC_AT';
+
+function customerSyncState_() {
+  var out = { ok: true, lastRun: '', trigger: null, triggers: 0,
+              atHour: CUSTOMER_SYNC_HOUR, note: '' };
+  try {
+    out.lastRun = str_(PropertiesService.getScriptProperties()
+                        .getProperty(CUSTOMER_SYNC_PROP));
+  } catch (err) { out.lastRun = ''; }
+
+  /* "cannot tell" is its own answer. Reading it wrong as "missing" would
+     have the app offer to install a second trigger beside a working one. */
+  try {
+    var mine = ScriptApp.getProjectTriggers().filter(function (t) {
+      return t.getHandlerFunction() === 'syncCustomers';
+    });
+    out.triggers = mine.length;
+    out.trigger = mine.length ? 'installed' : 'missing';
+  } catch (err) {
+    out.trigger = 'cannot tell';
+    out.note = str_(err && err.message);
+  }
+  return out;
+}
+
+/**
+ * Puts the nightly sweep in without running one.
+ *
+ * setupCustomerSync does a full sync on its way past, which is minutes of
+ * writing to three books just to answer "is it scheduled?". Switching the
+ * schedule on should not depend on sitting through that, so this only
+ * installs the trigger and hands back the state.
+ *
+ * Any sweep already installed is removed first, so pressing the button twice
+ * leaves one trigger rather than two running the same job an hour apart.
+ */
+function customerSyncSetup_() {
+  var replaced = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() !== 'syncCustomers') return;
+    replaced++;
+    ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('syncCustomers').timeBased()
+    .everyDays(1).atHour(CUSTOMER_SYNC_HOUR).create();
+  var out = customerSyncState_();
+  out.replaced = replaced;
+  return out;
+}
+
 /* ======================= FINDING A CUT BY NAME =======================
  * Butcher labels and the way people talk never match the SKU list exactly.
  * "ExL Denver" is an extra-large Denver. "Flat iron" is Flat Iron. "2lb GB"
@@ -7247,7 +7313,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-19 14:49 UTC';
+var BACKEND_BUILD = '2026-11-19 15:00 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -8967,6 +9033,7 @@ function handle_(e, body) {
     var READ_ONLY = ['bootstrap','me','history','scans','price','priceByName','findProduct',
                      'customer','schedule','lists','boxes','ageing','followups','stock',
                      'photoCount','scaleRead',
+                     'customerSyncState',
                      'ask'];          // both propose only; nothing is written
     if (READ_ONLY.indexOf(action) === -1) {
       try { bumpDataVersion_(); } catch (errBump) {}
@@ -9004,6 +9071,8 @@ function handle_(e, body) {
       case 'customerWhere': return json_(customerWhere_(req.customer || req.name));
       case 'customerSave':  return json_(customerSave_(req));
       case 'syncCustomers': return json_(syncCustomers_(req));
+      case 'customerSyncState': return json_(customerSyncState_());
+      case 'customerSyncSetup': return json_(customerSyncSetup_());
       case 'schedule':    return json_(schedule_(req));
       case 'calendarAdd': return json_(calendarAdd_(req));
       case 'calendarSync':return json_({ ok: true, touched: syncCalendar_() });

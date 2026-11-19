@@ -1890,6 +1890,49 @@ console.log('\na client with two numbers');
     ['installed', 'missing', 'cannot tell'].indexOf(st.trigger) > -1, true);
 }
 
+/* ---- the circle has to be provably turning ----
+   Reaching Contacts was never the hard part: the script owns the account, so
+   the People API answers it. Whether the app, the sales sheet and Contacts
+   still agree next month depends on something being scheduled to walk them,
+   and that lived only in the project's trigger list — invisible from every
+   screen. These check the app can ask, and can switch it on. */
+{
+  const c = buildContext();
+  c.setup();
+
+  let st = c.customerSyncState_();
+  check('with nothing scheduled it says so plainly', st.trigger, 'missing');
+  check('and does not pretend a sweep has happened', st.lastRun, '');
+
+  const put = c.customerSyncSetup_();
+  check('installing one leaves it installed', put.trigger, 'installed');
+  check('exactly one, not one per press', put.triggers, 1);
+  check('and nothing was there to replace', put.replaced, 0);
+
+  const again = c.customerSyncSetup_();
+  check('pressing it twice still leaves exactly one', again.triggers, 1);
+  check('the second press says it replaced the first', again.replaced, 1);
+
+  check('the state agrees once it is in', c.customerSyncState_().trigger, 'installed');
+  check('and names the hour it runs at', c.customerSyncState_().atHour, 5);
+
+  /* A trigger for something else must not be read as this one. The freezer
+     watch lives in the same list, and counting it would have the app report
+     the customer sweep as on while nothing swept the books at all. */
+  const d = buildContext();
+  d.setup();
+  d.__triggers.push({ getHandlerFunction: () => 'freezerWatch' });
+  check('somebody else\'s trigger is not mistaken for this one',
+    d.customerSyncState_().trigger, 'missing');
+
+  /* The sweep records when it ran, and the state reads that back — the
+     number on the screen has to come from the run, not from the page load. */
+  const e = buildContext();
+  e.setup();
+  e.PropertiesService.getScriptProperties().setProperty('CUSTOMER_SYNC_AT', '2026-11-19 05:00');
+  check('it reports when the sweep last ran', e.customerSyncState_().lastRun, '2026-11-19 05:00');
+}
+
 /* ---- Kenji has to remember an order being put together ----
    Six messages is three exchanges. Who it is for, what day, what cuts, how
    many — four questions and four answers is eight, and by the last one the

@@ -1238,7 +1238,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-19 14:49 UTC';
+const APP_BUILD = '2026-11-19 15:00 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -9633,6 +9633,10 @@ function openSettings() {
     (lastSignOut ? '<p class="muted" style="margin-top:12px;color:#8c2f1f">' +
        '<b>Last signed out:</b> ' + esc(lastSignOut.why) + '<br>' +
        new Date(lastSignOut.at).toLocaleString() + '</p>' : '') +
+    '<label style="margin-top:14px">Customer books</label>' +
+    '<p class="muted" id="svSync" style="margin:2px 0 8px">Checking\u2026</p>' +
+    '<button class="ghost small" onclick="squareUpBooks(this)">' +
+      'Square up the three books now</button>' +
     '<p class="muted" style="margin-top:12px">App build <b>' + APP_BUILD + '</b>' +
       '<span id="svBuild"></span><br>' +
       'If this is older than the one you were given, this phone is showing a ' +
@@ -9644,6 +9648,79 @@ function openSettings() {
     const el = $('svBuild');
     if (el && r && r.build) el.innerHTML = '<br>Backend build <b>' + esc(r.build) + '</b>';
   }).catch(() => {});
+  showBookState();
+}
+
+/* Whether the app, the sales sheet and Google Contacts are still being walked
+ * into agreement — and when that last happened.
+ *
+ * Reaching Contacts and keeping the books level are not the same thing, and
+ * only the second one can quietly stop. It stops invisibly: every screen goes
+ * on looking right while the three slowly drift. So the answer is put on the
+ * settings screen rather than left in the project's trigger list, where the
+ * only way to read it is to open the editor. */
+function showBookState() {
+  api('customerSyncState').then(r => {
+    const el = $('svSync');
+    if (!el || !r || !r.ok) return;
+    const when = r.lastRun ? esc(r.lastRun) : 'never';
+    if (r.trigger === 'installed') {
+      el.innerHTML = 'Swept into agreement every night at ' + (r.atHour || 5) +
+        'am. Last squared up: <b>' + when + '</b>.';
+    } else if (r.trigger === 'missing') {
+      el.innerHTML = '<b style="color:var(--bad)">Nothing is sweeping them.</b> ' +
+        'The app, the sales sheet and Google Contacts only match when somebody ' +
+        'presses the button below. Last squared up: <b>' + when + '</b>. ' +
+        '<button class="ghost small" style="margin-top:6px" ' +
+        'onclick="turnOnNightlySweep(this)">Turn the nightly sweep on</button>';
+    } else {
+      el.innerHTML = 'Cannot tell whether the nightly sweep is on. ' +
+        'Last squared up: <b>' + when + '</b>.';
+    }
+  }).catch(() => {});
+}
+
+function turnOnNightlySweep(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Turning it on\u2026'; }
+  api('customerSyncSetup').then(r => {
+    if (!r || !r.ok) throw new Error((r && r.error) || 'It did not take.');
+    toast('Nightly sweep is on.');
+    showBookState();
+  }).catch(e => {
+    toast(e.message || 'It did not take.');
+    if (btn) { btn.disabled = false; btn.textContent = 'Turn the nightly sweep on'; }
+  });
+}
+
+/* The sweep walks every customer through all three books, so it is minutes
+ * rather than seconds — well past the 45 the app allows any other call. The
+ * limit is lifted for this one and put straight back, because a call that is
+ * working fine should not be reported as a failure. */
+async function squareUpBooks(btn) {
+  const label = 'Square up the three books now';
+  if (btn) { btn.disabled = true; btn.textContent = 'Squaring up\u2026'; }
+  const was = API_WAIT_MS;
+  API_WAIT_MS = 300000;
+  try {
+    const r = await api('syncCustomers');
+    if (!r || !r.ok) throw new Error((r && r.error) || 'It did not finish.');
+    const bits = [];
+    const app = (r.appFilled || 0) + (r.appSecond || 0) + (r.appAdded || 0);
+    const sales = (r.salesFilled || 0) + (r.salesAdded || 0);
+    const made = (r.contactsMade || 0) + (r.contactsFilled || 0);
+    if (app) bits.push(app + ' in the app');
+    if (sales) bits.push(sales + ' on the sales sheet');
+    if (made) bits.push(made + ' in Contacts');
+    toast(r.contactsError ? r.contactsError
+          : (bits.length ? 'Filled in ' + bits.join(', ') + '.'
+                         : 'All three already matched.'));
+    showBookState();
+  } catch (e) {
+    toast(e.message || 'It did not finish.');
+  } finally {
+    API_WAIT_MS = was;
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  }
 }
 
 /* Throws away the cached app shell and reloads. The service worker serves a
