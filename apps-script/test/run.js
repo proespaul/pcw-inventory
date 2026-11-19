@@ -1946,6 +1946,81 @@ console.log('\na client with two numbers');
     Object.keys(quick.indexProducts_()).indexOf('BRISKET') > -1, true);
 }
 
+/* ---- the freezer timer's own readings are its own ----
+   Google's timer calls freezerWatch with an event object. The code read
+   any value there as "somebody pressed Read them now", so every scheduled
+   reading was filed as a manual one, the record showed no unattended round
+   ever, and the self-check rebuilt a working timer every day. */
+{
+  const c = buildContext();
+  const timerEvent = { authMode: 'FULL', triggerUid: '123', year: 2026, month: 11, hour: 6 };
+  check('the timer\'s event object is an unattended round',
+    c.freezerSourceFor_(timerEvent), c.FREEZER_SOURCE_AUTO);
+  check('running it from the editor is too', c.freezerSourceFor_(undefined), c.FREEZER_SOURCE_AUTO);
+  check('only the button counts as asked for', c.freezerSourceFor_(true), c.FREEZER_SOURCE_ASKED);
+}
+
+/* ---- reading the freezers on a tap ---- */
+{
+  const setupGovee = () => {
+    const c = buildContext();
+    c.setup();
+    c.__ss.getSheetByName('SETTINGS').appendRow([c.GOVEE_KEY_SETTING, 'test-key', '']);
+    c.__ss.getSheetByName('SETTINGS').appendRow(['GOVEE_SENDS', 'F', '']);
+    c.__temps = { 'AA:01': 0, 'AA:02': 30 };          // the second one is warm
+    c.__fetchStub = (url, o) => {
+      if (url.indexOf('/user/devices') > -1) return { code: 200, body: JSON.stringify({ data: [
+        { sku: 'H5100', device: 'AA:01', deviceName: 'Freezer A' },
+        { sku: 'H5100', device: 'AA:02', deviceName: 'Freezer B' }] }) };
+      const dev = JSON.parse(o.payload).payload.device;
+      return { code: 200, body: JSON.stringify({ payload: { capabilities: [
+        { type: 'devices.capabilities.online', instance: 'online', state: { value: true } },
+        { instance: 'sensorTemperature', state: { value: c.__temps[dev] } }] } }) };
+    };
+    c.__slept = 0;
+    c.Utilities.sleep = (ms) => { c.__slept += ms; };
+    return c;
+  };
+  const sources = (c) => c.freezerLogTail_(200).map(r => r['Source']);
+
+  const c = setupGovee();
+  const r = c.freezerWatch(true);
+  check('a tapped read comes back', r.ok, true);
+  check('it does not make the person wait for a second look', c.__slept, 0);
+  // (The three freezers setup() seeds have no sensor, so they are rightly
+  //  reported missing as well; what matters is that the warm one is there
+  //  and the cold one is not.)
+  check('the warm freezer is named as waiting on a second look',
+    r.pending.indexOf('Freezer B') > -1 && r.pending.indexOf('Freezer A') === -1, true);
+  check('nothing is raised on one tapped reading', c.openAlerts_().filter(a => /warm/i.test(a.what || a.What || '')).length, 0);
+  check('the second look is booked for a few minutes from now',
+    c.__triggers.filter(t => t.getHandlerFunction() === 'freezerRecheck').length, 1);
+  check('the sensors were asked side by side, not in a queue', (c.__fetchAlls || 0) >= 1, true);
+  check('and the readings are written down as asked for',
+    sources(c).every(x => x === c.FREEZER_SOURCE_ASKED), true);
+
+  c.freezerWatch(true);
+  check('tapping again does not book a second recheck',
+    c.__triggers.filter(t => t.getHandlerFunction() === 'freezerRecheck').length, 1);
+
+  c.freezerRecheck();
+  check('the recheck takes itself off the list when it runs',
+    c.__triggers.filter(t => t.getHandlerFunction() === 'freezerRecheck').length, 0);
+  check('and, nobody waiting on it, it does take the second look', c.__slept > 0, true);
+
+  /* The timer's round: labelled as its own, and the health check sees it. */
+  const d = setupGovee();
+  d.__temps['AA:02'] = 0;
+  d.freezerWatch({ authMode: 'FULL', triggerUid: '9' });
+  check('a timer round is written down as unattended',
+    sources(d).every(x => x === d.FREEZER_SOURCE_AUTO), true);
+  check('and the health check sees that the schedule ran',
+    d.freezerWatchState_().daysSinceUnattended, 0);
+  for (let i = 0; i < 12; i++) d.freezerWatch(true);
+  check('a morning of tapping does not hide the scheduled round',
+    d.freezerWatchState_().daysSinceUnattended, 0);
+}
+
 /* ---- keys a phone has no use for stay on the server ---- */
 {
   const c = buildContext();

@@ -163,6 +163,7 @@ function buildContext() {
         const clock = {
           everyMinutes: () => clock, everyHours: () => clock,
           everyDays: () => clock, onWeekDay: () => clock, atHour: () => clock,
+          after: () => clock,
           create: made
         };
         return { timeBased: () => clock };
@@ -219,11 +220,23 @@ function buildContext() {
     /* Answers 200 with nothing, unless a check has set __fetchStub to the
        code and body it wants back — which is how the Contacts refusals are
        exercised without reaching Google. */
-    UrlFetchApp: { fetch: () => {
-      const stub = ctx.__fetchStub;
-      return { getContentText: () => (stub ? stub.body : '{}'),
-               getResponseCode: () => (stub ? stub.code : 200) };
-    } },
+    /* __fetchStub may also be a function of (url, options), for checks that
+       need different answers from different addresses. fetchAll answers
+       each request the same way and records that it was used, so a check can
+       tell requests sent side by side from requests sent one after another. */
+    UrlFetchApp: {
+      fetch: (url, opts) => {
+        const raw = ctx.__fetchStub;
+        const stub = typeof raw === 'function' ? raw(url, opts || {}) : raw;
+        ctx.__fetches = (ctx.__fetches || 0) + 1;
+        return { getContentText: () => (stub ? stub.body : '{}'),
+                 getResponseCode: () => (stub ? stub.code : 200) };
+      },
+      fetchAll: (reqs) => {
+        ctx.__fetchAlls = (ctx.__fetchAlls || 0) + 1;
+        return reqs.map(r => ctx.UrlFetchApp.fetch(r.url, r));
+      }
+    },
     __ss: ss, __foreign: {}, __drive: {}, __sent: [], __aliases: [],
     __fetchStub: null, __canStubFetch: true, __account: 'admin@pcwagyu.com',
     __triggers: []

@@ -2912,7 +2912,19 @@ function goveeWhy_(code, text) {
 }
 
 /** Every sensor on the account. */
+/* Which sensors are on the account changes about once a year and cost three
+   and a half seconds to ask every time. Remembered for an hour. A sensor
+   that vanishes inside that hour still shows up: its own reading fails. */
+var GOVEE_DEVICES_CACHE = 'govee.devices';
 function goveeDevices_(key) {
+  var cache = null;
+  try { cache = CacheService.getScriptCache(); } catch (e) { cache = null; }
+  if (cache) {
+    try {
+      var kept = cache.get(GOVEE_DEVICES_CACHE);
+      if (kept) return { ok: true, devices: JSON.parse(kept), cached: true };
+    } catch (e) {}
+  }
   var r = goveeCall_('/router/api/v1/user/devices', null, key);
   if (!r.ok) return r;
   var list = [];
@@ -2920,6 +2932,9 @@ function goveeDevices_(key) {
     list.push({ sku: str_(d.sku), device: str_(d.device),
                 name: str_(d.deviceName) || str_(d.sku) });
   });
+  if (cache && list.length) {
+    try { cache.put(GOVEE_DEVICES_CACHE, JSON.stringify(list), 3600); } catch (e) {}
+  }
   return { ok: true, devices: list };
 }
 
@@ -2930,9 +2945,41 @@ function goveeDevices_(key) {
  * walks them and picks out the four that matter. Anything it does not
  * recognise is ignored rather than guessed at.
  */
+function goveeStateRequest_(sku, device, key) {
+  return { url: GOVEE_HOST + '/router/api/v1/device/state', method: 'post',
+           contentType: 'application/json', headers: { 'Govee-API-Key': key },
+           muteHttpExceptions: true,
+           payload: JSON.stringify({ requestId: Utilities.getUuid(),
+                                     payload: { sku: sku, device: device } }) };
+}
+
+/* Six sensors were asked one after another, three and a half seconds each:
+   twenty-one seconds of a forty-five second budget spent waiting in line.
+   fetchAll asks them all at once. Each answer is still judged on its own,
+   so one sensor failing cannot take the others down with it. */
+function goveeStatesAll_(devices, key) {
+  var reqs = devices.map(function (d) { return goveeStateRequest_(d.sku, d.device, key); });
+  var res = null;
+  try { if (UrlFetchApp.fetchAll) res = UrlFetchApp.fetchAll(reqs); } catch (e) { res = null; }
+  return devices.map(function (d, i) {
+    if (!res) return goveeState_(d.sku, d.device, key);
+    try {
+      var code = res[i].getResponseCode(), text = res[i].getContentText();
+      if (code !== 200) return { ok: false, code: code, why: goveeWhy_(code, text) };
+      return goveeStateParse_({ ok: true, body: JSON.parse(text) });
+    } catch (e) {
+      return { ok: false, code: 0, why: 'Govee could not be reached: ' + e.message };
+    }
+  });
+}
+
 function goveeState_(sku, device, key) {
   var r = goveeCall_('/router/api/v1/device/state',
     { requestId: Utilities.getUuid(), payload: { sku: sku, device: device } }, key);
+  return goveeStateParse_(r);
+}
+
+function goveeStateParse_(r) {
   if (!r.ok) return r;
   var caps = (((r.body || {}).payload) || {}).capabilities || [];
   var out = { tempF: null, humidity: null, battery: null, online: null };
@@ -2992,9 +3039,10 @@ function goveeReadAll_(key) {
   if (!found.ok) return found;
   var map = goveeFreezerMap_();
   var out = [];
-  found.devices.forEach(function (d) {
-    var st = lap_('govee: one sensor each (summed)', function () {
-      return goveeState_(d.sku, d.device, key); });
+  var states = lap_('govee: all sensors at once', function () {
+    return goveeStatesAll_(found.devices, key); });
+  found.devices.forEach(function (d, i) {
+    var st = states[i];
     var fz = goveeFreezerFor_(d, map);
     out.push({
       sku: d.sku, device: d.device, name: d.name,
@@ -3631,7 +3679,22 @@ function freezerHistory_(perFreezer) {
  * Reads everything, looks again at anything that seems wrong, writes one row
  * per sensor, and raises or clears alerts. Safe to run by hand at any time.
  */
+/* Who asked for this reading.
+ *
+ * freezerNow_ passes `true`. Google's timer passes an event object — every
+ * time-driven trigger hands its function one — and `askedFor ? ... : ...`
+ * read that object as "somebody tapped the button". So every scheduled
+ * reading since the timer was set up was written down as one a person asked
+ * for, the record showed no unattended round at all, and the self-check that
+ * rebuilds a dead timer concluded every single day that it was dead. Only a
+ * literal true counts. */
+function freezerTapped_(askedFor) { return askedFor === true; }
+function freezerSourceFor_(askedFor) {
+  return freezerTapped_(askedFor) ? FREEZER_SOURCE_ASKED : FREEZER_SOURCE_AUTO;
+}
+
 function freezerWatch(askedFor) {
+  var tapped = freezerTapped_(askedFor);
   var cfg = settings_();
   var key = goveeKey_(cfg);
   if (!key) return { ok: false, off: true,
@@ -3663,7 +3726,16 @@ function freezerWatch(askedFor) {
 
   /* Look again before saying anything. A lid open while an order is being
      packed reads warm for a few minutes and is not a fault. */
-  if (suspect.length) {
+  /* Somebody standing in front of the app does not wait a minute and a half
+     for the second look — the app gives up after forty-five seconds anyway,
+     so the wait only ever produced an error. The reading is written down
+     and shown, nothing is raised on it alone, and the second look is booked
+     for a few minutes from now with nobody waiting on it. */
+  var pending = [];
+  if (suspect.length && tapped) {
+    pending = suspect.map(function (r) { return r.freezerName || r.name || r.device; });
+    freezerBookRecheck_();
+  } else if (suspect.length) {
     lap_('waiting to look again', function () { Utilities.sleep(FREEZER_CONFIRM_WAIT); });
     var second = goveeReadAll_(key);
     if (second.ok) {
@@ -3706,12 +3778,12 @@ function freezerWatch(askedFor) {
                r.online ? 'yes' : '',
                bad ? bad.kind : 'ok',
                bad ? bad.what : '',
-               askedFor ? FREEZER_SOURCE_ASKED : FREEZER_SOURCE_AUTO]);
+               freezerSourceFor_(askedFor)]);
     watched[where] = true;
     FREEZER_ALERT_KINDS.forEach(function (k) {
       if (!bad || bad.kind !== k) cleared += alertClear_(k, where);
     });
-    if (bad) {
+    if (bad && !(tapped && pending.length)) {
       var r2 = alertRaise_({ kind: bad.kind, about: where, level: bad.level,
                              what: bad.what, detail: bad.detail });
       if (r2.raised) raised++;
@@ -3724,7 +3796,31 @@ function freezerWatch(askedFor) {
   // And anything still up about a freezer that has gone away.
   cleared += alertSweepGone_(watched);
   bumpDataVersion_();
-  return { ok: true, read: rows.length, raised: raised, cleared: cleared };
+  return { ok: true, read: rows.length, raised: raised, cleared: cleared,
+           pending: pending };
+}
+
+/* The second look after a tapped reading looked wrong. One-off, a few
+   minutes out; booked at most once at a time, and it removes itself. It
+   runs as an unattended round, so it does the full look-twice-then-raise. */
+var FREEZER_RECHECK_AFTER = 3 * 60 * 1000;
+function freezerBookRecheck_() {
+  try {
+    var booked = ScriptApp.getProjectTriggers().some(function (t) {
+      return t.getHandlerFunction() === 'freezerRecheck';
+    });
+    if (!booked) {
+      ScriptApp.newTrigger('freezerRecheck').timeBased().after(FREEZER_RECHECK_AFTER).create();
+    }
+  } catch (e) { /* the scheduled round will look again regardless */ }
+}
+function freezerRecheck() {
+  try {
+    ScriptApp.getProjectTriggers().forEach(function (t) {
+      if (t.getHandlerFunction() === 'freezerRecheck') ScriptApp.deleteTrigger(t);
+    });
+  } catch (e) {}
+  return freezerWatch(false);
 }
 
 /**
@@ -3743,6 +3839,7 @@ function freezerNow_(profile) {
     var r = lap_('freezerWatch', function () { return freezerWatch(true); });
     if (!r.ok) return r;
     var out = { ok: true, read: r.read, raised: r.raised, cleared: r.cleared,
+             pending: r.pending || [],
              seen: lap_('after: latest', function () { return freezerLatest_(); }),
              history: lap_('after: history', function () { return freezerHistory_(14); }),
              alerts: lap_('after: alerts', function () { return openAlerts_(); }),
@@ -4257,7 +4354,10 @@ function freezerWatchState_() {
     out.note = str_(err && err.message);
   }
   try {
-    var tail = freezerLogTail_(40);
+    /* Forty rows was six or seven readings: a morning of somebody tapping
+       Read them now was enough to push every scheduled round out of view,
+       and then the check reported the schedule dead. */
+    var tail = freezerLogTail_(600);
     var last = null, lastAuto = null;
     tail.forEach(function (r) {
       var w = asDate_(r['When']);
@@ -7578,7 +7678,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-19 16:21 UTC';
+var BACKEND_BUILD = '2026-11-19 16:25 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
