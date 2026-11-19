@@ -141,8 +141,28 @@ function buildContext() {
       getEffectiveUser: () => ({ getEmail: () => ctx.__account })
     },
     ScriptApp: {
-      getProjectTriggers: () => [],
-      newTrigger: () => ({ timeBased: () => ({ everyMinutes: () => ({ create: () => {} }) }) }),
+      /* Triggers the fake project is carrying. A test that cares puts
+         handler names in ctx.__triggers; everything else sees none. */
+      getProjectTriggers: () => (ctx.__triggers || []),
+      deleteTrigger: (t) => {
+        ctx.__triggers = (ctx.__triggers || []).filter(x => x !== t);
+        ctx.__triggersDeleted = (ctx.__triggersDeleted || 0) + 1;
+      },
+      newTrigger: (fn) => {
+        const made = () => {
+          ctx.__triggersCreated = (ctx.__triggersCreated || 0) + 1;
+          ctx.__triggers = (ctx.__triggers || []).concat([
+            { getHandlerFunction: () => fn }
+          ]);
+        };
+        const clock = {
+          everyMinutes: () => clock, everyHours: () => clock,
+          everyDays: () => clock, onWeekDay: () => clock, atHour: () => clock,
+          create: made
+        };
+        return { timeBased: () => clock };
+      },
+      WeekDay: { MONDAY: 'MONDAY' },
       getOAuthToken: () => 'test-token'
     },
     ContentService: {

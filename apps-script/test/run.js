@@ -1900,5 +1900,57 @@ console.log('\na client with two numbers');
     c.KENJI_MAX_TURNS >= 16, true);
 }
 
+/* ---- a trigger that exists is not a trigger that runs ----
+   The first version of this check asked whether one existed, found that
+   one did, and left it alone — while the tab went days without an
+   unattended round. The question worth asking is whether anything has
+   actually happened. */
+{
+  const c = buildContext();
+  c.setup();
+  const sh = c.sheet_(c.TABS.FREEZERLOG);
+  const H = c.HEADERS.FREEZERLOG;
+  const put = (whenISO, source) => {
+    const row = H.map(() => '');
+    row[H.indexOf('When')] = whenISO;
+    row[H.indexOf('Freezer')] = 'F1';
+    row[H.indexOf('Temperature (F)')] = -4;
+    row[H.indexOf('Source')] = source;
+    sh.appendRow(row);
+  };
+  const d = (n) => new Date(Date.now() - n * 864e5).toISOString();
+
+  // A trigger is in place, and somebody tapped the button today — but the
+  // last round that happened by itself was a week ago.
+  // setup() installs the rebuild timer, so count from here, not from zero.
+  c.__triggers = [{ getHandlerFunction: () => 'freezerWatch' }];
+  c.__triggersCreated = 0;
+  put(d(7), 'Govee API');
+  put(d(0), 'Govee API (asked for)');
+
+  c.ensureFreezerWatch_();
+  check('a stale schedule is torn down and built again, not left alone',
+    c.__triggersCreated > 0, true);
+  check('and somebody is told it had stopped',
+    c.readTable_(c.TABS.ALERTS).filter(r =>
+      String(r['About']) === 'schedule').length > 0, true);
+
+  // A schedule that is working is left well alone.
+  const c2 = buildContext();
+  c2.setup();
+  const sh2 = c2.sheet_(c2.TABS.FREEZERLOG);
+  const row2 = c2.HEADERS.FREEZERLOG.map(() => '');
+  row2[c2.HEADERS.FREEZERLOG.indexOf('When')] = d(0);
+  row2[c2.HEADERS.FREEZERLOG.indexOf('Freezer')] = 'F1';
+  row2[c2.HEADERS.FREEZERLOG.indexOf('Temperature (F)')] = -4;
+  row2[c2.HEADERS.FREEZERLOG.indexOf('Source')] = 'Govee API';
+  sh2.appendRow(row2);
+  c2.__triggers = [{ getHandlerFunction: () => 'freezerWatch' }];
+  c2.__triggersCreated = 0;
+  c2.ensureFreezerWatch_();
+  check('a schedule that is working is not rebuilt for the sake of it',
+    c2.__triggersCreated || 0, 0);
+}
+
 console.log(failures ? '\n' + failures + ' FAILED\n' : '\nAll checks passed.\n');
 process.exit(failures ? 1 : 0);

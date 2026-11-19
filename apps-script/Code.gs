@@ -3734,10 +3734,42 @@ function ensureFreezerWatch_() {
   var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
   if (props.getProperty(FREEZER_TRIGGER_CHECKED) === today) return;
   try {
-    var found = ScriptApp.getProjectTriggers().some(function (t) {
+    var mine = ScriptApp.getProjectTriggers().filter(function (t) {
       return t.getHandlerFunction() === 'freezerWatch';
     });
-    if (!found) setupFreezerWatch();
+
+    /* A trigger that exists is not a trigger that runs.
+     *
+     * This asked whether one existed, found that one did, and left it
+     * alone — while the tab went two days without an unattended round.
+     * Whatever that trigger was, it was not reading the freezers, and the
+     * one question worth asking is not "is something scheduled" but "has
+     * anything actually happened". So: if no unattended round has landed
+     * in three days, the schedule is not working whatever it looks like,
+     * and it is torn down and built again. */
+    var state = freezerWatchState_();
+    var stale = state.daysSinceUnattended === null || state.daysSinceUnattended > 3;
+
+    if (!mine.length || stale) {
+      mine.forEach(function (t) {
+        try { ScriptApp.deleteTrigger(t); } catch (eDel) {}
+      });
+      setupFreezerWatch();
+      if (stale && mine.length) {
+        /* Worth saying out loud. A schedule that had to be rebuilt is a
+           schedule that silently stopped, and the next person to look at
+           this record should know it happened rather than find an even
+           run of readings with a hole in the middle. */
+        alertRaise_({ kind: 'govee', about: 'schedule', level: 'warn',
+                      what: 'The freezer readings had stopped',
+                      detail: 'No unattended reading for ' +
+                              (state.daysSinceUnattended === null ? 'as long as the log goes back'
+                                : state.daysSinceUnattended + ' days') +
+                              '. The timer was rebuilt on ' + today + '.' });
+      }
+    } else {
+      alertClear_('govee', 'schedule');
+    }
     props.setProperty(FREEZER_TRIGGER_CHECKED, today);
   } catch (err) {
     /* Listing or creating triggers can be refused depending on who the web
@@ -7215,7 +7247,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-18 23:04 UTC';
+var BACKEND_BUILD = '2026-11-19 14:49 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -8486,7 +8518,16 @@ function askKenji_(req, who) {
   // twentieth of the cost.
   var body = {
     model: model,
-    max_tokens: 600,                 // three sentences and a small JSON object
+    /* Room to answer properly.
+     *
+     * Six hundred was sized for three sentences and a small JSON object,
+     * which is right for "how many ribeye" and wrong for an order with ten
+     * lines on it or a rundown of the herd — those ran off the end and
+     * came back as "that answer ran long". No cap can be taken off
+     * altogether; this one is now well clear of any answer he is asked
+     * for, and the cut-off is still caught and said plainly if it ever
+     * happens. */
+    max_tokens: 4000,
     system: [
       { type: 'text', text: kenjiSystem_(kenjiBrief_()) },
       { type: 'text',
@@ -8532,7 +8573,8 @@ function askKenji_(req, who) {
   }
   if (ranOut) {
     return { ok: true, change: null,
-             reply: 'That answer ran long and got cut off. Ask me for a bit less at a time.' };
+             reply: 'That answer ran long and got cut off before I could finish it. ' +
+                    'Ask me for one part of it at a time.' };
   }
 
   // Whatever shape it came back in.
