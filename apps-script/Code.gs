@@ -576,7 +576,7 @@ function sheet_(name) {
  * Rows are handed out as copies, so one helper tidying a row in place cannot
  * change what the next helper is given. */
 var READ_MEMO = null;
-var READ_MEMO_ON = false;
+var READ_MEMO_ON = true;
 
 function readTable_(name) {
   if (READ_MEMO && READ_MEMO_ON && READ_MEMO[name]) {
@@ -1081,11 +1081,24 @@ function rebuildInventory(force) {
   return rebuildInventoryNow_();
 }
 
+/* Stopwatch for the pieces of a recount. Null unless a sync was asked to
+   profile itself, in which case each piece adds its milliseconds here. */
+var LAPS = null;
+function lap_(name, fn) {
+  if (!LAPS) return fn();
+  var t = Date.now(), v = fn();
+  LAPS[name] = (LAPS[name] || 0) + (Date.now() - t);
+  return v;
+}
+
 function rebuildInventoryNow_() {
   var lock = LockService.getScriptLock();
-  try { lock.waitLock(20000); } catch (e) { return; }
+  var gotLock = lap_('rebuild: waiting for the lock', function () {
+    try { lock.waitLock(20000); return true; } catch (e) { return false; }
+  });
+  if (!gotLock) return;
   try {
-    normalizePrices_();
+    lap_('rebuild: normalizePrices', function () { normalizePrices_(); });
     var moves = readTable_(TABS.MOVEMENTS);
     var products = indexProducts_();
     var lines = {};   // key -> line totals
@@ -1145,7 +1158,9 @@ function rebuildInventoryNow_() {
     invRows.sort(function (a, b) {
       return String(a[1]).localeCompare(String(b[1])) || String(a[4]).localeCompare(String(b[4]));
     });
-    writeTable_(TABS.INVENTORY, HEADERS.INVENTORY, invRows);
+    lap_('rebuild: write INVENTORY', function () {
+      writeTable_(TABS.INVENTORY, HEADERS.INVENTORY, invRows);
+    });
 
     // Summary — include catalogued products with zero stock so gaps are visible.
     Object.keys(products).forEach(function (sku) {
@@ -1179,11 +1194,13 @@ function rebuildInventoryNow_() {
       ];
     }).sort(function (a, b) { return String(a[1]).localeCompare(String(b[1])); });
 
-    writeTable_(TABS.SUMMARY, HEADERS.SUMMARY, sumRows);
-    rebuildOrderTotals_();
-    rebuildSteers_();
-    rebuildCustomers_();
-    rebuildFollowups_();
+    lap_('rebuild: write SUMMARY', function () {
+      writeTable_(TABS.SUMMARY, HEADERS.SUMMARY, sumRows);
+    });
+    lap_('rebuild: order totals', function () { rebuildOrderTotals_(); });
+    lap_('rebuild: steers', function () { rebuildSteers_(); });
+    lap_('rebuild: customers', function () { rebuildCustomers_(); });
+    lap_('rebuild: follow-ups', function () { rebuildFollowups_(); });
 
     // Colour the status column.
     var sh = sheet_(TABS.SUMMARY);
@@ -1427,7 +1444,11 @@ function settings_() {
  * happens up here, so the API key never needed to leave the server, and a
  * key sitting in a browser's storage on every staff phone is a key waiting
  * to leak. Same for the API token, which is Kenji's, not the app's. */
-var PRIVATE_SETTINGS = ['CLAUDE_API_KEY', 'API_TOKEN'];
+/* GOVEE_API_KEY and JOIN_WORD went down to every signed-in phone with each
+   sync and sat in its storage. The page never reads either one: the
+   freezers are read up here, and the join word is checked up here. A key
+   that a phone has no use for is only a key waiting to leak. */
+var PRIVATE_SETTINGS = ['CLAUDE_API_KEY', 'API_TOKEN', 'GOVEE_API_KEY', 'JOIN_WORD'];
 function publicSettings_() {
   var all = settings_(), out = {};
   Object.keys(all).forEach(function (k) {
@@ -7548,7 +7569,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-19 16:14 UTC';
+var BACKEND_BUILD = '2026-11-19 16:19 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign
@@ -9269,6 +9290,14 @@ function handle_(e, body) {
                      'customer','schedule','lists','boxes','ageing','followups','stock',
                      'photoCount','scaleRead',
                      'customerSyncState', 'salesDupes',
+                     /* Look-ups that were being counted as changes. Each one
+                        moved the data version, and a moved version sends
+                        every phone back for the whole book — so opening the
+                        herd screen on one phone cost every other phone a
+                        full sync. Checked one by one: none writes a cell. */
+                     'cattle', 'customerWhere', 'freezerWatchState', 'sendAs',
+                     'model', 'steerGet', 'quote', 'draft', 'boxIdeas',
+                     'freezerReport', 'customerSyncSetup',
                      'ask'];          // both propose only; nothing is written
     if (READ_ONLY.indexOf(action) === -1) {
       try { bumpDataVersion_(); } catch (errBump) {}
@@ -9383,7 +9412,10 @@ function bootstrap_(since, profile) {
     return v;
   };
 
-  part('rebuildInventory', function () { rebuildInventory(); });
+  if (profile) LAPS = took;
+  try {
+    part('rebuildInventory', function () { rebuildInventory(str_(profile) === 'force'); });
+  } finally { LAPS = null; }
   // Cheap, once a day: make sure the freezers are still being read at all.
   part('ensureFreezerWatch', function () { ensureFreezerWatch_(); });
   /* A price typed straight into the PRODUCTS tab changes what everybody is

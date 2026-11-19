@@ -1890,6 +1890,94 @@ console.log('\na client with two numbers');
     ['installed', 'missing', 'cannot tell'].indexOf(st.trigger) > -1, true);
 }
 
+/* ---- remembering a tab must not change the answer ----
+   A sync read the PRODUCTS tab nineteen times and the Sheet sixty-eight
+   times in all. Reading each tab once and remembering it is only a fix if
+   the phone gets exactly what it got before, so the same book is synced
+   both ways and the two answers are compared whole. */
+{
+  const build = () => {
+    const c = buildContext();
+    c.setup();
+    const tok = c.PropertiesService.getScriptProperties().getProperty('API_TOKEN');
+    c.addBatch_({ id: 'B-M', animal: '77', outfit: 'PCW', packDate: '2026-06-01', grade: 'Gold' });
+    const ops = [];
+    ['Ribeye Steak', 'Ground Beef', 'Denver', 'Short Ribs'].forEach((n, i) => {
+      c.addProduct_({ product: n, content: '1', avgWeight: 1 + i, price: 20 + i, reorder: 3 });
+      ops.push({ clientKey: 'in' + i, type: 'INTAKE', sku: n.toUpperCase().replace(/ /g, '-'),
+                 batch: 'B-M', freezer: 'MAIN', packages: 10 + i, weight: 12 + i });
+    });
+    ops.push({ clientKey: 'or1', type: 'ORDER_NEW', orderId: 'ORD-M-1', customer: 'Jean & Val Sylvain',
+               contact: 'jvalsyl@telus.net', deliveryDate: '2026-12-01', method: 'Pickup',
+               lines: [{ sku: 'RIBEYE-STEAK', packages: 2 }, { sku: 'DENVER', packages: 1 }] });
+    ops.push({ clientKey: 'or2', type: 'ORDER_NEW', orderId: 'ORD-M-2', customer: 'Sheila Wegreen',
+               contact: '780-555-0101', deliveryDate: '2026-12-03', method: 'Delivery',
+               lines: [{ sku: 'GROUND-BEEF', packages: 5 }] });
+    c.handle_({ parameter: {} }, { action: 'submit', token: tok, ops });
+    return c;
+  };
+  const strip = (o) => { const x = JSON.parse(JSON.stringify(o)); delete x.serverTime; delete x.stamp; return x; };
+
+  const plain = build(); plain.READ_MEMO_ON = false;
+  const quick = build(); quick.READ_MEMO_ON = true;
+  const a = strip(plain.bootstrap_('')), b = strip(quick.bootstrap_(''));
+  check('a remembered sync hands the phone exactly what a plain one does',
+    JSON.stringify(b) === JSON.stringify(a), true);
+  check('and it is a real payload being compared, not two empty ones',
+    a.products.length === 4 && a.orders.length === 2 && a.stock.length === 4, true);
+
+  let reads = 0;
+  Object.values(quick.__ss.sheets).forEach(sh => {
+    const orig = sh.getRange.bind(sh);
+    sh.getRange = (...args) => {
+      const r = orig(...args), gv = r.getValues.bind(r);
+      r.getValues = () => { reads++; return gv(); };
+      return r;
+    };
+  });
+  quick.bootstrap_('');
+  check('and it goes back to the Sheet far fewer times to do it', reads < 40, true);
+
+  check('the memory is put away once the sync is built', quick.READ_MEMO, null);
+  /* Outside a sync nothing is remembered: a write followed by a read has to
+     see the write. */
+  quick.addProduct_({ product: 'Brisket', content: '1', avgWeight: 5, price: 60 });
+  check('a product added afterwards is seen straight away',
+    Object.keys(quick.indexProducts_()).indexOf('BRISKET') > -1, true);
+}
+
+/* ---- keys a phone has no use for stay on the server ---- */
+{
+  const c = buildContext();
+  c.setup();
+  const st = c.__ss.getSheetByName('SETTINGS');
+  st.appendRow(['GOVEE_API_KEY', 'not-a-real-key', '']);
+  st.appendRow(['JOIN_WORD', 'not-the-word', '']);
+  const pub = c.publicSettings_();
+  check('the freezer sensor key is not sent to phones', pub.GOVEE_API_KEY, undefined);
+  check('nor the join word', pub.JOIN_WORD, undefined);
+  check('nor the two that were already held back',
+    [pub.CLAUDE_API_KEY, pub.API_TOKEN], [undefined, undefined]);
+  check('ordinary settings still go down', pub.BUSINESS, 'Peace Country Wagyu');
+  check('and the server itself can still read the key', c.settings_().GOVEE_API_KEY, 'not-a-real-key');
+}
+
+/* ---- looking something up is not a change ----
+   Every action not on the read-only list moves the data version, and a
+   moved version makes every phone fetch the whole book again. */
+{
+  const c = buildContext();
+  c.setup();
+  const tok = c.PropertiesService.getScriptProperties().getProperty('API_TOKEN');
+  const go = (action, extra) => c.handle_({ parameter: {} }, Object.assign({ action, token: tok }, extra || {}));
+  const before = c.dataStamp_();
+  go('cattle'); go('freezerWatchState'); go('customerWhere', { customer: 'Nobody' }); go('sendAs');
+  check('opening the herd, the freezer state or a customer card moves nothing',
+    c.dataStamp_(), before);
+  go('addProduct', { product: { product: 'Tri Tip', content: '1', avgWeight: 2, price: 30 } });
+  check('while a real change still does', c.dataStamp_() !== before, true);
+}
+
 /* ---- the order count has to be correctable ----
    Merging two rows for one customer keeps the survivor's order count and
    only reports the one it overrode. That is the safe default, but it is
