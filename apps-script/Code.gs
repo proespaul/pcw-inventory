@@ -6484,7 +6484,7 @@ var WHERE_FIELDS = [
   { key: 'email', header: 'Email', second: 'Email 2', key2: 'email2',
     cell: 'email', many: 'emails', same: sameMail_ },
   { key: 'town',  header: 'Town',  cell: 'town',  many: 'towns',  same: sameText_,
-    split: TOWN_SPLIT }
+    split: TOWN_SPLIT, fold: true }
 ];
 
 /* A cell in a book holds one thing; a person can have two. "780-625-6963 /
@@ -6497,8 +6497,68 @@ function splitCell_(v, how) {
 
 function joinCell_(list) { return list.join(' / '); }
 
+/* ============ THE SAME ADDRESS, WRITTEN SHORTER ====================
+ *
+ * "Box 353" and "Girouxville AB T0H 1S0" are not two addresses. Google
+ * Contacts keeps an address in parts — street, town, region, postcode — so
+ * reading one back hands you the whole line AND every piece of it. A book
+ * whose rule is to keep every answer then keeps the same address three or
+ * four times, writes them into the sales sheet's single cell as "one / the
+ * other", reads that back as more answers still, and the noise spreads by
+ * itself. Jeremie Trudeau's one address had become four.
+ *
+ * So before two values are called different, the broken copy is folded into
+ * the complete one. A value whose letters and digits sit wholly inside
+ * another's is the same address written shorter, and the fuller one wins.
+ * Containment is strict on purpose: two genuinely different addresses are
+ * never inside one another, so a client with a second address still has a
+ * second address. Where it came from is not lost — the shorter copy hands
+ * its books to the one that absorbs it.
+ *
+ * Only the town folds. Two emails are two emails and two numbers are two
+ * numbers; both go on the one contact, untouched, exactly as before.
+ * ==================================================================== */
+
+// "CA" and "Canada" are one country written two ways, which is the whole
+// difference between Jeff Larson's two addresses.
+var COUNTRY_SAME = { ca: 'canada', can: 'canada' };
+
+function addrKey_(s) {
+  var words = str_(s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  if (!words) return '';
+  return words.split(/\s+/).map(function (w) {
+    return COUNTRY_SAME[w] || w;
+  }).join('');
+}
+
+function foldContained_(list) {
+  var out = [];
+  var absorb = function (into, from) {
+    from.forEach(function (w) {
+      if (into.indexOf(w) === -1) into.push(w);
+    });
+  };
+  list.forEach(function (item) {
+    var k = addrKey_(item.value);
+    if (!k) return;
+    var into = null, covered = [];
+    out.forEach(function (o) {
+      var ok = addrKey_(o.value);
+      if (ok.indexOf(k) > -1) { if (!into) into = o; }      // already have it, fuller
+      else if (k.indexOf(ok) > -1) covered.push(o);         // this one is the fuller
+    });
+    if (into) { absorb(into.where, item.where); return; }
+    covered.forEach(function (o) {
+      absorb(item.where, o.where);
+      out.splice(out.indexOf(o), 1);
+    });
+    out.push(item);
+  });
+  return out;
+}
+
 /** Every answer the books have, each one once, in the order they were met. */
-function gatherValues_(says, same, how) {
+function gatherValues_(says, same, how, fold) {
   var out = [];
   says.forEach(function (s) {
     splitCell_(s.value, how).forEach(function (v) {
@@ -6508,7 +6568,7 @@ function gatherValues_(says, same, how) {
       else out.push({ value: v, where: [s.where] });
     });
   });
-  return out;
+  return fold ? foldContained_(out) : out;
 }
 
 /**
@@ -6700,7 +6760,7 @@ function customerWhere_(name, pre) {
     ].concat(card.lists.map(function (l) {
       return { where: l.where, value: l[f.key] || '' };
     })).filter(function (s) { return str_(s.value) !== ''; });
-    card.known[f.key] = gatherValues_(says, f.same, f.split);
+    card.known[f.key] = gatherValues_(says, f.same, f.split, f.fold);
   });
   return card;
 }
@@ -6878,7 +6938,7 @@ function syncCustomers_(opt) {
         { where: 'app', value: f.key2 ? mine[f.key2] : '' },
         { where: 'sales sheet', value: theirs ? theirs[f.key] : '' },
         { where: 'contacts', value: hit ? joinCell_(hit[f.many] || []) : '' }
-      ], f.same, f.split).map(function (v) { return v.value; });
+      ], f.same, f.split, f.fold).map(function (v) { return v.value; });
       if (all[f.key].length > 1) {
         out.bothKept++;
         out.extras.push({ name: mine.name, field: f.key, what: f.header,
@@ -7319,7 +7379,7 @@ function priceByName_(req) {
 
 /* Bumped on every delivery, reported by ping, and shown in the app's
  * settings — so "did the redeploy take?" has an answer. */
-var BACKEND_BUILD = '2026-11-19 15:18 UTC';
+var BACKEND_BUILD = '2026-11-19 15:29 UTC';
 
 var GOOGLE_CLIENT_ID = '378684710856-ptq2bpavssjjii856ufbuu03uef97ivr.apps.googleusercontent.com';
 // Both company domains are let in without being listed by hand: PCW staff sign

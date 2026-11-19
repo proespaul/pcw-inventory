@@ -1890,6 +1890,67 @@ console.log('\na client with two numbers');
     ['installed', 'missing', 'cannot tell'].indexOf(st.trigger) > -1, true);
 }
 
+/* ---- a split address is one address ----
+   Google Contacts keeps an address in parts, so reading one back hands you
+   the whole line and every piece of it. Keeping every answer turned Jeremie
+   Trudeau's one address into four, then wrote them into the sales sheet's
+   one cell as "one / the other", which read back as more answers again.
+
+   The fold must be strict: a second real address has to survive it. These
+   use the actual values off the live books. */
+{
+  const c = buildContext();
+  const fold = (vals) => c.foldContained_(
+    vals.map((v, i) => ({ value: v, where: [i ? 'contacts' : 'app'] })))
+    .map(o => o.value);
+
+  check('an address split into its parts folds back to the whole line',
+    fold(['Box 353, Girouxville AB T0H 1S0', 'Box 353', 'Girouxville AB T0H 1S0']),
+    ['Box 353, Girouxville AB T0H 1S0']);
+
+  check('and it folds the same when the pieces come first',
+    fold(['Box 353', 'Girouxville AB T0H 1S0', 'Box 353, Girouxville AB T0H 1S0']),
+    ['Box 353, Girouxville AB T0H 1S0']);
+
+  check('the town on its own is not a second address',
+    fold(['319 2 Avenue Northeast\r\nMclennan, AB, T0h 2l0\r\nCanada', 'Mclennan']),
+    ['319 2 Avenue Northeast\r\nMclennan, AB, T0h 2l0\r\nCanada']);
+
+  check('nor is the same address with the country written short',
+    fold(['box 7473\r\nPeace River, AB, T8S1T1\r\nCanada',
+          'box 7473 Peace River, AB, T8S1T1\nCA']).length, 1);
+
+  check('four copies of one address come back as one',
+    fold(['Township Road 810.5\r\nNorthern Sunrise County, AB, T0H 2R0\r\nCanada',
+          'Township Road 810.5\r\nNorthern Sunrise County', 'AB',
+          'T0H 2R0\r\nCanada']).length, 1);
+
+  /* The half that matters more: a client with two real addresses still has
+     two. Neither of these sits inside the other. */
+  check('two genuinely different addresses both survive',
+    fold(['Box 5017\r\nPeace River, AB, T8S 1R7', '10506 101st\r\nPeace River, AB, T8S 1L1'])
+      .length, 2);
+  check('and two different streets in one town stay two',
+    fold(['8226 104 Avenue, Peace River AB', '7525 96 Street, Peace River AB']).length, 2);
+
+  /* Where it came from is not thrown away with the shorter copy. */
+  const kept = c.foldContained_([
+    { value: 'Box 353, Girouxville AB T0H 1S0', where: ['app', 'sales sheet'] },
+    { value: 'Box 353', where: ['contacts'] }
+  ]);
+  check('the surviving line carries the books the folded one came from',
+    kept[0].where.sort(), ['app', 'contacts', 'sales sheet']);
+
+  /* Emails and phones must not fold — "jvalsyl@telus.net" is not inside
+     "jvalsylv@gmail.com", but a rule applied to the wrong field could still
+     cost somebody an address, so the field table is checked outright. */
+  const byKey = {};
+  c.WHERE_FIELDS.forEach(f => { byKey[f.key] = f; });
+  check('only the town folds', !!byKey.town.fold, true);
+  check('email does not', !!byKey.email.fold, false);
+  check('phone does not', !!byKey.phone.fold, false);
+}
+
 /* ---- "&" and "and" are one household, not two ----
    The books are typed by hand in four places. The wholesale line said
    "Jean & Val Sylvain"; the app, the sales sheet and Google Contacts said
