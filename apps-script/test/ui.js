@@ -747,9 +747,6 @@ const settle = async () => { for (let i = 0; i < 8; i++) await pause(); };
     check('each letter is written once above its names',
       Array.from(doc.querySelectorAll('#clientList .kindhead')).map(h => h.textContent),
       ['A', 'B', 'F', 'R', 'W']);
-    check('and the count is said out loud',
-      /5 customers/.test(text('clientCount')), true);
-
     // Searching is looking for one person, so the letters get out of the way.
     w.eval('document.getElementById("clientSearch").value = "abby"; renderClients();');
     check('a search drops the letters and leaves the match',
@@ -804,10 +801,12 @@ const settle = async () => { for (let i = 0; i < 8; i++) await pause(); };
       { customer: 'Angelica', phone: '', email: '' }
     ]) + '; renderClients();');
 
-    check('the three books are no longer a thing to manage above the list',
-      /three books/i.test(doc.getElementById('clientBooks').innerHTML), false);
-    check('squaring them up still is',
-      /syncBooks/.test(doc.getElementById('clientBooks').innerHTML), true);
+    check('the customer list has no card above it, only the search and the names',
+      [doc.getElementById('clientBooks'), doc.getElementById('clientCount')], [null, null]);
+    check('squaring up the books lives in the menu now',
+      /syncBooks/.test(doc.getElementById('view-menu').innerHTML), true);
+    check('and not on the customer screen',
+      /syncBooks/.test(doc.getElementById('view-clients').innerHTML), false);
   }
 
   /* ───────── cattle performance ─────────

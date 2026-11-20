@@ -1016,9 +1016,13 @@
       <button onclick="showView('freezers')"><span class="ic">🌡️</span>
         <span class="grow">Freezer temps<small>What each freezer last read, and the days behind it</small></span>
         <span class="count" id="cFreezers"></span></button>
+      <button onclick="syncBooks()"><span class="ic">🔄</span>
+        <span class="grow">Square up customers<small id="clientSyncLine">Match the app, the sales sheet and Google Contacts</small></span></button>
       <button onclick="openSettings()"><span class="ic">⚙️</span>
         <span class="grow">Sync &amp; settings<small>Connection, who's using this phone</small></span></button>
     </div>
+    <!-- Filled in only after squaring up: who has more than one number. -->
+    <div id="clientExtras"></div>
   </section>
 
   <section class="view" id="view-wholesale">
@@ -1143,19 +1147,6 @@
       <input id="clientSearch" type="search" placeholder="Search customers…" autocomplete="off">
       <button class="mic" onclick="dictate('clientSearch',this,renderClients)">🎤</button>
     </div>
-    <!-- The three books used to be named up here, which made the split look
-         like something to manage. It is not: every number and address is
-         compiled onto the client's own card, and squaring up is the one
-         button that matters. -->
-    <div class="card" id="clientBooks">
-      <div class="item" style="border:0;padding:2px">
-        <div class="name"><b id="clientCount">Customers</b>
-          <span id="clientSyncLine">Filed by surname. Everything known about each
-            one is on their card.</span></div>
-        <div class="qty"><button class="ghost small" onclick="syncBooks()">Square up</button></div>
-      </div>
-      <div id="clientExtras"></div>
-    </div>
     <div class="card list" id="clientList"></div>
   </section>
 
@@ -1238,7 +1229,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-20 14:57 UTC';
+const APP_BUILD = '2026-11-20 15:27 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -7271,10 +7262,6 @@ function renderClients() {
                                                 { sensitivity: 'base', numeric: true });
   rows = rows.slice().sort((a, b) =>
     cmp(filedAs(a), filedAs(b)) || cmp(a.customer, b.customer));
-
-  const count = $('clientCount');
-  if (count) count.textContent = rows.length +
-    (rows.length === 1 ? ' customer' : ' customers');
 
   let letter = null;
   $('clientList').innerHTML = rows.length ? rows.map(c => {
