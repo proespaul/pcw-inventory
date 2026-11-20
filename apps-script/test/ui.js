@@ -696,6 +696,30 @@ const settle = async () => { for (let i = 0; i < 8; i++) await pause(); };
     w.eval('toggleTrouble();');
     check('tapping again puts everything back', names('stockList').length, 3);
 
+    /* ---- the same typing rule on the freezer list ----
+       "ta" is the start of Tallow, so Whipped Tallow comes up on its own
+       word, and nothing that merely contains "ta" crowds in beside it. */
+    const stock = (typed) => {
+      w.eval('document.getElementById("stockSearch").value = ' +
+        JSON.stringify(typed) + '; renderStock();');
+      return names('stockList');
+    };
+    // names() reads the status badge in with the name, so match the start.
+    const only = (typed, name) => {
+      const got = stock(typed);
+      return got.length === 1 && got[0].indexOf(name) === 0;
+    };
+    check('a cut is found by the start of any word of its name',
+      only('tal', 'Whipped Tallow'), true);
+    check('one letter is enough to start narrowing',
+      only('j', 'Jerky'), true);
+    check('and when nothing begins with it, the old search still answers',
+      stock('erky').length, 1);
+    check('a code still finds it when the name does not',
+      only('RIBEYE', 'Ribeye Steak'), true);
+    w.eval('document.getElementById("stockSearch").value = ""; renderStock();');
+    check('clearing it puts the freezer back', names('stockList').length, 3);
+
     // Nothing wrong anywhere: the line goes rather than reading "0 to look at".
     w.eval('window.productTotals = function () { return [' +
       '{sku:"RIBEYE", product:"Ribeye Steak", content:"", packages:40, weight:40,' +
@@ -732,6 +756,53 @@ const settle = async () => { for (let i = 0; i < 8; i++) await pause(); };
       [doc.querySelectorAll('#clientList .kindhead').length, names('clientList')],
       [0, ['Abby Redman']]);
     w.eval('document.getElementById("clientSearch").value = ""; renderClients();');
+
+    /* ---- typing narrows, and never widens ----
+       Every word typed has to BEGIN a word of the name. The old search
+       matched anywhere in the name, the email and the phone, so "w" dragged
+       in half the book and the list jumped about as he typed. */
+    const find = (typed) => {
+      w.eval('document.getElementById("clientSearch").value = ' +
+        JSON.stringify(typed) + '; renderClients();');
+      return names('clientList');
+    };
+    w.eval('data.lists.customers = ' + JSON.stringify([
+      { customer: 'Paul Wolfe', phone: '780-555-0199', email: '' },
+      { customer: 'Wendy Clarke', phone: '', email: '' },
+      { customer: 'Reene Fontaine', phone: '', email: '' },
+      { customer: 'Doris Boucher', phone: '', email: 'answer@wells.example.com' },
+      { customer: 'Westlake Farms', phone: '', email: '' }
+    ]) + ';');
+
+    check('one letter gives everyone whose first or last name begins with it',
+      find('w').sort(), ['Paul Wolfe', 'Wendy Clarke', 'Westlake Farms']);
+    check('a second letter narrows what was already there',
+      find('we').sort(), ['Wendy Clarke', 'Westlake Farms']);
+    check('and a third narrows it again',
+      find('wen'), ['Wendy Clarke']);
+    check('the middle of a name is not a match: "ene" is not how Reene begins',
+      find('ene'), []);
+    check('two words each want a name of their own',
+      find('paul w'), ['Paul Wolfe']);
+    check('so a name that only answers one of them is out',
+      find('wendy w'), []);
+    check('a letter buried in an email no longer drags somebody in',
+      find('w').indexOf('Doris Boucher'), -1);
+    check('though enough of the email still finds her',
+      find('answer@'), ['Doris Boucher']);
+    check('and a phone number typed in digits still does',
+      find('780555'), ['Paul Wolfe']);
+    w.eval('document.getElementById("clientSearch").value = ""; renderClients();');
+    check('clearing it puts everybody back',
+      names('clientList').length, 5);
+
+    w.eval('data.lists.customers = ' + JSON.stringify([
+      { customer: 'Neil Fehr', phone: '780-555-0101', email: '', last: '2026-11-01' },
+      { customer: 'What The Chuck', phone: '', email: '', fileAs: 'What The Chuck' },
+      { customer: 'Abby Redman', phone: '', email: 'abby@example.com', last: '2026-01-04' },
+      { customer: 'Cameron & Faith Beaudoin', phone: '', email: '' },
+      { customer: 'Angelica', phone: '', email: '' }
+    ]) + '; renderClients();');
 
     check('the three books are no longer a thing to manage above the list',
       /three books/i.test(doc.getElementById('clientBooks').innerHTML), false);

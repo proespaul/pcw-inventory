@@ -1238,7 +1238,7 @@ const CONFIG = {
 
 /* Shown in Sync & settings. The whole point is that a phone running a
    cached old copy can be spotted in two taps instead of by deduction. */
-const APP_BUILD = '2026-11-19 17:49 UTC';
+const APP_BUILD = '2026-11-20 14:57 UTC';
 
 const LS = { session:'pcw.session', me:'pcw.me', data:'pcw.data', queue:'pcw.queue', sync:'pcw.lastSync', photos:'pcw.photos', signout:'pcw.lastSignOut', notes:'pcw.stockNotes', asktimes:'pcw.askTimes', stuck:'pcw.stuck' };
 const MAX_PHOTOS = 8;
@@ -3316,6 +3316,56 @@ function channelPrices(p) {
   };
 }
 
+/* ───────── the one search rule ─────────
+ * Every word you type has to START a word in the thing you are looking for.
+ * Type "w" and you get everyone whose first or last name begins with W; "we"
+ * narrows to Wendy and Westlake; "ene" finds nobody called Reene, because
+ * "ene" does not begin her name.
+ *
+ * The point of starts-with rather than contains-anywhere is that typing more
+ * always narrows. A contains search brings strangers in as you type — "we"
+ * pulled up anybody with a "we" buried in an email address — so the list
+ * jumped about and you had to keep looking up to see where it had gone. This
+ * way the list only ever shrinks, which is what makes it safe to keep typing
+ * and pick at the end.
+ *
+ * Several words each claim a word of their own, so "paul w" wants a Paul
+ * whose other name begins with W, and not every Paul and every W.
+ */
+function startsWords(fields, q) {
+  const words = String(q || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const parts = [];
+  (fields || []).forEach(f => String(f == null ? '' : f).toLowerCase()
+    .split(/[^a-z0-9]+/).filter(Boolean).forEach(w => parts.push(w)));
+  const left = parts.slice();
+  return words.every(w => {
+    const at = left.findIndex(part => part.indexOf(w) === 0);
+    if (at === -1) return false;
+    left.splice(at, 1);   // one word of a name cannot answer for two typed
+    return true;
+  });
+}
+
+/* A customer matches on their name first. Phone and email still work, but
+   only once enough has been typed to mean it — otherwise a single letter
+   drags in everybody whose email happens to begin the same way, and the name
+   search stops being a name search. */
+function clientHit(c, q) {
+  if (!q) return true;
+  if (startsWords([c.customer, c.fileAs], q)) return true;
+  const digits = q.replace(/\D/g, '');
+  if (digits.length >= 3) {
+    const tel = [c.phone, c.phone2].map(t => String(t || '').replace(/\D/g, ''));
+    if (tel.some(t => t && t.indexOf(digits) === 0)) return true;
+  }
+  if (q.length >= 3 || q.indexOf('@') !== -1) {
+    const mail = [c.email, c.email2].map(m => String(m || '').toLowerCase());
+    if (mail.some(m => m && m.indexOf(q) === 0)) return true;
+  }
+  return false;
+}
+
 /* ───────── type a bit, pick from what comes up ─────────
  * Both search boxes offer matches as you type. Every word you have typed has
  * to appear somewhere in the product — so "jerky" brings up all of them and
@@ -3340,7 +3390,15 @@ function matchProducts(q, limit) {
     return { p, rank, name };
   }).filter(Boolean);
   hits.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name));
-  return hits.slice(0, limit || 8).map(h => h.p);
+
+  /* The same rule the customer list uses: if anything's name begins with what
+     was typed, those are the answer and the rest get out of the way. Only
+     when nothing begins with it does the older contains-anywhere search
+     answer — which is what still finds a cut by its code or its pack size
+     when that is all you can remember. */
+  const begins = hits.filter(h => startsWords([h.p.product], q));
+  const shown = begins.length ? begins : hits;
+  return shown.slice(0, limit || 8).map(h => h.p);
 }
 
 /* Bold the bit they typed, so the eye lands on why this one came up. */
@@ -3365,7 +3423,7 @@ function suggest(inputId, handler) {
   const box = $('sugg-' + inputId), el = $(inputId);
   if (!box || !el) return;
   const q = el.value.trim();
-  if (q.length < 2) { box.innerHTML = ''; return; }
+  if (!q) { box.innerHTML = ''; return; }
   const hits = matchProducts(q, 8);
   if (!hits.length) {
     box.innerHTML = '<div class="card"><div class="none">Nothing on the list looks like that.</div></div>';
@@ -3742,7 +3800,13 @@ function renderStock() {
   const q = $('stockSearch').value.trim().toLowerCase();
   const boxes = boxSkus();
   const all = productTotals();
-  const matches = r => !q || (r.product + ' ' + r.content + ' ' + r.sku).toLowerCase().includes(q);
+  /* Narrow by what names begin with, and only fall back to contains-anywhere
+     if that finds nothing — so typing builds up one answer instead of
+     reshuffling the freezer under your thumb. */
+  const begins = r => startsWords([r.product], q);
+  const anywhere = r => (r.product + ' ' + r.content + ' ' + r.sku).toLowerCase().includes(q);
+  const matches = !q ? (() => true)
+    : (all.some(begins) ? begins : anywhere);
   let rows = all.filter(r => !boxes.has(r.sku)).filter(matches);
   /* Made-up boxes are stock: they are listed on the Boxes tab, but they are
      counted here too, so this card and the Orders screen give one number. */
@@ -4155,9 +4219,14 @@ function renderBoxList() {
   const q = $('stockSearch').value.trim().toLowerCase();
   const build = Object.fromEntries((data.boxes || []).map(b => [b.sku, b]));
   let rows = (data.boxList || []).slice();
-  if (q) rows = rows.filter(b =>
-    (b.product + ' ' + b.sku + ' ' + (b.parts || []).map(p => p.product).join(' '))
-      .toLowerCase().includes(q));
+  if (q) {
+    // Same as the cuts drawer: names that begin with it, or nothing begins
+    // with it and then anywhere in the box or what is packed inside it.
+    const begins = b => startsWords([b.product], q);
+    rows = rows.some(begins) ? rows.filter(begins) : rows.filter(b =>
+      (b.product + ' ' + b.sku + ' ' + (b.parts || []).map(x => x.product).join(' '))
+        .toLowerCase().includes(q));
+  }
 
   const onHand = rows.reduce((t, b) => t + (b.onHand || 0), 0);
   const canAny = rows.reduce((t, b) => t + ((build[b.sku] || {}).canBuild || 0), 0);
@@ -7195,8 +7264,7 @@ function filedAs(c) {
 function renderClients() {
   const q = $('clientSearch').value.trim().toLowerCase();
   let rows = (data.lists || {}).customers || [];
-  if (q) rows = rows.filter(c =>
-    (c.customer + ' ' + c.email + ' ' + c.phone + ' ' + (c.bought || '')).toLowerCase().includes(q));
+  if (q) rows = rows.filter(c => clientHit(c, q));
   /* Alphabetical by surname. localeCompare with sensitivity:'base' puts
      Beaudoin next to Béaudoin rather than at the far end of the list. */
   const cmp = (x, y) => String(x).localeCompare(String(y), undefined,
